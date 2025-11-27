@@ -1,6 +1,5 @@
 
-
-import express, { ErrorRequestHandler } from 'express';
+import express, { ErrorRequestHandler, RequestHandler } from 'express';
 import cors from 'cors';
 import * as admin from 'firebase-admin';
 import { Config } from './config/env';
@@ -25,26 +24,26 @@ if (!admin.apps.length) {
 }
 
 const app = express();
-app.use(cors({ origin: true }));
-app.use(express.json());
+app.use(cors({ origin: true }) as any);
+app.use(express.json() as any);
 
 // --- ROUTES (Modular) ---
 
 // Auth Module
 const authRouter = express.Router();
-authRouter.get('/me', isAuthenticated, AuthController.getMe);
+authRouter.get('/me', isAuthenticated as RequestHandler, AuthController.getMe as RequestHandler);
 app.use('/api/auth', authRouter as any);
 
 // Content Module
 const contentRouter = express.Router();
-contentRouter.post('/draft', isAuthenticated, ContentController.generateDraft);
-contentRouter.post('/image', isAuthenticated, ContentController.generateImage);
+contentRouter.post('/draft', isAuthenticated as RequestHandler, ContentController.generateDraft as RequestHandler);
+contentRouter.post('/image', isAuthenticated as RequestHandler, ContentController.generateImage as RequestHandler);
 app.use('/api/content', contentRouter as any);
 
 // Automation Module
 const automationRouter = express.Router();
 const scheduler = new SchedulerService();
-automationRouter.post('/trigger', isAuthenticated, async (req, res, next) => {
+automationRouter.post('/trigger', isAuthenticated as RequestHandler, (async (req, res, next) => {
     try {
         // Simplified trigger
         const uid = (req as any).user.uid;
@@ -54,7 +53,7 @@ automationRouter.post('/trigger', isAuthenticated, async (req, res, next) => {
     } catch (e) {
         next(e);
     }
-});
+}) as RequestHandler);
 app.use('/api/automation', automationRouter as any);
 
 // Global Error Handler (Must be last)
