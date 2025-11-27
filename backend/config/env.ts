@@ -3,18 +3,25 @@ import * as dotenv from 'dotenv';
 
 dotenv.config();
 
+const getEnv = (key: string) => {
+  if (typeof process !== 'undefined' && process.env) {
+    return process.env[key];
+  }
+  return '';
+};
+
 export const Config = {
-  PORT: process.env.PORT || 8080,
-  ENV: process.env.NODE_ENV || 'development',
+  PORT: getEnv('PORT') || 8080,
+  ENV: getEnv('NODE_ENV') || 'development',
   
   FIREBASE: {
-    PROJECT_ID: process.env.FIREBASE_PROJECT_ID,
-    CLIENT_EMAIL: process.env.FIREBASE_CLIENT_EMAIL,
-    PRIVATE_KEY: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+    PROJECT_ID: getEnv('FIREBASE_PROJECT_ID'),
+    CLIENT_EMAIL: getEnv('FIREBASE_CLIENT_EMAIL'),
+    PRIVATE_KEY: getEnv('FIREBASE_PRIVATE_KEY')?.replace(/\\n/g, '\n'),
   },
 
   GEMINI: {
-    API_KEY: process.env.API_KEY || '', // Used for server-side calls
+    API_KEY: getEnv('API_KEY') || '', // Used for server-side calls
   },
   
   APP: {

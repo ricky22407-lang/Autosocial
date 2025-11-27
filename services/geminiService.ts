@@ -2,10 +2,20 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { BrandSettings, TrendingTopic, AnalyticsData, CompetitorPost } from "../types";
 
+// Helper to get Env safely
+const getEnv = (key: string) => {
+  if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
+    return (import.meta as any).env[key] || (import.meta as any).env[`VITE_${key}`];
+  }
+  if (typeof process !== 'undefined' && process.env) {
+    return process.env[key];
+  }
+  return '';
+};
+
 // Helper to get AI instance dynamically
-// In Production/Cloud Run, this runs on server. In this demo, it uses env key.
 const getAI = () => {
-  const key = process.env.API_KEY;
+  const key = getEnv('API_KEY');
   if (!key) throw new Error("缺少 API Key");
   return new GoogleGenAI({ apiKey: key });
 };
@@ -135,7 +145,7 @@ export const generateVideo = async (prompt: string): Promise<string> => {
 
   const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
   if (!videoUri) throw new Error("Video generation failed");
-  const key = process.env.API_KEY;
+  const key = getEnv('API_KEY');
   return `${videoUri}&key=${key}`; 
 };
 

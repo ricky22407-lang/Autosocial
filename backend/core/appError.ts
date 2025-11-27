@@ -1,4 +1,3 @@
-
 import { ErrorCode } from '../../types';
 
 export class AppError extends Error {
@@ -12,6 +11,9 @@ export class AppError extends Error {
     this.errorCode = errorCode;
     this.isOperational = isOperational;
     
-    Error.captureStackTrace(this, this.constructor);
+    // Check if captureStackTrace exists (Node.js specific) to avoid TS errors
+    if ((Error as any).captureStackTrace) {
+      (Error as any).captureStackTrace(this, this.constructor);
+    }
   }
 }
