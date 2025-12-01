@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useRef } from 'react';
 import { BrandSettings, Post, TrendingTopic, UserProfile } from '../types';
 import { getTrendingTopics, generatePostDraft, generateImage, generateVideo } from '../services/geminiService';
@@ -31,6 +30,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
 
   const [trendingTopics, setTrendingTopics] = useState<TrendingTopic[]>([]);
   const [isLoadingTopics, setIsLoadingTopics] = useState(false);
+  const [topicError, setTopicError] = useState('');
   
   const [draft, setDraft] = useState({ caption: '', firstComment: '', imagePrompt: '', videoPrompt: '' });
   const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
@@ -125,10 +125,16 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
 
   const loadTrending = async () => {
     setIsLoadingTopics(true);
-    // Use service which handles keys internally
-    const topics = await getTrendingTopics(settings.industry);
-    setTrendingTopics(topics);
-    setIsLoadingTopics(false);
+    setTopicError('');
+    try {
+      const topics = await getTrendingTopics(settings.industry);
+      setTrendingTopics(topics);
+      if (topics.length === 0) setTopicError('找不到相關話題，請檢查 API Key 或稍後再試。');
+    } catch (e) {
+      setTopicError('搜尋失敗，請檢查網路或 API Key。');
+    } finally {
+      setIsLoadingTopics(false);
+    }
   };
 
   const handleCtaLinkChange = (index: number, value: string) => {
@@ -147,12 +153,20 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
 
   const handleNextToDraft = async () => {
     if (!topic) return;
-    if (!user) return;
+    if (!user) {
+        alert("請先登入");
+        return;
+    }
     
     // Quota Check
-    const allowed = await checkAndUseQuota(user.user_id);
-    if (!allowed) {
-        alert("⚠️ 您的 AI 使用配額已額滿，請升級方案或聯絡管理員。");
+    try {
+        const allowed = await checkAndUseQuota(user.user_id);
+        if (!allowed) {
+            alert("⚠️ 您的 AI 使用配額已額滿 (或連線資料庫失敗)，請升級方案或聯絡管理員。");
+            return;
+        }
+    } catch (e) {
+        alert("資料庫連線錯誤，無法確認配額。");
         return;
     }
     
@@ -197,9 +211,9 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
         videoPrompt: generated.videoPrompt
       });
 
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      alert("生成草稿失敗，請稍後再試。");
+      alert(`生成草稿失敗：${e.message}\n請按 F12 檢查 Console 查看 API 狀態。`);
       setStep(1);
     } finally {
       setIsGeneratingDraft(false);
@@ -452,6 +466,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                        <h3 className="text-lg font-semibold text-gray-400">🔥 趨勢靈感</h3>
                        <button onClick={loadTrending} className="bg-secondary px-4 py-2 rounded text-sm text-white">🔍 搜尋熱門話題</button>
                    </div>
+                   {topicError && <div className="text-red-400 text-sm mb-2">{topicError}</div>}
                    {isLoadingTopics ? <div className="text-center text-primary">AI 正在搜尋分析中...</div> : (
                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                            {trendingTopics.map((t, i) => (
@@ -502,7 +517,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                     {mediaSource === 'ai' ? (
                         <>
                             <div className="flex gap-2 mb-2">
-                                <button onClick={() => setSelectedMediaType('image')} className={`flex-1 py-1 rounded text-sm ${selectedMediaType === 'image' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300'}`}>圖片 (Gemini 3 Pro)</button>
+                                <button onClick={() => setSelectedMediaType('image')} className={`flex-1 py-1 rounded text-sm ${selectedMediaType === 'image' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300'}`}>圖片 (Gemini Flash)</button>
                                 <button onClick={() => setSelectedMediaType('video')} className={`flex-1 py-1 rounded text-sm ${selectedMediaType === 'video' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300'}`}>影片 (Veo 3.1)</button>
                             </div>
                             <textarea value={selectedMediaType === 'image' ? draft.imagePrompt : draft.videoPrompt} onChange={e => setDraft(prev => ({...prev, [selectedMediaType === 'image' ? 'imagePrompt' : 'videoPrompt']: e.target.value}))} className="w-full h-24 bg-dark border-gray-600 rounded p-3 text-white mb-2" placeholder="AI 提示詞..." />

@@ -107,11 +107,16 @@ export const logout = async () => {
 // --- User Data Operations ---
 
 export const getUserProfile = async (userId: string): Promise<UserProfile | null> => {
-    if (!isMock) {
-        const snap = await getDoc(doc(db, 'users', userId));
-        return snap.exists() ? (snap.data() as UserProfile) : null;
-    } else {
-        return getDb(DB_USERS)[userId] || null;
+    try {
+        if (!isMock) {
+            const snap = await getDoc(doc(db, 'users', userId));
+            return snap.exists() ? (snap.data() as UserProfile) : null;
+        } else {
+            return getDb(DB_USERS)[userId] || null;
+        }
+    } catch (e) {
+        console.error("Failed to get user profile", e);
+        return null;
     }
 };
 
@@ -140,22 +145,28 @@ export const createUserProfile = async (user: { uid: string, email: string }): P
 };
 
 export const checkAndUseQuota = async (userId: string): Promise<boolean> => {
-    let user = await getUserProfile(userId);
-    if (!user || user.isSuspended) return false;
+    try {
+        let user = await getUserProfile(userId);
+        if (!user || user.isSuspended) return false;
 
-    if (user.quota_used >= user.quota_total) return false;
+        if (user.quota_used >= user.quota_total) return false;
 
-    if (!isMock) {
-        await updateDoc(doc(db, 'users', userId), {
-            quota_used: user.quota_used + 1,
-            updated_at: Date.now()
-        });
-    } else {
-        const users = getDb(DB_USERS);
-        users[userId].quota_used += 1;
-        saveDb(DB_USERS, users);
+        if (!isMock) {
+            await updateDoc(doc(db, 'users', userId), {
+                quota_used: user.quota_used + 1,
+                updated_at: Date.now()
+            });
+        } else {
+            const users = getDb(DB_USERS);
+            users[userId].quota_used += 1;
+            saveDb(DB_USERS, users);
+        }
+        return true;
+    } catch (e) {
+        console.error("Quota check failed", e);
+        // Fail safe: return false to prevent usage if DB is down/permission denied
+        return false;
     }
-    return true;
 };
 
 // --- Admin Operations (Connecting to Firestore) ---

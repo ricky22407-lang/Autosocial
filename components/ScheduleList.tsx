@@ -7,27 +7,11 @@ interface Props {
   onEditPost: (post: Post) => void;
 }
 
-const ScheduleList: React.FC<Props> = ({ posts, onUpdatePosts, onEditPost }) => {
-  const sortedPosts = [...posts].sort((a, b) => b.createdAt - a.createdAt);
-  
-  const scheduledPosts = sortedPosts.filter(p => p.status === 'scheduled');
-  const historyPosts = sortedPosts.filter(p => p.status !== 'scheduled');
-
-  const handleDelete = (id: string) => {
-    if (confirm('確定要刪除此貼文紀錄嗎？')) {
-      const updated = posts.filter(p => p.id !== id);
-      onUpdatePosts(updated);
-    }
-  };
-
-  const handleClearHistory = () => {
-    if (confirm('確定要清除所有已發佈或失敗的紀錄嗎？(排程中貼文不會被刪除)')) {
-      const updated = posts.filter(p => p.status === 'scheduled');
-      onUpdatePosts(updated);
-    }
-  };
-
-  const PostItem = ({ post }: { post: Post }) => (
+const PostItem: React.FC<{ 
+  post: Post; 
+  onDelete: (id: string) => void; 
+  onEdit: (post: Post) => void;
+}> = ({ post, onDelete, onEdit }) => (
     <div className="bg-card p-4 rounded-lg border border-gray-700 flex gap-4 hover:border-gray-500 transition-colors">
         <div className="w-24 h-24 bg-dark rounded flex-shrink-0 overflow-hidden flex items-center justify-center border border-gray-800">
             {post.mediaUrl ? (
@@ -56,11 +40,11 @@ const ScheduleList: React.FC<Props> = ({ posts, onUpdatePosts, onEditPost }) => 
                    
                    {/* Actions */}
                    {post.status === 'scheduled' && (
-                     <button onClick={() => onEditPost(post)} className="text-xs text-blue-400 hover:text-blue-300 border border-blue-900 bg-blue-900/20 px-2 py-1 rounded">
+                     <button onClick={() => onEdit(post)} className="text-xs text-blue-400 hover:text-blue-300 border border-blue-900 bg-blue-900/20 px-2 py-1 rounded">
                        編輯
                      </button>
                    )}
-                   <button onClick={() => handleDelete(post.id)} className="text-xs text-red-400 hover:text-red-300 border border-red-900 bg-red-900/20 px-2 py-1 rounded">
+                   <button onClick={() => onDelete(post.id)} className="text-xs text-red-400 hover:text-red-300 border border-red-900 bg-red-900/20 px-2 py-1 rounded">
                      刪除
                    </button>
                 </div>
@@ -89,7 +73,27 @@ const ScheduleList: React.FC<Props> = ({ posts, onUpdatePosts, onEditPost }) => 
             </div>
         </div>
     </div>
-  );
+);
+
+const ScheduleList: React.FC<Props> = ({ posts, onUpdatePosts, onEditPost }) => {
+  const sortedPosts = [...posts].sort((a, b) => b.createdAt - a.createdAt);
+  
+  const scheduledPosts = sortedPosts.filter(p => p.status === 'scheduled');
+  const historyPosts = sortedPosts.filter(p => p.status !== 'scheduled');
+
+  const handleDelete = (id: string) => {
+    if (confirm('確定要刪除此貼文紀錄嗎？')) {
+      const updated = posts.filter(p => p.id !== id);
+      onUpdatePosts(updated);
+    }
+  };
+
+  const handleClearHistory = () => {
+    if (confirm('確定要清除所有已發佈或失敗的紀錄嗎？(排程中貼文不會被刪除)')) {
+      const updated = posts.filter(p => p.status === 'scheduled');
+      onUpdatePosts(updated);
+    }
+  };
 
   return (
     <div className="max-w-4xl mx-auto space-y-10 animate-fade-in pb-10">
@@ -105,7 +109,14 @@ const ScheduleList: React.FC<Props> = ({ posts, onUpdatePosts, onEditPost }) => 
             </div>
         ) : (
             <div className="space-y-4">
-                {scheduledPosts.map(post => <PostItem key={post.id} post={post} />)}
+                {scheduledPosts.map(post => (
+                    <PostItem 
+                        key={post.id} 
+                        post={post} 
+                        onDelete={handleDelete} 
+                        onEdit={onEditPost} 
+                    />
+                ))}
             </div>
         )}
       </section>
@@ -129,7 +140,14 @@ const ScheduleList: React.FC<Props> = ({ posts, onUpdatePosts, onEditPost }) => 
             </div>
         ) : (
             <div className="space-y-4">
-                {historyPosts.map(post => <PostItem key={post.id} post={post} />)}
+                {historyPosts.map(post => (
+                    <PostItem 
+                        key={post.id} 
+                        post={post} 
+                        onDelete={handleDelete} 
+                        onEdit={onEditPost} 
+                    />
+                ))}
             </div>
         )}
       </section>

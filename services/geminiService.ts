@@ -13,10 +13,30 @@ const getEnv = (key: string) => {
   return '';
 };
 
+// Helper to sanitize JSON string (remove markdown code blocks)
+const cleanJsonString = (text: string) => {
+  if (!text) return text;
+  let clean = text.trim();
+  // Remove markdown JSON fences if present
+  if (clean.startsWith('```')) {
+    const match = clean.match(/```(?:json)?([\s\S]*?)```/);
+    if (match) {
+      clean = match[1].trim();
+    }
+  }
+  return clean;
+};
+
 // Helper to get AI instance dynamically
 const getAI = () => {
   const key = getEnv('API_KEY');
-  if (!key) throw new Error("缺少 API Key");
+  if (!key) {
+    console.error("[Gemini Service] API Key Status: MISSING (Check Vercel Env Vars: VITE_API_KEY)");
+    throw new Error("缺少 API Key");
+  } else {
+    // Security: Only log first 4 chars
+    console.log(`[Gemini Service] API Key Status: Present (${key.substring(0, 4)}...)`);
+  }
   return new GoogleGenAI({ apiKey: key });
 };
 
@@ -28,7 +48,7 @@ export const getTrendingTopics = async (industry: string): Promise<TrendingTopic
     請用繁體中文回答。不要包含 Markdown 語法或額外文字，只回傳 JSON Array。`;
     
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-flash", // Flash is better for simple list generation
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }],
@@ -36,15 +56,23 @@ export const getTrendingTopics = async (industry: string): Promise<TrendingTopic
     });
 
     if (response.text) {
-      let cleanText = response.text.trim();
+      let cleanText = cleanJsonString(response.text);
+      // Extra safety: Extract array part if text contains extra noise
       const match = cleanText.match(/\[[\s\S]*\]/);
       if (match) cleanText = match[0];
-      return JSON.parse(cleanText);
+      
+      try {
+        return JSON.parse(cleanText);
+      } catch (e) {
+        console.error("JSON Parse Error (Trending):", cleanText);
+        throw e;
+      }
     }
     return [];
   } catch (error) {
     console.error("Error fetching trending topics:", error);
-    return [{ title: "手動輸入主題", description: "無法取得趨勢 (請確認後端配置)" }];
+    // Return empty to let UI handle "no data" gracefully
+    return [{ title: "範例：夏季促銷活動", description: "無法取得即時趨勢，請檢查 API Key 或稍後再試。" }];
   }
 };
 
@@ -67,7 +95,6 @@ export const generatePostDraft = async (
     品牌語氣: ${brand.brandTone}
     小編人設: ${brand.persona}
     競品參考: ${brand.competitors.join(', ')}
-    參考資料內容: ${brand.referenceFiles.map(f => f.content.substring(0, 500)).join('... ')}
   `;
 
   const allHashtags = `${brand.fixedHashtags || ''} ${options.tempHashtags || ''}`.trim();
@@ -84,69 +111,97 @@ export const generatePostDraft = async (
     2. 行動呼籲 (CTA): ${ctaInstruction}。 (請將 CTA 文字單獨生成，不要直接合併在 caption 中)。
     3. 必備標籤 (Hashtags): ${allHashtags} (請列於文末)。
     
-    請依照以下步驟輸出 JSON 格式：
+    請依照以下步驟輸出 JSON 格式 (不要使用 Markdown):
     1. caption: 貼文文案 (繁體中文，台灣用語，包含Emoji)。結尾請加上 Hashtags。
     2. ctaText: CTA 文字段落 (包含連結)，若無連結則留空。
     3. imagePrompt: AI 圖片生成提示詞 (繁體中文)。
     4. videoPrompt: AI 影片生成 (Veo) 提示詞 (繁體中文)。
   `;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3-pro-preview",
-    contents: prompt,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          caption: { type: Type.STRING },
-          ctaText: { type: Type.STRING },
-          imagePrompt: { type: Type.STRING },
-          videoPrompt: { type: Type.STRING }
-        }
-      }
-    }
-  });
+  // Fallback Mechanism
+  const modelsToTry = ["gemini-3-pro-preview", "gemini-2.5-flash"];
+  let lastError;
 
-  if (response.text) {
-    return JSON.parse(response.text);
+  for (const model of modelsToTry) {
+    try {
+      console.log(`[Gemini Service] Trying model: ${model}...`);
+      const response = await ai.models.generateContent({
+        model: model,
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              caption: { type: Type.STRING },
+              ctaText: { type: Type.STRING },
+              imagePrompt: { type: Type.STRING },
+              videoPrompt: { type: Type.STRING }
+            }
+          }
+        }
+      });
+
+      if (response.text) {
+        return JSON.parse(response.text);
+      }
+    } catch (e) {
+      console.warn(`[Gemini Service] Model ${model} failed:`, e);
+      lastError = e;
+      // Continue to next model
+    }
   }
-  throw new Error("Failed to generate draft");
+
+  throw new Error(`生成失敗 (所有模型皆嘗試失敗): ${lastError}`);
 };
 
 export const generateImage = async (prompt: string): Promise<string> => {
   const ai = getAI();
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-image-preview',
-    contents: { parts: [{ text: prompt }] },
-    config: { imageConfig: { aspectRatio: "1:1" } }
-  });
+  // Using Flash Image for better speed/cost balance in demo, upgrade to Pro if needed
+  const model = 'gemini-2.5-flash-image'; 
+  
+  try {
+    const response = await ai.models.generateContent({
+      model: model,
+      contents: { parts: [{ text: prompt }] },
+      config: { imageConfig: { aspectRatio: "1:1" } }
+    });
 
-  for (const part of response.candidates?.[0]?.content?.parts || []) {
-    if (part.inlineData) {
-      return `data:image/png;base64,${part.inlineData.data}`;
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) {
+        return `data:image/png;base64,${part.inlineData.data}`;
+      }
     }
+    throw new Error("No image data returned");
+  } catch (e: any) {
+    console.error("Image Gen Error:", e);
+    throw new Error(`圖片生成失敗: ${e.message}`);
   }
-  throw new Error("No image data returned");
 };
 
 export const generateVideo = async (prompt: string): Promise<string> => {
   const ai = getAI();
-  let operation = await ai.models.generateVideos({
-    model: 'veo-3.1-generate-preview',
-    prompt: prompt,
-    config: { numberOfVideos: 1, resolution: '720p', aspectRatio: '16:9' }
-  });
+  try {
+    let operation = await ai.models.generateVideos({
+      model: 'veo-3.1-fast-generate-preview', // Use fast model for demo responsiveness
+      prompt: prompt,
+      config: { numberOfVideos: 1, resolution: '720p', aspectRatio: '16:9' }
+    });
 
-  while (!operation.done) {
-    await new Promise(resolve => setTimeout(resolve, 5000));
-    operation = await ai.operations.getVideosOperation({ operation: operation });
+    while (!operation.done) {
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      operation = await ai.operations.getVideosOperation({ operation: operation });
+    }
+
+    const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
+    if (!videoUri) throw new Error("Video generation failed");
+    
+    const key = getEnv('API_KEY');
+    return `${videoUri}&key=${key}`; 
+  } catch (e: any) {
+    console.error("Video Gen Error:", e);
+    throw new Error(`影片生成失敗: ${e.message}`);
   }
-
-  const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
-  if (!videoUri) throw new Error("Video generation failed");
-  const key = getEnv('API_KEY');
-  return `${videoUri}&key=${key}`; 
 };
 
 export const generateWeeklyReport = async (data: AnalyticsData, brand: BrandSettings): Promise<string> => {
