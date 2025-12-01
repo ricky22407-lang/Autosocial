@@ -229,16 +229,8 @@ const AutomationPanel: React.FC<Props> = ({ settings, onSave }) => {
 
                   <div>
                       <label className="block text-sm text-gray-400 mb-2">素材偏好</label>
-                      <div className="flex gap-2">
-                          {['image', 'video', 'mixed'].map(type => (
-                              <button 
-                                key={type}
-                                onClick={() => setApConfig({...apConfig, mediaTypePreference: type as any})}
-                                className={`flex-1 py-2 rounded text-sm font-bold border ${apConfig.mediaTypePreference === type ? 'bg-primary border-primary text-white' : 'border-gray-600 text-gray-400 hover:bg-gray-700'}`}
-                              >
-                                  {type === 'image' ? '🖼 圖片優先' : type === 'video' ? '🎥 影片優先' : '🔀 混合模式'}
-                              </button>
-                          ))}
+                      <div className="w-full bg-dark border border-gray-600 text-gray-400 p-2 rounded text-sm text-center">
+                          🖼 圖片優先 (目前僅開放圖片生成)
                       </div>
                   </div>
               </div>

@@ -1,5 +1,5 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { BrandSettings, TrendingTopic, AnalyticsData, CompetitorPost } from "../types";
 
 // Helper to get Env safely with multiple fallbacks
@@ -55,10 +55,13 @@ const getAI = () => {
   return new GoogleGenAI({ apiKey: key });
 };
 
-export const getTrendingTopics = async (industry: string): Promise<TrendingTopic[]> => {
+export const getTrendingTopics = async (industry: string, seed?: number): Promise<TrendingTopic[]> => {
   try {
     const ai = getAI();
-    const prompt = `請搜尋過去7天與「${industry}」產業相關的10個熱門話題或新聞主題。
+    // Add random seed/context to prompt to force variation
+    const variationContext = seed ? `(請提供與上次不同的搜尋結果，RandomSeed: ${seed})` : '';
+    
+    const prompt = `請搜尋過去7天與「${industry}」產業相關的10個熱門話題或新聞主題。${variationContext}
     格式要求：請回傳一個嚴格合法的 JSON Array，每個物件包含 "title" (標題) 與 "description" (簡短描述) 兩個欄位。
     請用繁體中文回答。不要包含 Markdown 語法或額外文字，只回傳 JSON Array。`;
     
@@ -129,8 +132,8 @@ export const generatePostDraft = async (
     請依照以下步驟輸出 JSON 格式 (不要使用 Markdown):
     1. caption: 貼文文案 (繁體中文，台灣用語，包含Emoji)。結尾請加上 Hashtags。
     2. ctaText: CTA 文字段落 (包含連結)，若無連結則留空。
-    3. imagePrompt: AI 圖片生成提示詞 (繁體中文)。
-    4. videoPrompt: AI 影片生成 (Veo) 提示詞 (繁體中文)。
+    3. imagePrompt: AI 圖片生成提示詞 (請輸出英文 English，針對 Gemini 繪圖優化)。
+    4. videoPrompt: AI 影片生成 (Veo) 提示詞 (請輸出英文 English，針對 Veo 優化)。
   `;
 
   // Fallback Mechanism
@@ -175,11 +178,23 @@ export const generateImage = async (prompt: string): Promise<string> => {
   // Using Flash Image for better speed/cost balance in demo, upgrade to Pro if needed
   const model = 'gemini-2.5-flash-image'; 
   
+  // Explicitly ask for English prompt translation internally to avoid blocks
+  const safePrompt = `Generate a high quality image based on this description (translate to English first if needed): ${prompt}`;
+
   try {
     const response = await ai.models.generateContent({
       model: model,
-      contents: { parts: [{ text: prompt }] },
-      config: { imageConfig: { aspectRatio: "1:1" } }
+      contents: { parts: [{ text: safePrompt }] },
+      config: { 
+          imageConfig: { aspectRatio: "1:1" },
+          // Force lowest safety block threshold to prevent "No image data" on benign prompts
+          safetySettings: [
+              { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+              { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+              { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+              { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+          ]
+      }
     });
 
     for (const part of response.candidates?.[0]?.content?.parts || []) {
@@ -187,19 +202,27 @@ export const generateImage = async (prompt: string): Promise<string> => {
         return `data:image/png;base64,${part.inlineData.data}`;
       }
     }
-    throw new Error("No image data returned");
+    
+    // Log details for debugging
+    console.warn("Image Gen: No inlineData found.", JSON.stringify(response));
+    throw new Error("No image data returned (Possible Safety Block or Model Error)");
+
   } catch (e: any) {
     console.error("Image Gen Error:", e);
-    throw new Error(`圖片生成失敗: ${e.message}`);
+    // Re-throw the error so UI can show the real issue (429, Safety, etc)
+    throw e;
   }
 };
 
 export const generateVideo = async (prompt: string): Promise<string> => {
   const ai = getAI();
-  try {
+  // Explicitly ask for English prompt translation internally
+  const safePrompt = `Create a video: ${prompt} (translate prompt to English automatically)`;
+
+  const tryModel = async (modelName: string) => {
     let operation = await ai.models.generateVideos({
-      model: 'veo-3.1-fast-generate-preview', // Use fast model for demo responsiveness
-      prompt: prompt,
+      model: modelName,
+      prompt: safePrompt,
       config: { numberOfVideos: 1, resolution: '720p', aspectRatio: '16:9' }
     });
 
@@ -207,15 +230,28 @@ export const generateVideo = async (prompt: string): Promise<string> => {
       await new Promise(resolve => setTimeout(resolve, 5000));
       operation = await ai.operations.getVideosOperation({ operation: operation });
     }
+    return operation.response?.generatedVideos?.[0]?.video?.uri;
+  };
 
-    const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
-    if (!videoUri) throw new Error("Video generation failed");
-    
-    const key = getEnv('API_KEY');
-    return `${videoUri}&key=${key}`; 
+  try {
+    try {
+        console.log("Trying Veo Fast model...");
+        const videoUri = await tryModel('veo-3.1-fast-generate-preview');
+        if (!videoUri) throw new Error("No URI from Fast model");
+        return `${videoUri}&key=${getEnv('API_KEY')}`;
+    } catch (fastError: any) {
+        // If 404 (Model not found/access denied), try standard model
+        if (fastError.message?.includes('404') || fastError.status === 404) {
+            console.warn("Veo Fast 404, falling back to Standard Veo...");
+            const videoUri = await tryModel('veo-3.1-generate-preview');
+            if (!videoUri) throw new Error("No URI from Standard model");
+            return `${videoUri}&key=${getEnv('API_KEY')}`;
+        }
+        throw fastError;
+    }
   } catch (e: any) {
     console.error("Video Gen Error:", e);
-    throw new Error(`影片生成失敗: ${e.message}`);
+    throw e;
   }
 };
 

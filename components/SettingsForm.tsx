@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { BrandSettings, ReferenceFile } from '../types';
 import { validateFacebookToken } from '../services/facebookService';
@@ -10,6 +11,8 @@ interface Props {
 const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
   const [formData, setFormData] = useState<BrandSettings>(initialSettings);
   const [tokenStatus, setTokenStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle');
+  // Separate state for raw string input to avoid cursor jumping issues
+  const [competitorsRaw, setCompetitorsRaw] = useState(initialSettings.competitors.join(', '));
 
   // Auto-save logic to localStorage to prevent data loss on refresh
   useEffect(() => {
@@ -31,9 +34,16 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
     }
   };
 
-  const handleCompetitorChange = (value: string) => {
-    const list = value.split(',').map(s => s.trim());
+  const handleCompetitorRawChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setCompetitorsRaw(e.target.value);
+  };
+
+  const handleCompetitorBlur = () => {
+    // Process only on blur to allow smooth typing
+    const list = competitorsRaw.split(/[,，]/).map(s => s.trim()).filter(s => s !== '');
     setFormData(prev => ({ ...prev, competitors: list }));
+    // Optional: Re-format raw string for tidiness
+    setCompetitorsRaw(list.join(', '));
   };
 
   const checkToken = async (tokenToCheck?: string) => {
@@ -177,10 +187,11 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
           <div>
              <label className="block text-sm text-gray-400 mb-1">競品網站連結 (逗號分隔)</label>
              <input 
-                name="competitorsRaw" 
-                defaultValue={formData.competitors.join(', ')}
-                onBlur={(e) => handleCompetitorChange(e.target.value)}
+                value={competitorsRaw}
+                onChange={handleCompetitorRawChange}
+                onBlur={handleCompetitorBlur}
                 className="w-full bg-dark border border-gray-600 rounded p-2 text-white focus:border-primary outline-none"
+                placeholder="例如：apple.com, google.com (支援全形逗號)"
               />
           </div>
 

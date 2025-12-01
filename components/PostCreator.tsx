@@ -11,16 +11,20 @@ interface Props {
   onPostCreated: (post: Post) => void;
   onQuotaUpdate: () => void;
   editPost?: Post | null;
+  onCancel?: () => void;
 }
 
 const DRAFT_KEY = 'autosocial_post_draft';
 
-export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, onQuotaUpdate, editPost }) => {
+export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, onQuotaUpdate, editPost, onCancel }) => {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [topic, setTopic] = useState('');
   
   // Feature Locks for Basic User
   const isBasicUser = user?.role === 'user';
+
+  // Demo Mode State
+  const [isDemoMode, setIsDemoMode] = useState(false);
 
   // Options State
   const [captionLength, setCaptionLength] = useState<string>('150-300字');
@@ -45,6 +49,9 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishResult, setPublishResult] = useState<{success: boolean, msg: string} | null>(null);
   const [hasLoadedDraft, setHasLoadedDraft] = useState(false);
+
+  // Check if media is placeholder (Visual warning only)
+  const isPlaceholderMedia = mediaUrl && (mediaUrl.includes('placehold.co') || mediaUrl.includes('sample/BigBuckBunny'));
 
   // 1. Initialize from editPost (Priority 1) or LocalStorage Draft (Priority 2)
   useEffect(() => {
@@ -76,6 +83,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                 setMediaSource(parsed.mediaSource || 'ai');
                 setSelectedMediaType(parsed.selectedMediaType || 'image');
                 setScheduleDate(parsed.scheduleDate || '');
+                setIsDemoMode(parsed.isDemoMode || false);
                 setHasLoadedDraft(true);
             } catch (e) {
                 console.error("Failed to load draft", e);
@@ -100,14 +108,18 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
           mediaUrl,
           mediaSource,
           selectedMediaType,
-          scheduleDate
+          scheduleDate,
+          isDemoMode
       };
       localStorage.setItem(DRAFT_KEY, JSON.stringify(stateToSave));
-  }, [step, topic, captionLength, ctaLinks, ctaPlacement, tempHashtags, draft, mediaUrl, mediaSource, selectedMediaType, scheduleDate, editPost]);
+  }, [step, topic, captionLength, ctaLinks, ctaPlacement, tempHashtags, draft, mediaUrl, mediaSource, selectedMediaType, scheduleDate, editPost, isDemoMode]);
 
   const handleClearDraft = () => {
       if (confirm("確定要清除所有編輯進度嗎？此動作將同時清除暫存草稿，且無法復原。")) {
+          // 1. Remove from Storage
           localStorage.removeItem(DRAFT_KEY);
+          
+          // 2. Reset All State Variables
           setStep(1);
           setTopic('');
           setCaptionLength('150-300字');
@@ -117,17 +129,44 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
           setDraft({ caption: '', firstComment: '', imagePrompt: '', videoPrompt: '' });
           setMediaUrl(undefined);
           setMediaSource('ai');
+          setSelectedMediaType('image'); // Reset media type
           setScheduleDate('');
           setPublishResult(null);
           setHasLoadedDraft(false);
+          setIsDemoMode(false);
+          setTrendingTopics([]);
+          setTopicError('');
+          
+          // 3. Clear file input if exists
+          if (fileInputRef.current) fileInputRef.current.value = '';
+
+          // 4. Notify Parent to clear Edit Mode
+          if (onCancel) onCancel();
       }
   };
 
   const loadTrending = async () => {
+    if (!user) {
+        alert("請先登入");
+        return;
+    }
+
+    if (!isDemoMode) {
+        if (!confirm("搜尋熱門話題將消耗 1 點 AI 配額，確定搜尋？")) return;
+        const allowed = await checkAndUseQuota(user.user_id);
+        if (!allowed) {
+            setTopicError('⚠️ 配額不足，無法搜尋。請升級方案或使用 Demo 模式。');
+            return;
+        }
+        onQuotaUpdate();
+    }
+
     setIsLoadingTopics(true);
     setTopicError('');
     try {
-      const topics = await getTrendingTopics(settings.industry);
+      // Add random seed to get different results on retry
+      const seed = Date.now();
+      const topics = await getTrendingTopics(settings.industry, seed);
       setTrendingTopics(topics);
       if (topics.length === 0) setTopicError('找不到相關話題，請檢查 API Key 或稍後再試。');
     } catch (e) {
@@ -158,11 +197,42 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
         return;
     }
     
+    // --- DEMO MODE LOGIC ---
+    if (isDemoMode) {
+        setStep(2);
+        setIsGeneratingDraft(true);
+        // Simulate delay
+        setTimeout(() => {
+            const demoCaption = `【Demo 模式】關於 ${topic} 的精彩內容分享！\n\n這是 AutoSocial 的演示功能，讓您體驗自動撰寫文案的流程。我們能根據您的品牌語氣，自動生成合適的貼文內容。\n\n#AutoSocial #Demo #AI行銷`;
+            const demoCta = `點擊了解更多: https://example.com`;
+            
+            let finalCaption = demoCaption;
+            let finalComment = '';
+            
+            if (ctaPlacement === 'caption') {
+                finalCaption += `\n\n${demoCta}`;
+            } else {
+                finalComment = demoCta;
+            }
+
+            setDraft({
+                caption: finalCaption,
+                firstComment: finalComment,
+                imagePrompt: `(Demo) 為 ${topic} 產生一張現代風格的行銷圖片`,
+                videoPrompt: `(Demo) 為 ${topic} 產生一支短影音`
+            });
+            setIsGeneratingDraft(false);
+        }, 1500);
+        return;
+    }
+
+    // --- REAL MODE LOGIC ---
+    
     // Quota Check
     try {
         const allowed = await checkAndUseQuota(user.user_id);
         if (!allowed) {
-            alert("⚠️ 您的 AI 使用配額已額滿 (或連線資料庫失敗)，請升級方案或聯絡管理員。");
+            alert("⚠️ 您的 AI 使用配額已額滿 (或連線資料庫失敗)，請升級方案或聯絡管理員。\n\n提示：您可以開啟「🧪 Demo 模式」來免費體驗功能。");
             return;
         }
     } catch (e) {
@@ -184,13 +254,13 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
       const generated = await generatePostDraft(topic, settings, {
           length: finalLength,
           ctaLinks: validLinks,
-          tempHashtags
+          tempHashtags: '' // Passed but not used in UI currently
       });
 
       let finalCaption = generated.caption;
       const config = getSystemConfig();
       if (config.dryRunMode) {
-          finalCaption = "[Demo] " + finalCaption;
+          finalCaption = "[DryRun] " + finalCaption;
       }
 
       let finalFirstComment = '';
@@ -238,48 +308,69 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
 
   const handleGenerateMedia = async () => {
     if (!user) return;
+
+    // --- DEMO MODE LOGIC ---
+    if (isDemoMode) {
+        setIsGeneratingMedia(true);
+        setMediaUrl(undefined);
+        setTimeout(() => {
+            if (selectedMediaType === 'image') {
+                setMediaUrl("https://placehold.co/1024x1024/2563eb/FFF?text=Demo+Image+Success");
+            } else {
+                setMediaUrl("https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4");
+            }
+            setIsGeneratingMedia(false);
+        }, 1500);
+        return;
+    }
+
+    // --- REAL MODE LOGIC ---
     const allowed = await checkAndUseQuota(user.user_id);
     if (!allowed) {
-        alert("配額不足");
+        alert("配額不足。請升級方案，或開啟「Demo 模式」進行體驗。");
         return;
     }
     onQuotaUpdate();
 
     setIsGeneratingMedia(true);
-    setMediaUrl(undefined);
+    
     try {
       const config = getSystemConfig();
       if (config.dryRunMode) {
           // Simulate media generation delay
           await new Promise(r => setTimeout(r, 2000));
           if (selectedMediaType === 'image') {
-              setMediaUrl("https://placehold.co/1024x1024?text=Demo+Image");
+              setMediaUrl("https://placehold.co/1024x1024?text=Dry+Run+Image");
           } else {
-              setMediaUrl("https://placehold.co/1280x720.mp4?text=Demo+Video"); // Fake video url
+              setMediaUrl("https://placehold.co/1280x720.mp4?text=Dry+Run+Video"); 
           }
           alert("[Dry Run] 模擬素材生成成功 (未呼叫真實 API)");
           setIsGeneratingMedia(false);
           return;
       }
 
+      // Check if it's a regeneration (existing url) to modify prompt for variety
+      const isRegeneration = !!mediaUrl;
+      const variationSuffix = isRegeneration ? ` (Create a different variation, RandomSeed: ${Date.now()})` : '';
+
       if (selectedMediaType === 'image') {
-        const url = await generateImage(draft.imagePrompt);
+        const promptToSend = draft.imagePrompt + variationSuffix;
+        const url = await generateImage(promptToSend);
         setMediaUrl(url);
       } else {
-        const aiStudio = (window as any).aistudio;
-        if (aiStudio && await aiStudio.hasSelectedApiKey()) {
-             // Browser-injected key flow for Veo
-             const url = await generateVideo(draft.videoPrompt);
-             setMediaUrl(url);
-        } else {
-             // Backend/Env flow
-             const url = await generateVideo(draft.videoPrompt);
-             setMediaUrl(url);
-        }
+        // Should not happen in UI anymore, but keep logic safe
+        const promptToSend = draft.videoPrompt + variationSuffix;
+        const url = await generateVideo(promptToSend);
+        setMediaUrl(url);
       }
     } catch (e: any) {
       console.error(e);
-      alert(`素材生成失敗: ${e.message}`);
+      // Clean up error message for alert
+      let msg = e.message;
+      if (msg.includes('429')) msg = "API 配額額滿 (429 Too Many Requests)。請稍後再試或使用 Demo 模式。";
+      else if (msg.includes('404')) msg = "API 資源未找到 (404)。您的 Key 可能無權限使用此模型。";
+      
+      alert(`素材生成失敗: ${msg}`);
     } finally {
       setIsGeneratingMedia(false);
     }
@@ -290,12 +381,12 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     setIsPublishing(true);
     
     const config = getSystemConfig();
-    const isDryRun = config.dryRunMode;
+    const isDryRun = config.dryRunMode || isDemoMode; // Demo mode also implies dry run publishing
 
     const newPost: Post = {
       id: editPost ? editPost.id : Date.now().toString(),
       userId: user.user_id,
-      topic,
+      topic: topic + (isDemoMode ? " (Demo)" : ""),
       caption: draft.caption,
       firstComment: draft.firstComment,
       mediaPrompt: mediaSource === 'ai' ? (selectedMediaType === 'image' ? draft.imagePrompt : draft.videoPrompt) : 'Manual Upload',
@@ -314,13 +405,13 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
       if (isDryRun) {
           // Simulate Publish
           await new Promise(r => setTimeout(r, 1000));
-          console.log("[Dry Run] Publish Payload:", {
+          console.log("[Demo/Dry Run] Publish Payload:", {
               pageId: settings.facebookPageId,
               caption: draft.caption,
               url: mediaUrl
           });
           result = { success: true, url: "https://facebook.com/demo-post-id" };
-          alert(`[Dry Run] 模擬發文成功！\n此操作未真實上傳到 Facebook。\n\nPayload:\n${JSON.stringify({caption: draft.caption.substring(0, 50)+'...'}, null, 2)}`);
+          alert(`[Demo/Dry Run] 模擬發文成功！\n此操作未真實上傳到 Facebook。\n\nPayload:\n${JSON.stringify({caption: draft.caption.substring(0, 50)+'...'}, null, 2)}`);
       } else {
           result = await publishPostToFacebook(
             settings.facebookPageId, 
@@ -354,6 +445,8 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
             setCtaLinks(['']);
             setMediaUrl(undefined);
             setScheduleDate('');
+            setHasLoadedDraft(false);
+            // Keep Demo Mode preference or reset? Let's keep it for convenience
         }
     }
     setIsPublishing(false);
@@ -365,6 +458,15 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                <div className="flex justify-between items-center">
                     <h2 className="text-2xl font-bold mb-4">1. 設定貼文主題與參數</h2>
                     <div className="flex gap-2 items-center">
+                        <label className="flex items-center gap-2 cursor-pointer bg-gray-800 border border-gray-600 px-3 py-1 rounded hover:bg-gray-700 transition-colors">
+                            <input 
+                                type="checkbox" 
+                                checked={isDemoMode} 
+                                onChange={(e) => setIsDemoMode(e.target.checked)} 
+                                className="w-4 h-4 rounded text-primary focus:ring-primary bg-dark border-gray-500"
+                            />
+                            <span className="text-sm font-bold text-yellow-400">🧪 Demo 模式 (不扣配額)</span>
+                        </label>
                         {hasLoadedDraft && <span className="text-xs text-green-400 animate-pulse">已恢復上次草稿</span>}
                         <button onClick={handleClearDraft} className="text-red-400 text-sm border border-red-900 bg-red-900/10 px-3 py-1 rounded hover:bg-red-900/40 transition-colors">🗑️ 清除重置</button>
                     </div>
@@ -454,8 +556,8 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                   </div>
 
                   <div className="pt-4 border-t border-gray-700">
-                        <button disabled={!topic} onClick={handleNextToDraft} className="w-full bg-primary disabled:opacity-50 hover:bg-blue-600 text-white py-3 rounded font-bold transition-all">
-                            下一步：使用 AI 生成 (消耗 1 配額)
+                        <button disabled={!topic} onClick={handleNextToDraft} className={`w-full text-white py-3 rounded font-bold transition-all ${isDemoMode ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-primary hover:bg-blue-600 disabled:opacity-50'}`}>
+                            {isDemoMode ? '下一步：使用 Demo 模式生成 (不扣配額)' : '下一步：使用 AI 生成 (消耗 1 配額)'}
                         </button>
                   </div>
                </div>
@@ -464,7 +566,9 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                <div className="mt-8">
                    <div className="flex items-center justify-between mb-4">
                        <h3 className="text-lg font-semibold text-gray-400">🔥 趨勢靈感</h3>
-                       <button onClick={loadTrending} className="bg-secondary px-4 py-2 rounded text-sm text-white">🔍 搜尋熱門話題</button>
+                       <button onClick={loadTrending} className="bg-secondary px-4 py-2 rounded text-sm text-white border border-indigo-500 hover:bg-indigo-600 transition-colors">
+                            {isDemoMode ? '🔍 搜尋熱門話題 (Demo)' : '🔍 搜尋熱門話題 (消耗 1 配額)'}
+                       </button>
                    </div>
                    {topicError && <div className="text-red-400 text-sm mb-2">{topicError}</div>}
                    {isLoadingTopics ? <div className="text-center text-primary">AI 正在搜尋分析中...</div> : (
@@ -488,7 +592,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
         <div className="space-y-6">
             <div className="bg-card p-6 rounded-xl border border-gray-700">
                 <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-xl font-bold text-primary">編輯內容</h3>
+                    <h3 className="text-xl font-bold text-primary">編輯內容 {isDemoMode && <span className="text-xs bg-yellow-600 text-white px-2 py-1 rounded ml-2">Demo Mode</span>}</h3>
                     <div className="flex gap-2">
                         <button onClick={() => setStep(1)} className="text-xs text-gray-400 hover:text-white underline">← 返回設定</button>
                         <button onClick={handleClearDraft} className="text-xs text-red-400 hover:text-red-300 border border-red-900 px-2 py-1 rounded">清除</button>
@@ -517,18 +621,22 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                     {mediaSource === 'ai' ? (
                         <>
                             <div className="flex gap-2 mb-2">
-                                <button onClick={() => setSelectedMediaType('image')} className={`flex-1 py-1 rounded text-sm ${selectedMediaType === 'image' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300'}`}>圖片 (Gemini Flash)</button>
+                                <div className="w-full bg-blue-600/20 border border-blue-600 text-blue-200 text-center py-2 rounded text-sm font-bold flex items-center justify-center gap-2 cursor-default">
+                                    <span>🖼️ AI 圖片生成 (Gemini Flash)</span>
+                                </div>
+                                {/* Video generation hidden per request
                                 <button onClick={() => setSelectedMediaType('video')} className={`flex-1 py-1 rounded text-sm ${selectedMediaType === 'video' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300'}`}>影片 (Veo 3.1)</button>
+                                */}
                             </div>
-                            <textarea value={selectedMediaType === 'image' ? draft.imagePrompt : draft.videoPrompt} onChange={e => setDraft(prev => ({...prev, [selectedMediaType === 'image' ? 'imagePrompt' : 'videoPrompt']: e.target.value}))} className="w-full h-24 bg-dark border-gray-600 rounded p-3 text-white mb-2" placeholder="AI 提示詞..." />
+                            <textarea value={draft.imagePrompt} onChange={e => setDraft(prev => ({...prev, imagePrompt: e.target.value}))} className="w-full h-24 bg-dark border-gray-600 rounded p-3 text-white mb-2" placeholder="AI 圖片提示詞..." />
                             
-                            <button onClick={handleGenerateMedia} disabled={isGeneratingMedia} className="w-full bg-secondary hover:bg-indigo-600 py-3 rounded font-bold text-white transition-all">
-                                {isGeneratingMedia ? 'AI 生成素材中...' : `生成${selectedMediaType === 'image' ? '圖片' : '影片'} (消耗 1 配額)`}
+                            <button onClick={handleGenerateMedia} disabled={isGeneratingMedia} className={`w-full py-3 rounded font-bold text-white transition-all ${isDemoMode ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-secondary hover:bg-indigo-600'}`}>
+                                {isGeneratingMedia ? 'AI 生成素材中...' : isDemoMode ? `產生 Demo 圖片 (不扣配額)` : `生成圖片 (消耗 1 配額)`}
                             </button>
                             
                             {mediaUrl && (
-                                <button onClick={handleGenerateMedia} disabled={isGeneratingMedia} className="w-full mt-2 border border-gray-600 hover:bg-gray-700 py-2 rounded text-gray-300 text-sm">
-                                    🔄 不滿意？重新生成 (消耗 1 配額)
+                                <button onClick={handleGenerateMedia} disabled={isGeneratingMedia} className="w-full mt-2 border border-yellow-600 hover:bg-yellow-900/30 py-2 rounded text-yellow-500 text-sm font-bold transition-colors">
+                                    🔄 不滿意？{isDemoMode ? '重新生成 (Demo)' : '消耗 1 配額重新生成 (變更風格)'}
                                 </button>
                             )}
                         </>
@@ -549,16 +657,25 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                 <div className="flex items-center gap-2 mb-3">
                     <div className="w-10 h-10 bg-gray-300 rounded-full"></div>
                     <div>
-                        <div className="font-bold text-sm">AutoSocial Demo Brand</div>
+                        <div className="font-bold text-sm">AutoSocial {isDemoMode ? 'Demo' : ''} Brand</div>
                         <div className="text-xs text-gray-500">Just now · 🌎</div>
                     </div>
                 </div>
                 <div className="whitespace-pre-wrap mb-4 text-sm leading-relaxed">{draft.caption}</div>
-                <div className="bg-gray-100 min-h-[250px] flex items-center justify-center rounded overflow-hidden">
+                <div className="bg-gray-100 min-h-[250px] flex items-center justify-center rounded overflow-hidden relative">
                     {mediaUrl ? (
-                        selectedMediaType === 'image' || mediaSource === 'upload' ? 
-                        <img src={mediaUrl} className="max-w-full max-h-[400px] object-cover" /> :
-                        <video src={mediaUrl} controls className="max-w-full max-h-[400px]" />
+                        <>
+                            {selectedMediaType === 'image' || mediaSource === 'upload' ? 
+                            <img src={mediaUrl} className="max-w-full max-h-[400px] object-cover" /> :
+                            <video src={mediaUrl} controls className="max-w-full max-h-[400px]" />
+                            }
+                            {/* Demo Warning Overlay */}
+                            {(isPlaceholderMedia || isDemoMode) && (
+                                <div className="absolute top-2 right-2 bg-yellow-500 text-black text-xs font-bold px-2 py-1 rounded shadow-md z-10 flex items-center gap-1">
+                                    {isDemoMode ? '🧪 Demo Mode' : '⚠️ 替代素材 (配額額滿)'}
+                                </div>
+                            )}
+                        </>
                     ) : (
                         <span className="text-gray-400">素材預覽區</span>
                     )}
@@ -591,7 +708,9 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                         >
                             {isBasicUser ? "排程 (鎖定)" : "加入排程"}
                         </button>
-                        <button onClick={() => handleFinalize(false)} className="flex-1 bg-primary hover:bg-blue-600 text-white py-3 rounded font-bold shadow-lg">立即發佈</button>
+                        <button onClick={() => handleFinalize(false)} className={`flex-1 text-white py-3 rounded font-bold shadow-lg ${isDemoMode ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-primary hover:bg-blue-600'}`}>
+                            {isDemoMode ? '模擬發佈' : '立即發佈'}
+                        </button>
                     </div>
                 </div>
             )}
