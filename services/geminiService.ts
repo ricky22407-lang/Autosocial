@@ -2,15 +2,22 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { BrandSettings, TrendingTopic, AnalyticsData, CompetitorPost } from "../types";
 
-// Helper to get Env safely
+// Helper to get Env safely with multiple fallbacks
 const getEnv = (key: string) => {
+  let value = '';
+  
+  // 1. Try Vite import.meta.env
   if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
-    return (import.meta as any).env[key] || (import.meta as any).env[`VITE_${key}`];
+    const env = (import.meta as any).env;
+    value = env[key] || env[`VITE_${key}`] || env[`REACT_APP_${key}`] || env[`NEXT_PUBLIC_${key}`];
   }
-  if (typeof process !== 'undefined' && process.env) {
-    return process.env[key];
+  
+  // 2. Try Node process.env (Fallback)
+  if (!value && typeof process !== 'undefined' && process.env) {
+    value = process.env[key] || process.env[`VITE_${key}`] || process.env[`REACT_APP_${key}`] || process.env[`NEXT_PUBLIC_${key}`];
   }
-  return '';
+
+  return value ? String(value).trim() : '';
 };
 
 // Helper to sanitize JSON string (remove markdown code blocks)
@@ -30,9 +37,17 @@ const cleanJsonString = (text: string) => {
 // Helper to get AI instance dynamically
 const getAI = () => {
   const key = getEnv('API_KEY');
+  
   if (!key) {
-    console.error("[Gemini Service] API Key Status: MISSING (Check Vercel Env Vars: VITE_API_KEY)");
-    throw new Error("缺少 API Key");
+    // Advanced Debugging for Vercel
+    console.error("[Gemini Service] API Key Status: MISSING");
+    
+    // Log available keys to help user debug (only keys, not values)
+    if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
+        console.log("ℹ️ Visible Env Vars:", Object.keys((import.meta as any).env));
+    }
+    
+    throw new Error("缺少 API Key (VITE_API_KEY)。請檢查 Vercel 設定並重新部署 (Redeploy)。");
   } else {
     // Security: Only log first 4 chars
     console.log(`[Gemini Service] API Key Status: Present (${key.substring(0, 4)}...)`);

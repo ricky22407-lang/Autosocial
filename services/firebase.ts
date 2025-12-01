@@ -7,22 +7,26 @@ import { getFirestore, Firestore } from 'firebase/firestore';
 // FIREBASE CONFIGURATION
 // ============================================================================
 const getEnv = (key: string) => {
+  let value = '';
+  // 1. Try Vite import.meta.env
   if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
-    return (import.meta as any).env[key] || (import.meta as any).env[`VITE_${key}`];
+    const env = (import.meta as any).env;
+    value = env[key] || env[`VITE_${key}`] || env[`REACT_APP_${key}`];
   }
-  if (typeof process !== 'undefined' && process.env) {
-    return process.env[key] || process.env[`REACT_APP_${key}`];
+  // 2. Try Node process.env (Fallback)
+  if (!value && typeof process !== 'undefined' && process.env) {
+    value = process.env[key] || process.env[`VITE_${key}`] || process.env[`REACT_APP_${key}`];
   }
-  return '';
+  return value ? String(value).trim() : '';
 };
 
 const firebaseConfig = {
-  apiKey: getEnv('FIREBASE_API_KEY') || getEnv('REACT_APP_FIREBASE_API_KEY'),
-  authDomain: getEnv('FIREBASE_AUTH_DOMAIN') || getEnv('REACT_APP_FIREBASE_AUTH_DOMAIN'),
-  projectId: getEnv('FIREBASE_PROJECT_ID') || getEnv('REACT_APP_FIREBASE_PROJECT_ID'),
-  storageBucket: getEnv('FIREBASE_STORAGE_BUCKET') || getEnv('REACT_APP_FIREBASE_STORAGE_BUCKET'),
-  messagingSenderId: getEnv('FIREBASE_MESSAGING_SENDER_ID') || getEnv('REACT_APP_FIREBASE_MESSAGING_SENDER_ID'),
-  appId: getEnv('FIREBASE_APP_ID') || getEnv('REACT_APP_FIREBASE_APP_ID')
+  apiKey: getEnv('FIREBASE_API_KEY'),
+  authDomain: getEnv('FIREBASE_AUTH_DOMAIN'),
+  projectId: getEnv('FIREBASE_PROJECT_ID'),
+  storageBucket: getEnv('FIREBASE_STORAGE_BUCKET'),
+  messagingSenderId: getEnv('FIREBASE_MESSAGING_SENDER_ID'),
+  appId: getEnv('FIREBASE_APP_ID')
 };
 
 // ============================================================================
@@ -40,16 +44,30 @@ if (hasConfig) {
   // --- REAL FIREBASE MODE (Production) ---
   console.log("🔥 Initializing Real Firebase Connection...", firebaseConfig.projectId);
   
-  const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-  auth = getAuth(app);
-  db = getFirestore(app);
-  isMock = false;
+  try {
+      const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+      auth = getAuth(app);
+      db = getFirestore(app);
+      isMock = false;
+  } catch (e) {
+      console.error("Firebase Init Error:", e);
+      console.warn("Falling back to MOCK mode due to initialization error.");
+      isMock = true; // Fallback to avoid crash
+  }
 
 } else {
-  // --- MOCK MODE (Local Preview) ---
-  console.log("⚠️ No Firebase Config found. Using MOCK mode.");
-  
-  // Mock Auth Object
+  // --- MOCK MODE (Local Preview or Missing Config) ---
+  console.log("⚠️ No Valid Firebase Config found. Using MOCK mode.");
+  if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
+       // Debug helper
+       const keys = Object.keys((import.meta as any).env);
+       console.log("ℹ️ Env Keys Available:", keys.filter(k => k.includes('FIREBASE')));
+  }
+  isMock = true;
+}
+
+// Mock Auth Object Implementation
+if (isMock) {
   auth = {
     currentUser: null, // Initial state
     onAuthStateChanged: (cb: any) => {
@@ -81,7 +99,6 @@ if (hasConfig) {
   };
 
   db = {}; 
-  isMock = true;
 }
 
 export { auth, db, isMock };

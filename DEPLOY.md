@@ -1,3 +1,4 @@
+
 # AutoSocial AI 部署與營運手冊
 
 本文件說明如何將 AutoSocial AI 部署至正式環境，並採用 **「現金收費、手動開通」** 的營運模式。
@@ -22,12 +23,26 @@ Q: **Gemini API Key 要從哪裡輸入？**
 
 *   ❌ **絕對禁止** 將 API Key 直接寫死在程式碼中 (例如 `const key = "AIza..."`)，這會導致 Key 被盜用。
 *   ✅ **正確做法**：
-    *   **前端部署 (Vercel/Netlify)**: 在平台的 "Settings" -> "Environment Variables" 中設定 `API_KEY`。
-    *   **後端部署 (Render/Cloud Run)**: 同樣在平台的環境變數設定區塊輸入。
+    *   **前端部署 (Vercel/Netlify)**: 在平台的 "Settings" -> "Environment Variables" 中設定 `VITE_API_KEY`。
+    *   **後端部署 (Render/Cloud Run)**: 同樣在平台的環境變數設定區塊輸入 `API_KEY`。
 
 ---
 
-## 3. 會員資料存放在哪裡？ (Data Source)
+## 3. 故障排除：API Key 讀取不到？
+
+如果你在 Vercel 設定了變數，但網站還是顯示「缺少 API Key」或 `MISSING`，請檢查以下幾點：
+
+1.  **變數名稱是否正確？** 前端必須使用 `VITE_API_KEY` (要有 `VITE_` 前綴)。
+2.  **是否有重新部署 (Redeploy)？** (最常見的原因 ⚠️)
+    *   Vercel 的環境變數是在「打包 (Build)」時寫入的。
+    *   如果你在設定變數之前就已經部署過，**新的變數不會自動生效**。
+    *   **解決方法**：去 Vercel -> Deployments -> 點選最新的部署右邊的三個點 -> 選擇 **Redeploy**。
+
+3.  **是否有空白鍵？** 複製貼上時，有時候會不小心多複製到前後的空白，系統已加入自動去除空白的功能，但建議檢查一下 Vercel 後台的值。
+
+---
+
+## 4. 會員資料存放在哪裡？ (Data Source)
 
 Q: **用戶註冊後，會員資料會集中在哪裡？**
 
@@ -48,7 +63,7 @@ Q: **用戶註冊後，會員資料會集中在哪裡？**
 
 ---
 
-## 4. 會員制度串接 (現金收費模式 💰)
+## 5. 會員制度串接 (現金收費模式 💰)
 
 針對你的需求：「不串接複雜金流，直接收現金/轉帳，手動開通」。
 
@@ -75,7 +90,7 @@ Q: **用戶註冊後，會員資料會集中在哪裡？**
 
 ---
 
-## 5. 快速部署步驟 (Frontend + Firebase)
+## 6. 快速部署步驟 (Frontend + Firebase)
 
 這是最快讓網站上線的方式：
 
@@ -89,8 +104,8 @@ Q: **用戶註冊後，會員資料會集中在哪裡？**
     *   將程式碼上傳到 GitHub。
     *   在 Vercel 匯入專案。
     *   **設定環境變數 (Environment Variables)**：
-        *   將 Firebase 的設定填入 (例如 `REACT_APP_FIREBASE_API_KEY` 或直接填入 `services/firebase.ts` 指定的變數名)。
-        *   填入 `API_KEY` (你的 Gemini API Key)。
+        *   將 Firebase 的設定填入 (使用 `VITE_FIREBASE_API_KEY` 等名稱)。
+        *   填入 `VITE_API_KEY` (你的 Gemini API Key)。
 
 3.  **部署 (Deploy)**：
     *   點擊 Deploy，等待幾分鐘，你的網站就上線了！
