@@ -6,8 +6,8 @@ import { getFirestore, Firestore } from 'firebase/firestore';
 // ============================================================================
 // FIREBASE CONFIGURATION
 // ============================================================================
-const getEnv = (key: string) => {
-  let value = '';
+const getEnv = (key: string): string => {
+  let value: string | undefined = '';
   // 1. Try Vite import.meta.env
   if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
     const env = (import.meta as any).env;
