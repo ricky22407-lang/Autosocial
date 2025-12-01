@@ -31,19 +31,22 @@ app.use(express.json() as any);
 
 // Auth Module
 const authRouter = express.Router();
-authRouter.get('/me', isAuthenticated as RequestHandler, AuthController.getMe as RequestHandler);
+// Fix: Cast handlers to any to resolve RequestHandler type mismatch errors
+authRouter.get('/me', isAuthenticated as any, AuthController.getMe as any);
 app.use('/api/auth', authRouter as any);
 
 // Content Module
 const contentRouter = express.Router();
-contentRouter.post('/draft', isAuthenticated as RequestHandler, ContentController.generateDraft as RequestHandler);
-contentRouter.post('/image', isAuthenticated as RequestHandler, ContentController.generateImage as RequestHandler);
+// Fix: Cast handlers to any to resolve RequestHandler type mismatch errors
+contentRouter.post('/draft', isAuthenticated as any, ContentController.generateDraft as any);
+contentRouter.post('/image', isAuthenticated as any, ContentController.generateImage as any);
 app.use('/api/content', contentRouter as any);
 
 // Automation Module
 const automationRouter = express.Router();
 const scheduler = new SchedulerService();
-automationRouter.post('/trigger', isAuthenticated as RequestHandler, (async (req, res, next) => {
+// Fix: Cast handlers to any to resolve RequestHandler type mismatch errors
+automationRouter.post('/trigger', isAuthenticated as any, (async (req, res, next) => {
     try {
         // Simplified trigger
         const uid = (req as any).user.uid;
@@ -53,7 +56,7 @@ automationRouter.post('/trigger', isAuthenticated as RequestHandler, (async (req
     } catch (e) {
         next(e);
     }
-}) as RequestHandler);
+}) as any);
 app.use('/api/automation', automationRouter as any);
 
 // Global Error Handler (Must be last)

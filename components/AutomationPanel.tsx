@@ -86,9 +86,10 @@ const AutomationPanel: React.FC<Props> = ({ settings, onSave }) => {
   const handleTriggerAutoPilot = async () => {
       setTriggering(true);
       try {
-          await api.automation.trigger(settings);
-          alert("🚀 全自動發文任務已啟動！\n系統將在背景執行選題、創作與發佈。\n(模擬模式下不會真實發文)");
+          const result = await api.automation.trigger(settings);
+          alert(`🚀 任務執行成功！\n主題: ${result.topic}\n狀態: ${result.message}`);
       } catch (e: any) {
+          console.error(e);
           alert(`啟動失敗: ${e.message}`);
       } finally {
           setTriggering(false);
@@ -248,7 +249,7 @@ const AutomationPanel: React.FC<Props> = ({ settings, onSave }) => {
                     disabled={triggering}
                     className="border border-secondary text-secondary hover:bg-secondary/10 px-6 py-2 rounded font-bold transition-all disabled:opacity-50"
                   >
-                      {triggering ? '正在背景執行中...' : '⚡️ 立即手動觸發 (測試用)'}
+                      {triggering ? '正在執行任務...' : '⚡️ 立即觸發任務 (測試)'}
                   </button>
                   <button onClick={handleSaveSettings} className="bg-primary hover:bg-blue-600 text-white px-8 py-2 rounded font-bold shadow-lg">
                       儲存設定
