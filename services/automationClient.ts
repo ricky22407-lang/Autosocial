@@ -3,7 +3,7 @@ import { BrandSettings, AutoPilotConfig } from '../types';
 import { getTrendingTopics, generatePostDraft, generateImage, generateVideo } from './geminiService';
 import { publishPostToFacebook } from './facebookService';
 import { checkAndUseQuota, getUserProfile } from './authService';
-import { auth, db } from './firebase';
+import { auth, db, isMock } from './firebase';
 import { doc, updateDoc, increment } from 'firebase/firestore';
 
 export const AutomationClient = {
@@ -87,14 +87,17 @@ export const AutomationClient = {
         console.log("Skipping real publish (No token)");
     }
 
-    try {
-        const userRef = doc(db, 'users', user.uid);
-        await updateDoc(userRef, {
-            'quota_used': increment(1), // Ensure quota is synced
-            updated_at: Date.now()
-        });
-    } catch (e) {
-        console.error("Failed to update stats in DB", e);
+    // Guard: Do NOT try to update Firestore if in Mock mode, or if db is empty
+    if (!isMock && db && user.uid) {
+        try {
+            const userRef = doc(db, 'users', user.uid);
+            await updateDoc(userRef, {
+                'quota_used': increment(1), // Ensure quota is synced
+                updated_at: Date.now()
+            });
+        } catch (e) {
+            console.error("Failed to update stats in DB", e);
+        }
     }
 
     return {

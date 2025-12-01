@@ -1,12 +1,11 @@
 
-import firebase from 'firebase/compat/app';
-import 'firebase/compat/auth';
-import 'firebase/compat/firestore';
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getAuth, Auth } from 'firebase/auth';
+import { getFirestore, Firestore } from 'firebase/firestore';
 
 // ============================================================================
 // FIREBASE CONFIGURATION
 // ============================================================================
-// Helper to safely get env vars in both Vite (browser) and Node (server) environments
 const getEnv = (key: string) => {
   if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
     return (import.meta as any).env[key] || (import.meta as any).env[`VITE_${key}`];
@@ -30,37 +29,45 @@ const firebaseConfig = {
 // INITIALIZATION
 // ============================================================================
 
-let auth: any;
-let db: any;
+let auth: Auth | any;
+let db: Firestore | any;
 let isMock = false;
 
-// Check if config exists
-const hasConfig = !!firebaseConfig.apiKey && !!firebaseConfig.projectId;
+// Check if config exists and is valid
+const hasConfig = !!firebaseConfig.apiKey && !!firebaseConfig.projectId && firebaseConfig.apiKey !== 'undefined';
 
 if (hasConfig) {
   // --- REAL FIREBASE MODE (Production) ---
   console.log("🔥 Initializing Real Firebase Connection...", firebaseConfig.projectId);
   
-  const app = !firebase.apps.length ? firebase.initializeApp(firebaseConfig) : firebase.app();
-  auth = firebase.auth(app);
-  db = firebase.firestore(app);
+  const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+  auth = getAuth(app);
+  db = getFirestore(app);
   isMock = false;
 
 } else {
   // --- MOCK MODE (Local Preview) ---
-  console.log("⚠️ No Firebase Config found in env. Using MOCK mode for preview.");
+  console.log("⚠️ No Firebase Config found. Using MOCK mode.");
   
+  // Mock Auth Object
   auth = {
-    currentUser: null,
+    currentUser: null, // Initial state
     onAuthStateChanged: (cb: any) => {
         const check = () => {
              const uid = localStorage.getItem('autosocial_session_uid');
-             if(uid) cb({ uid, email: 'demo@example.com', getIdToken: async () => 'mock-token' });
-             else cb(null);
+             if(uid) {
+                 const user = { uid, email: 'demo@example.com', getIdToken: async () => 'mock-token' };
+                 auth.currentUser = user; // Sync currentUser
+                 cb(user);
+             } else {
+                 auth.currentUser = null; // Sync currentUser
+                 cb(null);
+             }
         };
         if (typeof window !== 'undefined') {
             window.addEventListener('auth_state_change', check);
-            check();
+            // Immediate check
+            setTimeout(check, 0); 
         }
         return () => {
             if (typeof window !== 'undefined') window.removeEventListener('auth_state_change', check);
@@ -68,6 +75,7 @@ if (hasConfig) {
     },
     signOut: async () => {
         localStorage.removeItem('autosocial_session_uid');
+        auth.currentUser = null;
         if (typeof window !== 'undefined') window.dispatchEvent(new Event('auth_state_change'));
     }
   };
