@@ -264,7 +264,7 @@ export const generateAdminKey = async (
     adminId: string, 
     type: 'RESET_QUOTA' | 'UPGRADE_ROLE' | 'UNLOCK_FEATURE', 
     role?: UserRole,
-    feature?: 'ANALYTICS' | 'AUTOMATION' | 'SEO'
+    feature?: 'ANALYTICS' | 'AUTOMATION' | 'SEO' | 'THREADS'
 ): Promise<string> => {
     const keyString = `KEY-${Date.now().toString().slice(-6)}-${Math.floor(Math.random()*10000)}`;
     const keyData: AdminKey = {

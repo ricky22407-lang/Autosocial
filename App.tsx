@@ -7,6 +7,7 @@ import { PostCreator } from './components/PostCreator';
 import ScheduleList from './components/ScheduleList';
 import AnalyticsDashboard from './components/AnalyticsDashboard';
 import AutomationPanel from './components/AutomationPanel';
+import ThreadsNurturePanel from './components/ThreadsNurturePanel';
 import Login from './components/Login';
 import AdminPanel from './components/AdminPanel';
 import SeoArticleGenerator from './components/SeoArticleGenerator';
@@ -22,6 +23,7 @@ const defaultSettings: BrandSettings = {
   persona: '',
   facebookPageId: '',
   facebookToken: '',
+  threadsAccounts: [], // Init empty array
   competitors: [],
   referenceFiles: [],
   fixedHashtags: '',
@@ -137,6 +139,7 @@ const App: React.FC = () => {
         const merged = { ...defaultSettings, ...parsed };
         if(!merged.autoReply) merged.autoReply = defaultSettings.autoReply;
         if(!merged.autoPilot) merged.autoPilot = defaultSettings.autoPilot;
+        if(!merged.threadsAccounts) merged.threadsAccounts = []; 
         setSettings(merged);
     }
     if (savedPosts) setPosts(JSON.parse(savedPosts));
@@ -168,7 +171,7 @@ const App: React.FC = () => {
   const handleSaveSettings = (newSettings: BrandSettings) => {
     setSettings(newSettings);
     localStorage.setItem('autosocial_settings', JSON.stringify(newSettings));
-    alert("設定已儲存！");
+    // No alert here if called from child component rapidly, or optional
   };
 
   const handlePostCreated = (newPost: Post) => {
@@ -205,6 +208,7 @@ const App: React.FC = () => {
   const hasAnalyticsAccess = userProfile?.role !== 'user' || userProfile?.unlockedFeatures?.includes('ANALYTICS');
   const hasAutomationAccess = userProfile?.role !== 'user' || userProfile?.unlockedFeatures?.includes('AUTOMATION');
   const hasSeoAccess = userProfile?.role !== 'user' || userProfile?.unlockedFeatures?.includes('SEO') || userProfile?.unlockedFeatures?.includes('SEO_ARTICLES');
+  const hasThreadsAccess = userProfile?.role !== 'user' || userProfile?.unlockedFeatures?.includes('THREADS');
   const isAdmin = userProfile?.role === 'admin';
 
   return (
@@ -234,16 +238,18 @@ const App: React.FC = () => {
         </div>
         
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+          {/* Group 1: Core */}
           <button onClick={() => setView(AppView.CREATE)} className={`w-full text-left px-4 py-3 rounded transition-colors ${view === AppView.CREATE ? 'bg-primary text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
-             ✨ 建立貼文
+             ✨ 建立 FB 貼文
           </button>
           
           <button onClick={() => setView(AppView.SCHEDULE)} className={`w-full text-left px-4 py-3 rounded transition-colors ${view === AppView.SCHEDULE ? 'bg-primary text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
              📅 排程管理
           </button>
           
+          {/* Group 2: Data & Settings */}
           <div className="pt-4 border-t border-gray-700">
-              <button 
+             <button 
                 onClick={() => {
                     if (hasAnalyticsAccess) setView(AppView.ANALYTICS);
                     else setShowRedeemModal(true);
@@ -265,6 +271,24 @@ const App: React.FC = () => {
                  {!hasAutomationAccess && <span className="text-xs">🔒</span>}
               </button>
 
+              <button onClick={() => setView(AppView.SETTINGS)} className={`w-full text-left px-4 py-3 rounded transition-colors ${view === AppView.SETTINGS ? 'bg-primary text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
+                 ⚙️ 品牌設定
+              </button>
+          </div>
+
+          {/* Group 3: Growth Tools */}
+          <div className="pt-4 border-t border-gray-700">
+              <button 
+                onClick={() => {
+                    if (hasThreadsAccess) setView(AppView.THREADS_NURTURE);
+                    else setShowRedeemModal(true);
+                }} 
+                className={`w-full text-left px-4 py-3 rounded transition-colors flex justify-between items-center ${view === AppView.THREADS_NURTURE ? 'bg-black border border-gray-600 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
+              >
+                 <span>🧵 Threads 養號</span>
+                 {!hasThreadsAccess && <span className="text-xs">🔒</span>}
+              </button>
+
               <button 
                 onClick={() => {
                     if (hasSeoAccess) setView(AppView.SEO_ARTICLES);
@@ -276,21 +300,14 @@ const App: React.FC = () => {
                  {!hasSeoAccess && <span className="text-xs">🔒</span>}
               </button>
           </div>
-
-          <div className="pt-4 border-t border-gray-700">
-              <button onClick={() => setView(AppView.SETTINGS)} className={`w-full text-left px-4 py-3 rounded transition-colors ${view === AppView.SETTINGS ? 'bg-primary text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
-                 ⚙️ 品牌設定
-              </button>
-              
-              {isAdmin && (
-                  <button onClick={() => setView(AppView.ADMIN)} className={`w-full text-left px-4 py-3 rounded transition-colors ${view === AppView.ADMIN ? 'bg-red-900/50 text-red-200 border border-red-900' : 'text-red-400 hover:bg-gray-800'}`}>
-                     👮 管理員後台
-                  </button>
-              )}
-          </div>
         </nav>
 
         <div className="p-4 border-t border-gray-700 space-y-2">
+          {isAdmin && (
+              <button onClick={() => setView(AppView.ADMIN)} className={`w-full text-left px-4 py-2 text-sm transition-colors rounded border flex items-center gap-2 ${view === AppView.ADMIN ? 'bg-red-900/50 text-red-200 border-red-900' : 'text-red-400 border-transparent hover:bg-gray-800'}`}>
+                 👮 管理員後台
+              </button>
+          )}
           <button onClick={() => setShowPwdModal(true)} className="w-full text-left px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors flex items-center gap-2">
              🔑 修改密碼
           </button>
@@ -321,12 +338,22 @@ const App: React.FC = () => {
           />
         )}
 
+        {view === AppView.THREADS_NURTURE && (
+           hasThreadsAccess ? 
+           <ThreadsNurturePanel 
+              settings={settings} 
+              user={userProfile} 
+              onSaveSettings={handleSaveSettings}
+              onQuotaUpdate={refreshProfile}
+           /> : <div className="p-8 text-center text-gray-500">Access Denied</div>
+        )}
+
         {view === AppView.ANALYTICS && (
           hasAnalyticsAccess ? <AnalyticsDashboard settings={settings} /> : <div className="p-8 text-center text-gray-500">Access Denied</div>
         )}
 
         {view === AppView.AUTOMATION && (
-          hasAutomationAccess ? <AutomationPanel settings={settings} onSave={handleSaveSettings} /> : <div className="p-8 text-center text-gray-500">Access Denied</div>
+          hasAutomationAccess ? <AutomationPanel settings={settings} onSave={(s) => {handleSaveSettings(s); alert("設定已儲存");}} /> : <div className="p-8 text-center text-gray-500">Access Denied</div>
         )}
 
         {view === AppView.SEO_ARTICLES && (
@@ -336,7 +363,7 @@ const App: React.FC = () => {
         {view === AppView.SETTINGS && (
           <SettingsForm 
             initialSettings={settings} 
-            onSave={handleSaveSettings} 
+            onSave={(s) => {handleSaveSettings(s); alert("設定已儲存");}} 
           />
         )}
 

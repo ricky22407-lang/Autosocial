@@ -68,6 +68,25 @@ export interface ReferenceFile {
   content: string;
 }
 
+export interface ThreadsAccount {
+  id: string;
+  username: string; // Friendly name for UI
+  userId: string;   // Threads User ID
+  token: string;    // Threads Access Token
+  isActive: boolean;
+  personaPrompt?: string; // New: Specific persona for this account
+}
+
+export interface ThreadsAutoPilotConfig {
+  enabled: boolean;
+  frequency: 'daily' | 'weekly';
+  postWeekDays: number[]; // 0-6
+  postTime: string;
+  imageMode: 'ai_url' | 'stock_url' | 'none';
+  targetAccountIds?: string[]; // New: Specific accounts to nurture
+  lastRunAt?: number;
+}
+
 export interface BrandSettings {
   // Identity
   industry: string;
@@ -82,6 +101,10 @@ export interface BrandSettings {
   facebookToken: string;
   tokenExpiry?: number;
   
+  // Threads Config (New)
+  threadsAccounts?: ThreadsAccount[];
+  threadsAutoPilot?: ThreadsAutoPilotConfig; // New
+
   // Content Strategy
   competitors: string[];
   fixedHashtags: string;
@@ -171,7 +194,7 @@ export interface AdminKey {
   key: string;
   type: 'RESET_QUOTA' | 'UPGRADE_ROLE' | 'UNLOCK_FEATURE';
   targetRole?: UserRole;
-  targetFeature?: 'ANALYTICS' | 'AUTOMATION' | 'SEO';
+  targetFeature?: 'ANALYTICS' | 'AUTOMATION' | 'SEO' | 'THREADS'; // Added THREADS
   createdBy: string;
   createdAt: number;
   expiresAt: number;
@@ -210,5 +233,6 @@ export enum AppView {
   ANALYTICS = 'ANALYTICS',
   AUTOMATION = 'AUTOMATION',
   SEO_ARTICLES = 'SEO_ARTICLES',
+  THREADS_NURTURE = 'THREADS_NURTURE',
   ADMIN = 'ADMIN'
 }

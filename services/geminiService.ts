@@ -100,9 +100,9 @@ const fetchRealtimeRss = async (keyword: string): Promise<string> => {
     }
 };
 
-export const getTrendingTopics = async (industry: string, seed?: number): Promise<TrendingTopic[]> => {
+export const getTrendingTopics = async (query: string, seed?: number): Promise<TrendingTopic[]> => {
   const ai = getAI();
-  const searchTopic = industry.trim() || "台灣熱門時事"; // Default fallback
+  const searchTopic = query.trim() || "台灣熱門時事"; // Default to general Taiwan news if empty
   const variationContext = seed ? `(Seed: ${seed})` : '';
   
   const baseInstruction = `
@@ -114,7 +114,7 @@ export const getTrendingTopics = async (industry: string, seed?: number): Promis
 
   // --- LAYER 1: Google Search Tool (Best Quality) ---
   try {
-    const prompt = `List 10 trending news or topics related to "${searchTopic}" in Taiwan within the last 7 days. 
+    const prompt = `List 10 trending news or topics related to "${searchTopic}" in Taiwan within the last 24 hours. 
     Include the source URL if possible in the 'url' field.
     ${variationContext} ${baseInstruction}`;
     
@@ -317,6 +317,101 @@ export const generatePostDraft = async (
   }
 
   throw new Error(`生成失敗 (所有模型皆嘗試失敗): ${lastError}`);
+};
+
+/**
+ * 批次產生 Threads 貼文 (One-Shot Request)
+ * 消耗 1 次 API Quota，生成 N 篇貼文
+ * V2.3 Update: Adjusted prompt to be more natural, less forced on persona, more focus on topic reaction.
+ */
+export const generateThreadsBatch = async (
+  topic: string,
+  count: number,
+  brand: BrandSettings,
+  accountPersonas: string[] = []
+): Promise<Array<{ id: string, caption: string, imagePrompt: string, imageQuery: string }>> => {
+  const ai = getAI();
+  
+  // ECP0-inspired Persona Framework (Subtle Version)
+  const basePersona = `
+    [System Instruction]
+    Role: You are a native Taiwanese user of Threads, scrolling through your feed and reacting to the topic.
+    Context: Threads culture in Taiwan is about "authentic reaction", "relatable complaining", or "insightful observation". 
+    AVOID marketing speak. AVOID trying too hard to be funny. Be natural.
+    
+    [Cognitive Style]
+    - Viewpoint: Focus on how this topic affects *real life* or *personal feelings*.
+    - Tone: Casual, direct, sometimes lazy, sometimes sharp.
+    
+    [Expression Style]
+    - Formatting: Frequent line breaks for pacing. Minimal punctuation.
+    - Language: Taiwan Mandarin. Use lowercase English for emphasis if needed.
+  `;
+
+  // Refined Persona Injection: "Adopt the persona to REACT" instead of "Distribute personas"
+  let personaInstruction = "Instruction: React to the topic from different angles (e.g., as a tired worker, as a student, as a bystander).";
+  if (accountPersonas.length > 0) {
+      personaInstruction = `
+      [Specific Character constraints]
+      For the generated posts, please adopt the following personas to REACT to the topic "${topic}".
+      Do not explicitly state "I am [persona]". Instead, let the opinion and tone reflect the persona naturally.
+      
+      Personas to use:
+      ${accountPersonas.map((p, i) => `${i+1}. ${p}`).join('\n')}
+      `;
+  }
+
+  const prompt = `
+    ${basePersona}
+
+    Task: Generate ${count} distinct Threads posts about: "${topic}".
+
+    ${personaInstruction}
+
+    [Requirements]
+    1. Content: Express a *reaction* or *opinion* about the topic. Do not just describe the topic.
+    2. Visuals: For each post, provide:
+       - 'imagePrompt': Detailed description for AI image generation (English).
+       - 'imageQuery': A concise, 1-3 word English keyword string for searching stock photos (e.g. "rainy window", "busy street").
+
+    Output Format: JSON Array of objects.
+    [{ "caption": "...", "imagePrompt": "...", "imageQuery": "..." }]
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              caption: { type: Type.STRING },
+              imagePrompt: { type: Type.STRING },
+              imageQuery: { type: Type.STRING }
+            }
+          }
+        }
+      }
+    });
+
+    if (response.text) {
+      const posts = JSON.parse(response.text);
+      return posts.map((p: any, idx: number) => ({
+        id: `gen_${Date.now()}_${idx}`,
+        caption: p.caption,
+        imagePrompt: p.imagePrompt,
+        imageQuery: p.imageQuery || topic
+      }));
+    }
+    throw new Error("Empty response");
+  } catch (e: any) {
+    console.error("Batch Threads Gen Failed:", e);
+    throw new Error(`批量生成失敗: ${e.message}`);
+  }
 };
 
 export const generateImage = async (prompt: string): Promise<string> => {
