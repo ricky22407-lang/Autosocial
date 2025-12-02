@@ -1,7 +1,6 @@
 
-import { auth } from './firebase'; 
 import { UserProfile, BrandSettings } from '../types';
-import { getUserProfile, checkAndUseQuota, getAllUsers, generateAdminKey, useAdminKey } from './authService';
+import { getUserProfile, checkAndUseQuota, getAllUsers, generateAdminKey, useAdminKey, getCurrentUser } from './authService';
 import { AutomationClient } from './automationClient';
 
 // =========================================================================
@@ -14,12 +13,12 @@ import { AutomationClient } from './automationClient';
 export const api = {
   user: {
     me: async (): Promise<UserProfile | null> => {
-      const user = auth.currentUser;
+      const user = getCurrentUser();
       if (!user) throw new Error('User not logged in');
       return getUserProfile(user.uid);
     },
     useQuota: async () => {
-      const user = auth.currentUser;
+      const user = getCurrentUser();
       if (!user) throw new Error('User not logged in');
       const success = await checkAndUseQuota(user.uid);
       if (!success) throw new Error('Quota exceeded');
@@ -35,14 +34,14 @@ export const api = {
       // Using client-side admin key generation (simplified)
       // In a strict security model, this should be a Cloud Function, 
       // but for this "Manual Admin" requirement, direct DB write is acceptable if rules allow.
-      const user = auth.currentUser;
+      const user = getCurrentUser();
       if (!user) throw new Error("No Admin User");
       // Mapping simplified params to service
       const key = await generateAdminKey(user.uid, type as any, targetRole as any);
       return { key };
     },
     useKey: async (key: string) => {
-        const user = auth.currentUser;
+        const user = getCurrentUser();
         if (!user) throw new Error("Not logged in");
         return useAdminKey(user.uid, key);
     }

@@ -106,6 +106,7 @@ export interface AutoReplyConfig {
 export interface AutoPilotConfig {
   enabled: boolean;
   frequency: 'daily' | 'weekly';
+  postWeekDays?: number[]; // Changed to array for multiple days. 0 (Sun) - 6 (Sat)
   postTime: string;
   source: 'trending' | 'competitor' | 'keywords';
   keywords: string[];
@@ -136,6 +137,7 @@ export interface Post {
 export interface TrendingTopic {
   title: string;
   description: string;
+  url?: string;
 }
 
 // ==========================================
@@ -150,12 +152,15 @@ export interface AnalyticsData {
   period: string;
 }
 
-export interface CompetitorPost {
-  brandName: string;
-  content: string;
-  likes: number;
-  shares: number;
-  url: string;
+export interface TopPostData {
+  id: string;
+  message: string;
+  imageUrl?: string;
+  created_time: string;
+  reach: number;
+  engagedUsers: number;
+  permalink_url: string;
+  type: 'reach' | 'engagement'; // Label for UI
 }
 
 // ==========================================
@@ -166,7 +171,7 @@ export interface AdminKey {
   key: string;
   type: 'RESET_QUOTA' | 'UPGRADE_ROLE' | 'UNLOCK_FEATURE';
   targetRole?: UserRole;
-  targetFeature?: 'ANALYTICS' | 'AUTOMATION';
+  targetFeature?: 'ANALYTICS' | 'AUTOMATION' | 'SEO';
   createdBy: string;
   createdAt: number;
   expiresAt: number;
@@ -204,5 +209,6 @@ export enum AppView {
   SCHEDULE = 'SCHEDULE',
   ANALYTICS = 'ANALYTICS',
   AUTOMATION = 'AUTOMATION',
+  SEO_ARTICLES = 'SEO_ARTICLES',
   ADMIN = 'ADMIN'
 }

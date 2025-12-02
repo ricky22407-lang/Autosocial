@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { BrandSettings, ReferenceFile } from '../types';
-import { validateFacebookToken } from '../services/facebookService';
+import { validateFacebookToken, refreshLongLivedToken } from '../services/facebookService';
 
 interface Props {
   onSave: (settings: BrandSettings) => void;
@@ -11,6 +11,7 @@ interface Props {
 const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
   const [formData, setFormData] = useState<BrandSettings>(initialSettings);
   const [tokenStatus, setTokenStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle');
+  const [refreshMsg, setRefreshMsg] = useState('');
   // Separate state for raw string input to avoid cursor jumping issues
   const [competitorsRaw, setCompetitorsRaw] = useState(initialSettings.competitors.join(', '));
 
@@ -22,7 +23,7 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
   // Check token on initial load if present
   useEffect(() => {
     if (initialSettings.facebookToken) {
-      checkToken(initialSettings.facebookToken);
+      checkToken(initialSettings.facebookToken, false); // Don't auto-refresh on simple load check
     }
   }, []);
 
@@ -31,6 +32,7 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
     setFormData(prev => ({ ...prev, [name]: value }));
     if (name === 'facebookToken') {
         setTokenStatus('idle');
+        setRefreshMsg('');
     }
   };
 
@@ -46,13 +48,43 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
     setCompetitorsRaw(list.join(', '));
   };
 
-  const checkToken = async (tokenToCheck?: string) => {
+  const checkToken = async (tokenToCheck?: string, autoRefresh = true) => {
     const token = tokenToCheck ?? formData.facebookToken;
     if (!token) return;
     
     setTokenStatus('checking');
+    setRefreshMsg('');
+
+    // 1. Validate
     const isValid = await validateFacebookToken(token);
-    setTokenStatus(isValid ? 'valid' : 'invalid');
+    
+    if (isValid) {
+        setTokenStatus('valid');
+        
+        // 2. Auto Extend/Refresh if valid and requested (User clicked button)
+        if (autoRefresh) {
+            setRefreshMsg('正在嘗試延長效期...');
+            try {
+                const refreshRes = await refreshLongLivedToken(token);
+                if (refreshRes.success && refreshRes.newToken) {
+                    setFormData(prev => ({
+                        ...prev, 
+                        facebookToken: refreshRes.newToken!,
+                        tokenExpiry: refreshRes.expiry
+                    }));
+                    setRefreshMsg(`✅ 驗證成功且已自動延長效期！(Expires: ${new Date(refreshRes.expiry!).toLocaleDateString()})`);
+                } else {
+                    // Valid but refresh failed (maybe already long-lived or API restriction)
+                    setRefreshMsg('✅ Token 有效 (無法自動延長，請確認是否已為長期 Token)');
+                }
+            } catch (e) {
+                setRefreshMsg('✅ Token 有效');
+            }
+        }
+    } else {
+        setTokenStatus('invalid');
+        setRefreshMsg('');
+    }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -159,18 +191,17 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
                 className="flex-1 bg-dark border border-gray-600 rounded p-2 text-white focus:border-primary outline-none"
               />
               <button 
-                onClick={() => checkToken()}
+                onClick={() => checkToken(undefined, true)}
                 className={`px-4 py-2 rounded font-bold transition-colors ${
                   tokenStatus === 'valid' ? 'bg-green-600 text-white' : 
                   tokenStatus === 'invalid' ? 'bg-red-600 text-white' : 
                   'bg-gray-700 hover:bg-gray-600 text-white'
                 }`}
               >
-                {tokenStatus === 'checking' ? '檢查中...' : tokenStatus === 'valid' ? '驗證成功' : tokenStatus === 'invalid' ? '驗證失敗' : '檢查權限'}
+                {tokenStatus === 'checking' ? '檢查中...' : tokenStatus === 'valid' ? '驗證成功' : tokenStatus === 'invalid' ? '驗證失敗' : '驗證並延長'}
               </button>
             </div>
-            {tokenStatus === 'valid' && <p className="text-xs text-green-400 mt-1">Token 有效，可以正常連接 Graph API。</p>}
-            {tokenStatus === 'invalid' && <p className="text-xs text-red-400 mt-1">Token 無效或過期，請重新生成。</p>}
+            {refreshMsg && <p className={`text-xs mt-1 ${refreshMsg.includes('❌') || tokenStatus === 'invalid' ? 'text-red-400' : 'text-green-400'}`}>{refreshMsg}</p>}
           </div>
 
           <div>

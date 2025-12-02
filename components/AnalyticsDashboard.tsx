@@ -1,7 +1,9 @@
+
+
 import React, { useState, useEffect } from 'react';
-import { BrandSettings, AnalyticsData, CompetitorPost } from '../types';
-import { fetchPageAnalytics, fetchCompetitorTopPosts } from '../services/facebookService';
-import { generateWeeklyReport, analyzeCompetitorStrategy } from '../services/geminiService';
+import { BrandSettings, AnalyticsData, TopPostData } from '../types';
+import { fetchPageAnalytics, fetchPageTopPosts } from '../services/facebookService';
+import { generateWeeklyReport } from '../services/geminiService';
 
 interface Props {
   settings: BrandSettings;
@@ -9,18 +11,15 @@ interface Props {
 
 const AnalyticsDashboard: React.FC<Props> = ({ settings }) => {
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
-  const [competitorPosts, setCompetitorPosts] = useState<CompetitorPost[]>([]);
+  const [topPosts, setTopPosts] = useState<{ topReach?: TopPostData, topEngagement?: TopPostData } | null>(null);
   const [report, setReport] = useState<string>('');
-  const [competitorAnalysis, setCompetitorAnalysis] = useState<string>('');
   
   const [loadingStats, setLoadingStats] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [generatingReport, setGeneratingReport] = useState(false);
-  const [analyzingCompetitors, setAnalyzingCompetitors] = useState(false);
 
   useEffect(() => {
     if (!settings.facebookPageId || !settings.facebookToken) {
-        // Do not fetch if not configured
         return;
     }
     loadData();
@@ -33,10 +32,8 @@ const AnalyticsDashboard: React.FC<Props> = ({ settings }) => {
       const data = await fetchPageAnalytics(settings.facebookPageId, settings.facebookToken);
       setAnalytics(data);
       
-      if (settings.competitors.length > 0) {
-         const posts = await fetchCompetitorTopPosts(settings.competitors);
-         setCompetitorPosts(posts);
-      }
+      const top = await fetchPageTopPosts(settings.facebookPageId, settings.facebookToken);
+      setTopPosts(top);
     } catch (e: any) {
       setErrorMsg(e.message || "無法連線至 Facebook API");
     } finally {
@@ -48,25 +45,12 @@ const AnalyticsDashboard: React.FC<Props> = ({ settings }) => {
     if (!analytics) return;
     setGeneratingReport(true);
     try {
-      const text = await generateWeeklyReport(analytics, settings);
+      const text = await generateWeeklyReport(analytics, settings, topPosts || undefined);
       setReport(text);
     } catch (e) {
       alert("生成週報失敗");
     } finally {
       setGeneratingReport(false);
-    }
-  };
-
-  const handleAnalyzeCompetitors = async () => {
-    if (competitorPosts.length === 0) return;
-    setAnalyzingCompetitors(true);
-    try {
-      const text = await analyzeCompetitorStrategy(competitorPosts);
-      setCompetitorAnalysis(text);
-    } catch (e) {
-      alert("分析失敗");
-    } finally {
-      setAnalyzingCompetitors(false);
     }
   };
 
@@ -127,7 +111,7 @@ const AnalyticsDashboard: React.FC<Props> = ({ settings }) => {
         </div>
 
         {report && (
-          <div className="mt-6 bg-gradient-to-br from-gray-800 to-gray-900 p-6 rounded-xl border border-blue-900/50 shadow-lg">
+          <div className="mt-6 bg-gradient-to-br from-gray-800 to-gray-900 p-6 rounded-xl border border-blue-900/50 shadow-lg animate-fade-in">
              <h3 className="text-lg font-bold text-blue-300 mb-4">AI 營運分析週報</h3>
              <div className="text-gray-200 whitespace-pre-wrap leading-relaxed">
                {report}
@@ -136,50 +120,63 @@ const AnalyticsDashboard: React.FC<Props> = ({ settings }) => {
         )}
       </section>
 
-      {/* 2. Competitor Analysis */}
+      {/* 2. Top Performing Posts */}
       <section className="border-t border-gray-700 pt-8">
-        <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold text-white">⚔️ 競品動態偵測</h2>
-            <button 
-              onClick={handleAnalyzeCompetitors}
-              disabled={analyzingCompetitors || competitorPosts.length === 0}
-              className="bg-secondary hover:bg-indigo-600 text-white px-4 py-2 rounded font-bold text-sm disabled:opacity-50"
-            >
-              {analyzingCompetitors ? 'AI 分析中...' : '🔍 分析競品策略'}
-            </button>
-        </div>
+        <h2 className="text-2xl font-bold text-white mb-6">🏆 本週 MVP 貼文 (最近15篇)</h2>
 
-        {competitorPosts.length === 0 ? (
+        {!topPosts || (!topPosts.topReach && !topPosts.topEngagement) ? (
            <div className="text-gray-500 text-center py-10 bg-card/30 rounded border border-dashed border-gray-700">
-             沒有找到競品貼文資料，可能是 API 權限限制無法讀取公開頁面。
+             沒有找到近期貼文數據。
            </div>
         ) : (
-           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <div className="space-y-4">
-                 <h4 className="text-gray-400 text-sm font-bold mb-2">本週競品熱門貼文</h4>
-                 {competitorPosts.map((post, i) => (
-                    <div key={i} className="bg-dark p-4 rounded border border-gray-700 hover:border-gray-500 transition-colors">
-                       <div className="flex justify-between mb-2">
-                          <span className="font-bold text-white">{post.brandName}</span>
-                          <span className="text-xs text-gray-500">❤️ {post.likes}</span>
-                       </div>
-                       <p className="text-sm text-gray-400 line-clamp-2">{post.content}</p>
-                    </div>
-                 ))}
-              </div>
+           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {/* Best Reach */}
+              {topPosts.topReach && (
+                  <div className="bg-card rounded-xl border border-yellow-600/50 overflow-hidden shadow-lg hover:border-yellow-500 transition-colors">
+                      <div className="bg-yellow-900/20 p-3 border-b border-yellow-600/30 flex justify-between items-center">
+                          <span className="font-bold text-yellow-500">🔥 最佳觸及王</span>
+                          <span className="text-xs text-yellow-300 font-mono bg-yellow-900/40 px-2 py-1 rounded">Reach: {topPosts.topReach.reach.toLocaleString()}</span>
+                      </div>
+                      <div className="p-4 flex gap-4">
+                          {topPosts.topReach.imageUrl && (
+                              <div className="w-24 h-24 flex-shrink-0 bg-gray-800 rounded overflow-hidden">
+                                  <img src={topPosts.topReach.imageUrl} className="w-full h-full object-cover" alt="Post" />
+                              </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                              <p className="text-gray-300 text-sm line-clamp-3 mb-2">{topPosts.topReach.message}</p>
+                              <div className="flex justify-between items-center">
+                                  <span className="text-xs text-gray-500">{new Date(topPosts.topReach.created_time).toLocaleDateString()}</span>
+                                  <a href={topPosts.topReach.permalink_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-400 hover:underline">查看貼文 →</a>
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+              )}
 
-              <div className="bg-card p-6 rounded-xl border border-gray-700">
-                  <h4 className="text-gray-300 font-bold mb-4">🤖 AI 策略洞察</h4>
-                  {competitorAnalysis ? (
-                     <div className="text-gray-200 whitespace-pre-wrap text-sm leading-relaxed">
-                        {competitorAnalysis}
-                     </div>
-                  ) : (
-                     <div className="text-gray-500 text-sm text-center py-10">
-                        點擊右上角按鈕，讓 AI 告訴你為什麼這些貼文會紅。
-                     </div>
-                  )}
-              </div>
+              {/* Best Engagement */}
+              {topPosts.topEngagement && (
+                  <div className="bg-card rounded-xl border border-pink-600/50 overflow-hidden shadow-lg hover:border-pink-500 transition-colors">
+                      <div className="bg-pink-900/20 p-3 border-b border-pink-600/30 flex justify-between items-center">
+                          <span className="font-bold text-pink-500">❤️ 最佳互動王</span>
+                          <span className="text-xs text-pink-300 font-mono bg-pink-900/40 px-2 py-1 rounded">Engaged: {topPosts.topEngagement.engagedUsers.toLocaleString()}</span>
+                      </div>
+                      <div className="p-4 flex gap-4">
+                          {topPosts.topEngagement.imageUrl && (
+                              <div className="w-24 h-24 flex-shrink-0 bg-gray-800 rounded overflow-hidden">
+                                  <img src={topPosts.topEngagement.imageUrl} className="w-full h-full object-cover" alt="Post" />
+                              </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                              <p className="text-gray-300 text-sm line-clamp-3 mb-2">{topPosts.topEngagement.message}</p>
+                              <div className="flex justify-between items-center">
+                                  <span className="text-xs text-gray-500">{new Date(topPosts.topEngagement.created_time).toLocaleDateString()}</span>
+                                  <a href={topPosts.topEngagement.permalink_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-400 hover:underline">查看貼文 →</a>
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+              )}
            </div>
         )}
       </section>

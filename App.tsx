@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { AppView, BrandSettings, Post, UserProfile } from './types';
 import SettingsForm from './components/SettingsForm';
@@ -8,8 +9,9 @@ import AnalyticsDashboard from './components/AnalyticsDashboard';
 import AutomationPanel from './components/AutomationPanel';
 import Login from './components/Login';
 import AdminPanel from './components/AdminPanel';
+import SeoArticleGenerator from './components/SeoArticleGenerator';
 
-import { subscribeAuth, logout, getUserProfile, useAdminKey } from './services/authService';
+import { subscribeAuth, logout, getUserProfile, useAdminKey, changeUserPassword } from './services/authService';
 
 const defaultSettings: BrandSettings = {
   industry: '',
@@ -55,6 +57,46 @@ const RedeemModal = ({ onClose, onRedeem }: { onClose: () => void, onRedeem: (ke
   );
 };
 
+const ChangePasswordModal = ({ onClose }: { onClose: () => void }) => {
+    const [pass, setPass] = useState('');
+    const [msg, setMsg] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    const handleUpdate = async () => {
+        setLoading(true);
+        setMsg('');
+        try {
+            await changeUserPassword(pass);
+            setMsg('✅ 修改成功！');
+            setTimeout(onClose, 1500);
+        } catch (e: any) {
+            setMsg(`❌ 失敗: ${e.message}`);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+          <div className="bg-card p-6 rounded-xl border border-gray-600 max-w-md w-full animate-fade-in">
+            <h3 className="text-xl font-bold text-white mb-4">🔐 修改密碼</h3>
+            <input 
+              type="password"
+              value={pass}
+              onChange={e => setPass(e.target.value)}
+              placeholder="輸入新密碼"
+              className="w-full bg-dark border border-gray-600 rounded p-3 text-white mb-4"
+            />
+            {msg && <p className="mb-4 text-center text-sm font-bold text-white">{msg}</p>}
+            <div className="flex gap-4">
+              <button onClick={onClose} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded">取消</button>
+              <button onClick={handleUpdate} disabled={!pass || loading} className="flex-1 bg-green-600 hover:bg-green-500 text-white py-2 rounded font-bold disabled:opacity-50">確認修改</button>
+            </div>
+          </div>
+        </div>
+    );
+};
+
 const App: React.FC = () => {
   const [user, setUser] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -66,6 +108,7 @@ const App: React.FC = () => {
   
   const [editingPost, setEditingPost] = useState<Post | null>(null);
   const [showRedeemModal, setShowRedeemModal] = useState(false);
+  const [showPwdModal, setShowPwdModal] = useState(false);
 
   // Auth Listener
   useEffect(() => {
@@ -161,6 +204,7 @@ const App: React.FC = () => {
   // Permission Checks
   const hasAnalyticsAccess = userProfile?.role !== 'user' || userProfile?.unlockedFeatures?.includes('ANALYTICS');
   const hasAutomationAccess = userProfile?.role !== 'user' || userProfile?.unlockedFeatures?.includes('AUTOMATION');
+  const hasSeoAccess = userProfile?.role !== 'user' || userProfile?.unlockedFeatures?.includes('SEO') || userProfile?.unlockedFeatures?.includes('SEO_ARTICLES');
   const isAdmin = userProfile?.role === 'admin';
 
   return (
@@ -220,6 +264,17 @@ const App: React.FC = () => {
                  <span>🤖 自動化設定</span>
                  {!hasAutomationAccess && <span className="text-xs">🔒</span>}
               </button>
+
+              <button 
+                onClick={() => {
+                    if (hasSeoAccess) setView(AppView.SEO_ARTICLES);
+                    else setShowRedeemModal(true);
+                }} 
+                className={`w-full text-left px-4 py-3 rounded transition-colors flex justify-between items-center ${view === AppView.SEO_ARTICLES ? 'bg-primary text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
+              >
+                 <span>📝 SEO 文章</span>
+                 {!hasSeoAccess && <span className="text-xs">🔒</span>}
+              </button>
           </div>
 
           <div className="pt-4 border-t border-gray-700">
@@ -235,9 +290,12 @@ const App: React.FC = () => {
           </div>
         </nav>
 
-        <div className="p-4 border-t border-gray-700">
-          <button onClick={handleLogout} className="w-full text-left px-4 py-2 text-sm text-gray-500 hover:text-white transition-colors">
-            🚪 登出
+        <div className="p-4 border-t border-gray-700 space-y-2">
+          <button onClick={() => setShowPwdModal(true)} className="w-full text-left px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors flex items-center gap-2">
+             🔑 修改密碼
+          </button>
+          <button onClick={handleLogout} className="w-full text-left px-4 py-2 text-sm text-gray-500 hover:text-red-400 transition-colors flex items-center gap-2">
+             🚪 登出
           </button>
         </div>
       </aside>
@@ -251,6 +309,7 @@ const App: React.FC = () => {
             onPostCreated={handlePostCreated} 
             onQuotaUpdate={refreshProfile}
             editPost={editingPost}
+            onCancel={() => setEditingPost(null)}
           />
         )}
 
@@ -270,6 +329,10 @@ const App: React.FC = () => {
           hasAutomationAccess ? <AutomationPanel settings={settings} onSave={handleSaveSettings} /> : <div className="p-8 text-center text-gray-500">Access Denied</div>
         )}
 
+        {view === AppView.SEO_ARTICLES && (
+            hasSeoAccess ? <SeoArticleGenerator user={userProfile} onQuotaUpdate={refreshProfile} /> : <div className="p-8 text-center text-gray-500">Access Denied</div>
+        )}
+
         {view === AppView.SETTINGS && (
           <SettingsForm 
             initialSettings={settings} 
@@ -282,9 +345,12 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {/* Modal */}
+      {/* Modals */}
       {showRedeemModal && (
           <RedeemModal onClose={() => setShowRedeemModal(false)} onRedeem={handleRedeemKey} />
+      )}
+      {showPwdModal && (
+          <ChangePasswordModal onClose={() => setShowPwdModal(false)} />
       )}
     </div>
   );

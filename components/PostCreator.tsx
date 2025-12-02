@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import { BrandSettings, Post, TrendingTopic, UserProfile } from '../types';
 import { getTrendingTopics, generatePostDraft, generateImage, generateVideo } from '../services/geminiService';
@@ -20,6 +21,9 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [topic, setTopic] = useState('');
   
+  // Store full trending data (title, desc, url) for better AI context
+  const [selectedTopicData, setSelectedTopicData] = useState<TrendingTopic | null>(null);
+
   // Feature Locks for Basic User
   const isBasicUser = user?.role === 'user';
 
@@ -50,14 +54,42 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   const [publishResult, setPublishResult] = useState<{success: boolean, msg: string} | null>(null);
   const [hasLoadedDraft, setHasLoadedDraft] = useState(false);
 
+  // Input highlight state
+  const [isInputHighlight, setIsInputHighlight] = useState(false);
+
   // Check if media is placeholder (Visual warning only)
   const isPlaceholderMedia = mediaUrl && (mediaUrl.includes('placehold.co') || mediaUrl.includes('sample/BigBuckBunny'));
+
+  const resetToDefaults = () => {
+    setStep(1);
+    setTopic('');
+    setSelectedTopicData(null); // Clear context
+    setCaptionLength('150-300字');
+    setCtaLinks(['']);
+    setCtaPlacement('caption');
+    setTempHashtags('');
+    setDraft({ caption: '', firstComment: '', imagePrompt: '', videoPrompt: '' });
+    setMediaUrl(undefined);
+    setMediaSource('ai');
+    setSelectedMediaType('image');
+    setScheduleDate('');
+    setPublishResult(null);
+    setHasLoadedDraft(false);
+    setIsDemoMode(false);
+    setTrendingTopics([]);
+    setTopicError('');
+    setIsGeneratingDraft(false);
+    setIsGeneratingMedia(false);
+    setIsInputHighlight(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
   // 1. Initialize from editPost (Priority 1) or LocalStorage Draft (Priority 2)
   useEffect(() => {
     if (editPost) {
         setStep(2);
         setTopic(editPost.topic);
+        // Note: editPost doesn't store full trending context currently, which is fine
         setDraft({ 
             caption: editPost.caption, 
             firstComment: editPost.firstComment || '',
@@ -74,6 +106,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                 const parsed = JSON.parse(savedDraft);
                 setStep(parsed.step || 1);
                 setTopic(parsed.topic || '');
+                setSelectedTopicData(parsed.selectedTopicData || null);
                 setCaptionLength(parsed.captionLength || '150-300字');
                 setCtaLinks(parsed.ctaLinks || ['']);
                 setCtaPlacement(parsed.ctaPlacement || 'caption');
@@ -87,19 +120,29 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                 setHasLoadedDraft(true);
             } catch (e) {
                 console.error("Failed to load draft", e);
+                resetToDefaults();
             }
+        } else {
+            // No draft and no edit post -> Clean Slate
+            resetToDefaults();
         }
     }
   }, [editPost]);
 
   // 2. Auto-Save Draft
   useEffect(() => {
-      // Don't save if we are editing an existing scheduled post, or if no topic is entered yet
-      if (editPost || (!topic && step === 1)) return;
+      // Logic Fix: If there is no topic and we are at step 1, assume it's a cleared state or fresh start.
+      // Do NOT save to localStorage to avoid overwriting a "cleared" state with empty data if not intended,
+      // or more importantly, do not save if we just cleared it.
+      if (!topic && step === 1) return;
+
+      // Don't save if we are editing an existing scheduled post
+      if (editPost) return;
 
       const stateToSave = {
           step,
           topic,
+          selectedTopicData,
           captionLength,
           ctaLinks,
           ctaPlacement,
@@ -112,35 +155,27 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
           isDemoMode
       };
       localStorage.setItem(DRAFT_KEY, JSON.stringify(stateToSave));
-  }, [step, topic, captionLength, ctaLinks, ctaPlacement, tempHashtags, draft, mediaUrl, mediaSource, selectedMediaType, scheduleDate, editPost, isDemoMode]);
+  }, [step, topic, selectedTopicData, captionLength, ctaLinks, ctaPlacement, tempHashtags, draft, mediaUrl, mediaSource, selectedMediaType, scheduleDate, editPost, isDemoMode]);
 
-  const handleClearDraft = () => {
+  // Effect to handle highlight animation removal
+  useEffect(() => {
+    if (isInputHighlight) {
+        const timer = setTimeout(() => setIsInputHighlight(false), 2000);
+        return () => clearTimeout(timer);
+    }
+  }, [isInputHighlight]);
+
+  const handleClearDraft = (e?: React.MouseEvent) => {
+      if (e) e.preventDefault(); // Prevent bubbling issues
+      
       if (confirm("確定要清除所有編輯進度嗎？此動作將同時清除暫存草稿，且無法復原。")) {
-          // 1. Remove from Storage
+          // 1. Remove from Storage explicitly first
           localStorage.removeItem(DRAFT_KEY);
           
           // 2. Reset All State Variables
-          setStep(1);
-          setTopic('');
-          setCaptionLength('150-300字');
-          setCtaLinks(['']);
-          setCtaPlacement('caption');
-          setTempHashtags('');
-          setDraft({ caption: '', firstComment: '', imagePrompt: '', videoPrompt: '' });
-          setMediaUrl(undefined);
-          setMediaSource('ai');
-          setSelectedMediaType('image'); // Reset media type
-          setScheduleDate('');
-          setPublishResult(null);
-          setHasLoadedDraft(false);
-          setIsDemoMode(false);
-          setTrendingTopics([]);
-          setTopicError('');
-          
-          // 3. Clear file input if exists
-          if (fileInputRef.current) fileInputRef.current.value = '';
+          resetToDefaults();
 
-          // 4. Notify Parent to clear Edit Mode
+          // 3. Notify Parent to clear Edit Mode if applicable
           if (onCancel) onCancel();
       }
   };
@@ -152,7 +187,6 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     }
 
     if (!isDemoMode) {
-        if (!confirm("搜尋熱門話題將消耗 1 點 AI 配額，確定搜尋？")) return;
         const allowed = await checkAndUseQuota(user.user_id);
         if (!allowed) {
             setTopicError('⚠️ 配額不足，無法搜尋。請升級方案或使用 Demo 模式。');
@@ -166,14 +200,26 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     try {
       // Add random seed to get different results on retry
       const seed = Date.now();
-      const topics = await getTrendingTopics(settings.industry, seed);
+      const industry = settings.industry || "台灣熱門時事";
+      const topics = await getTrendingTopics(industry, seed);
       setTrendingTopics(topics);
       if (topics.length === 0) setTopicError('找不到相關話題，請檢查 API Key 或稍後再試。');
-    } catch (e) {
-      setTopicError('搜尋失敗，請檢查網路或 API Key。');
+    } catch (e: any) {
+      console.error(e);
+      setTopicError(`搜尋失敗: ${e.message}`);
     } finally {
       setIsLoadingTopics(false);
     }
+  };
+
+  const handleTopicSelect = (t: TrendingTopic) => {
+      // Store Title
+      setTopic(t.title);
+      // Store Full Context (Desc, URL)
+      setSelectedTopicData(t);
+      
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      setIsInputHighlight(true);
   };
 
   const handleCtaLinkChange = (index: number, value: string) => {
@@ -251,11 +297,16 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
       // Force Standard length for Basic User
       const finalLength = isBasicUser ? '150-300字' : captionLength;
 
-      const generated = await generatePostDraft(topic, settings, {
-          length: finalLength,
-          ctaLinks: validLinks,
-          tempHashtags: '' // Passed but not used in UI currently
-      });
+      const generated = await generatePostDraft(
+          topic, 
+          settings, 
+          {
+            length: finalLength,
+            ctaLinks: validLinks,
+            tempHashtags: '' 
+          },
+          selectedTopicData || undefined // Pass full context if available
+      );
 
       let finalCaption = generated.caption;
       const config = getSystemConfig();
@@ -358,14 +409,12 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
         const url = await generateImage(promptToSend);
         setMediaUrl(url);
       } else {
-        // Should not happen in UI anymore, but keep logic safe
         const promptToSend = draft.videoPrompt + variationSuffix;
         const url = await generateVideo(promptToSend);
         setMediaUrl(url);
       }
     } catch (e: any) {
       console.error(e);
-      // Clean up error message for alert
       let msg = e.message;
       if (msg.includes('429')) msg = "API 配額額滿 (429 Too Many Requests)。請稍後再試或使用 Demo 模式。";
       else if (msg.includes('404')) msg = "API 資源未找到 (404)。您的 Key 可能無權限使用此模型。";
@@ -381,7 +430,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     setIsPublishing(true);
     
     const config = getSystemConfig();
-    const isDryRun = config.dryRunMode || isDemoMode; // Demo mode also implies dry run publishing
+    const isDryRun = config.dryRunMode || isDemoMode; 
 
     const newPost: Post = {
       id: editPost ? editPost.id : Date.now().toString(),
@@ -403,7 +452,6 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     } else {
       let result;
       if (isDryRun) {
-          // Simulate Publish
           await new Promise(r => setTimeout(r, 1000));
           console.log("[Demo/Dry Run] Publish Payload:", {
               pageId: settings.facebookPageId,
@@ -438,15 +486,8 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     // Clear draft only if successful publish or scheduled
     if (schedule || newPost.status === 'published') {
         if (!editPost) {
-            localStorage.removeItem(DRAFT_KEY); // Clear draft storage
-            setStep(1);
-            setTopic('');
-            setDraft({ caption: '', firstComment: '', imagePrompt: '', videoPrompt: '' });
-            setCtaLinks(['']);
-            setMediaUrl(undefined);
-            setScheduleDate('');
-            setHasLoadedDraft(false);
-            // Keep Demo Mode preference or reset? Let's keep it for convenience
+            localStorage.removeItem(DRAFT_KEY); 
+            resetToDefaults();
         }
     }
     setIsPublishing(false);
@@ -468,7 +509,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                             <span className="text-sm font-bold text-yellow-400">🧪 Demo 模式 (不扣配額)</span>
                         </label>
                         {hasLoadedDraft && <span className="text-xs text-green-400 animate-pulse">已恢復上次草稿</span>}
-                        <button onClick={handleClearDraft} className="text-red-400 text-sm border border-red-900 bg-red-900/10 px-3 py-1 rounded hover:bg-red-900/40 transition-colors">🗑️ 清除重置</button>
+                        <button type="button" onClick={handleClearDraft} className="text-red-400 text-sm border border-red-900 bg-red-900/10 px-3 py-1 rounded hover:bg-red-900/40 transition-colors">🗑️ 清除重置</button>
                     </div>
                </div>
                
@@ -477,8 +518,8 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                       <label className="block text-sm text-gray-400 mb-1">貼文主題</label>
                       <input 
                         value={topic} 
-                        onChange={e => setTopic(e.target.value)} 
-                        className="w-full bg-dark border-gray-600 rounded p-3 text-white outline-none" 
+                        onChange={e => { setTopic(e.target.value); setSelectedTopicData(null); }} 
+                        className={`w-full bg-dark border-gray-600 rounded p-3 text-white outline-none transition-all duration-300 ${isInputHighlight ? 'ring-2 ring-yellow-500 shadow-lg shadow-yellow-500/20' : ''}`} 
                         placeholder="例如：母親節特賣活動、新產品上市..."
                       />
                   </div>
@@ -527,11 +568,11 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                                   placeholder="https://example.com/product"
                                   className="flex-1 bg-dark border border-gray-600 rounded p-2 text-white text-sm"
                                 />
-                                <button onClick={() => removeCtaLink(index)} className="text-red-400 px-2">×</button>
+                                <button type="button" onClick={() => removeCtaLink(index)} className="text-red-400 px-2">×</button>
                              </div>
                           ))}
                           {ctaLinks.length < 5 && (
-                             <button onClick={addCtaLink} className="text-sm text-blue-400 hover:text-blue-300">+ 新增連結</button>
+                             <button type="button" onClick={addCtaLink} className="text-sm text-blue-400 hover:text-blue-300">+ 新增連結</button>
                           )}
                       </div>
                       <div className="mt-4 flex gap-4 text-sm bg-dark/50 p-3 rounded border border-gray-800">
@@ -556,7 +597,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                   </div>
 
                   <div className="pt-4 border-t border-gray-700">
-                        <button disabled={!topic} onClick={handleNextToDraft} className={`w-full text-white py-3 rounded font-bold transition-all ${isDemoMode ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-primary hover:bg-blue-600 disabled:opacity-50'}`}>
+                        <button type="button" disabled={!topic} onClick={handleNextToDraft} className={`w-full text-white py-3 rounded font-bold transition-all ${isDemoMode ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-primary hover:bg-blue-600 disabled:opacity-50'}`}>
                             {isDemoMode ? '下一步：使用 Demo 模式生成 (不扣配額)' : '下一步：使用 AI 生成 (消耗 1 配額)'}
                         </button>
                   </div>
@@ -566,7 +607,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                <div className="mt-8">
                    <div className="flex items-center justify-between mb-4">
                        <h3 className="text-lg font-semibold text-gray-400">🔥 趨勢靈感</h3>
-                       <button onClick={loadTrending} className="bg-secondary px-4 py-2 rounded text-sm text-white border border-indigo-500 hover:bg-indigo-600 transition-colors">
+                       <button type="button" onClick={loadTrending} className="bg-secondary px-4 py-2 rounded text-sm text-white border border-indigo-500 hover:bg-indigo-600 transition-colors">
                             {isDemoMode ? '🔍 搜尋熱門話題 (Demo)' : '🔍 搜尋熱門話題 (消耗 1 配額)'}
                        </button>
                    </div>
@@ -574,9 +615,10 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                    {isLoadingTopics ? <div className="text-center text-primary">AI 正在搜尋分析中...</div> : (
                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                            {trendingTopics.map((t, i) => (
-                               <div key={i} onClick={() => setTopic(t.title)} className="p-4 rounded border border-gray-700 bg-card cursor-pointer hover:border-primary transition-colors">
-                                   <h4 className="font-bold text-white">{t.title}</h4>
-                                   <p className="text-sm text-gray-400 mt-1">{t.description}</p>
+                               <div key={i} onClick={() => handleTopicSelect(t)} className="p-4 rounded border border-gray-700 bg-card cursor-pointer hover:border-primary transition-colors hover:bg-gray-800">
+                                   <h4 className="font-bold text-white mb-1">{t.title}</h4>
+                                   <p className="text-sm text-gray-400 line-clamp-2">{t.description}</p>
+                                   {t.url && <p className="text-xs text-blue-400 mt-2 truncate">🔗 {t.url}</p>}
                                </div>
                            ))}
                        </div>
@@ -594,8 +636,8 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                 <div className="flex justify-between items-center mb-4">
                     <h3 className="text-xl font-bold text-primary">編輯內容 {isDemoMode && <span className="text-xs bg-yellow-600 text-white px-2 py-1 rounded ml-2">Demo Mode</span>}</h3>
                     <div className="flex gap-2">
-                        <button onClick={() => setStep(1)} className="text-xs text-gray-400 hover:text-white underline">← 返回設定</button>
-                        <button onClick={handleClearDraft} className="text-xs text-red-400 hover:text-red-300 border border-red-900 px-2 py-1 rounded">清除</button>
+                        <button type="button" onClick={() => setStep(1)} className="text-xs text-gray-400 hover:text-white underline">← 返回設定</button>
+                        <button type="button" onClick={handleClearDraft} className="text-xs text-red-400 hover:text-red-300 border border-red-900 px-2 py-1 rounded">清除</button>
                     </div>
                 </div>
                 
@@ -624,18 +666,15 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                                 <div className="w-full bg-blue-600/20 border border-blue-600 text-blue-200 text-center py-2 rounded text-sm font-bold flex items-center justify-center gap-2 cursor-default">
                                     <span>🖼️ AI 圖片生成 (Gemini Flash)</span>
                                 </div>
-                                {/* Video generation hidden per request
-                                <button onClick={() => setSelectedMediaType('video')} className={`flex-1 py-1 rounded text-sm ${selectedMediaType === 'video' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300'}`}>影片 (Veo 3.1)</button>
-                                */}
                             </div>
                             <textarea value={draft.imagePrompt} onChange={e => setDraft(prev => ({...prev, imagePrompt: e.target.value}))} className="w-full h-24 bg-dark border-gray-600 rounded p-3 text-white mb-2" placeholder="AI 圖片提示詞..." />
                             
-                            <button onClick={handleGenerateMedia} disabled={isGeneratingMedia} className={`w-full py-3 rounded font-bold text-white transition-all ${isDemoMode ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-secondary hover:bg-indigo-600'}`}>
+                            <button type="button" onClick={handleGenerateMedia} disabled={isGeneratingMedia} className={`w-full py-3 rounded font-bold text-white transition-all ${isDemoMode ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-secondary hover:bg-indigo-600'}`}>
                                 {isGeneratingMedia ? 'AI 生成素材中...' : isDemoMode ? `產生 Demo 圖片 (不扣配額)` : `生成圖片 (消耗 1 配額)`}
                             </button>
                             
                             {mediaUrl && (
-                                <button onClick={handleGenerateMedia} disabled={isGeneratingMedia} className="w-full mt-2 border border-yellow-600 hover:bg-yellow-900/30 py-2 rounded text-yellow-500 text-sm font-bold transition-colors">
+                                <button type="button" onClick={handleGenerateMedia} disabled={isGeneratingMedia} className="w-full mt-2 border border-yellow-600 hover:bg-yellow-900/30 py-2 rounded text-yellow-500 text-sm font-bold transition-colors">
                                     🔄 不滿意？{isDemoMode ? '重新生成 (Demo)' : '消耗 1 配額重新生成 (變更風格)'}
                                 </button>
                             )}
@@ -701,6 +740,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                     )}
                     <div className="flex gap-4">
                         <button 
+                            type="button"
                             onClick={() => handleFinalize(true)} 
                             disabled={!scheduleDate || isBasicUser} 
                             className="flex-1 border border-primary text-primary hover:bg-primary/10 py-3 rounded font-bold disabled:opacity-50 disabled:cursor-not-allowed"
@@ -708,7 +748,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                         >
                             {isBasicUser ? "排程 (鎖定)" : "加入排程"}
                         </button>
-                        <button onClick={() => handleFinalize(false)} className={`flex-1 text-white py-3 rounded font-bold shadow-lg ${isDemoMode ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-primary hover:bg-blue-600'}`}>
+                        <button type="button" onClick={() => handleFinalize(false)} className={`flex-1 text-white py-3 rounded font-bold shadow-lg ${isDemoMode ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-primary hover:bg-blue-600'}`}>
                             {isDemoMode ? '模擬發佈' : '立即發佈'}
                         </button>
                     </div>

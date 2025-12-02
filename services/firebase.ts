@@ -1,7 +1,7 @@
 
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, Auth } from 'firebase/auth';
-import { getFirestore, Firestore } from 'firebase/firestore';
+import firebase from 'firebase/compat/app';
+import 'firebase/compat/auth';
+import 'firebase/compat/firestore';
 
 // ============================================================================
 // FIREBASE CONFIGURATION
@@ -30,75 +30,38 @@ const firebaseConfig = {
 };
 
 // ============================================================================
-// INITIALIZATION
+// INITIALIZATION (COMPAT / V8 STYLE)
 // ============================================================================
 
-let auth: Auth | any;
-let db: Firestore | any;
+let app;
+let auth: firebase.auth.Auth;
+let db: firebase.firestore.Firestore;
 let isMock = false;
 
-// Check if config exists and is valid
 const hasConfig = !!firebaseConfig.apiKey && !!firebaseConfig.projectId && firebaseConfig.apiKey !== 'undefined';
 
 if (hasConfig) {
-  // --- REAL FIREBASE MODE (Production) ---
-  console.log("🔥 Initializing Real Firebase Connection...", firebaseConfig.projectId);
-  
   try {
-      const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-      auth = getAuth(app);
-      db = getFirestore(app);
-      isMock = false;
+      if (!firebase.apps.length) {
+          app = firebase.initializeApp(firebaseConfig);
+      } else {
+          app = firebase.app();
+      }
+      auth = firebase.auth();
+      db = firebase.firestore();
+      console.log("🔥 Firebase Initialized (Compat)");
   } catch (e) {
       console.error("Firebase Init Error:", e);
-      console.warn("Falling back to MOCK mode due to initialization error.");
-      isMock = true; // Fallback to avoid crash
+      isMock = true; 
+      // Create mock objects placeholders to prevent crash on import
+      auth = {} as any; 
+      db = {} as any;
   }
-
 } else {
-  // --- MOCK MODE (Local Preview or Missing Config) ---
-  console.log("⚠️ No Valid Firebase Config found. Using MOCK mode.");
-  if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
-       // Debug helper
-       const keys = Object.keys((import.meta as any).env);
-       console.log("ℹ️ Env Keys Available:", keys.filter(k => k.includes('FIREBASE')));
-  }
+  console.log("⚠️ No Valid Firebase Config. Using MOCK mode.");
   isMock = true;
+  auth = {} as any;
+  db = {} as any;
 }
 
-// Mock Auth Object Implementation
-if (isMock) {
-  auth = {
-    currentUser: null, // Initial state
-    onAuthStateChanged: (cb: any) => {
-        const check = () => {
-             const uid = localStorage.getItem('autosocial_session_uid');
-             if(uid) {
-                 const user = { uid, email: 'demo@example.com', getIdToken: async () => 'mock-token' };
-                 auth.currentUser = user; // Sync currentUser
-                 cb(user);
-             } else {
-                 auth.currentUser = null; // Sync currentUser
-                 cb(null);
-             }
-        };
-        if (typeof window !== 'undefined') {
-            window.addEventListener('auth_state_change', check);
-            // Immediate check
-            setTimeout(check, 0); 
-        }
-        return () => {
-            if (typeof window !== 'undefined') window.removeEventListener('auth_state_change', check);
-        };
-    },
-    signOut: async () => {
-        localStorage.removeItem('autosocial_session_uid');
-        auth.currentUser = null;
-        if (typeof window !== 'undefined') window.dispatchEvent(new Event('auth_state_change'));
-    }
-  };
-
-  db = {}; 
-}
-
-export { auth, db, isMock };
+export { app, auth, db, isMock, firebase };

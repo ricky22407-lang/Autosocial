@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { 
   getAllUsers, generateAdminKey, updateUserRole, 
@@ -68,7 +69,10 @@ const AdminPanel: React.FC<Props> = ({ currentUser }) => {
       loadAllData();
   };
 
-  const handleGenerateFeatureKey = async (feature: 'ANALYTICS' | 'AUTOMATION') => {
+  const handleGenerateFeatureKey = async (feature: 'ANALYTICS' | 'AUTOMATION' | 'SEO') => {
+    // Note: Use 'SEO' string which maps to unlockedFeatures logic in App.tsx
+    // Or specifically 'SEO_ARTICLES' if you want very specific granularity.
+    // In types.ts we defined targetFeature as 'SEO', so we use that.
     const key = await generateAdminKey(currentUser.user_id, 'UNLOCK_FEATURE', undefined, feature);
     setGeneratedKey(key);
     loadAllData();
@@ -130,8 +134,9 @@ const AdminPanel: React.FC<Props> = ({ currentUser }) => {
                 <div className="bg-card p-6 rounded-xl border border-gray-700">
                     <h3 className="text-xl font-bold text-white mb-4">🔑 選配功能金鑰生成 <span className="text-xs text-gray-400 font-normal">(一次性，24小時內有效)</span></h3>
                     <div className="flex flex-wrap gap-2">
-                        <button onClick={() => handleGenerateFeatureKey('ANALYTICS')} className="bg-purple-900 text-purple-200 px-4 py-2 rounded text-sm hover:bg-purple-800 border border-purple-700">📊 生成「數據分析」解鎖金鑰</button>
-                        <button onClick={() => handleGenerateFeatureKey('AUTOMATION')} className="bg-indigo-900 text-indigo-200 px-4 py-2 rounded text-sm hover:bg-indigo-800 border border-indigo-700">🤖 生成「自動化」解鎖金鑰</button>
+                        <button onClick={() => handleGenerateFeatureKey('ANALYTICS')} className="bg-purple-900 text-purple-200 px-4 py-2 rounded text-sm hover:bg-purple-800 border border-purple-700">📊 數據分析</button>
+                        <button onClick={() => handleGenerateFeatureKey('AUTOMATION')} className="bg-indigo-900 text-indigo-200 px-4 py-2 rounded text-sm hover:bg-indigo-800 border border-indigo-700">🤖 自動化</button>
+                        <button onClick={() => handleGenerateFeatureKey('SEO')} className="bg-teal-900 text-teal-200 px-4 py-2 rounded text-sm hover:bg-teal-800 border border-teal-700">📝 SEO 文章</button>
                     </div>
                     {generatedKey && (
                         <div className="mt-4 p-3 bg-black/30 border border-green-500 rounded text-green-400 font-mono text-center select-all">
