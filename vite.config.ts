@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react';
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   // Load env file based on `mode` in the current working directory.
+  // Set third parameter to '' to load all env regardless of prefix
   const env = loadEnv(mode, process.cwd(), '');
   
   return {
