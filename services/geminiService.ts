@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { BrandSettings, TrendingTopic, AnalyticsData, CachedTrendData } from "../types";
 import { db } from "./firebase"; // Using compat export

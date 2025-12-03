@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react';
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   // Load env file based on `mode` in the current working directory.
-  // Cast process to any to avoid TS errors if types/node is missing
+  // Cast process to any to avoid TS errors if types/node is missing during build
   const env = loadEnv(mode, (process as any).cwd(), '');
   return {
     plugins: [react()],

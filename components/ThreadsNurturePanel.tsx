@@ -1,4 +1,3 @@
-
 // #region Imports & Interfaces
 import React, { useState, useEffect } from 'react';
 import { BrandSettings, ThreadsAccount, UserProfile, TrendingTopic } from '../types';
