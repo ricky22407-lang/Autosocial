@@ -4,20 +4,17 @@ import react from '@vitejs/plugin-react';
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   // Load env file based on `mode` in the current working directory.
-  // Cast process to any to avoid TS errors if types/node is missing during build
-  const env = loadEnv(mode, (process as any).cwd(), '');
+  const env = loadEnv(mode, process.cwd(), '');
   
-  // Create a clean process.env object for the browser
-  // This prevents the "Uncaught ReferenceError: process is not defined" error
-  const processEnvValues = {
-    'process.env': JSON.stringify(env)
-  };
-
   return {
     plugins: [react()],
-    define: processEnvValues,
+    // Defines global constant replacements.
+    // This effectively polyfills `process.env` in the browser code.
+    define: {
+      'process.env': JSON.stringify(env)
+    },
     build: {
-      chunkSizeWarningLimit: 1000, // Raise warning limit to 1000kb
+      chunkSizeWarningLimit: 1000,
       rollupOptions: {
         output: {
           manualChunks: {
