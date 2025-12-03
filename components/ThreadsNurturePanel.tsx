@@ -204,7 +204,8 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
           onQuotaUpdate();
 
           // Pass personas to the service
-          const posts = await generateThreadsBatch(t, postCount, settings, activePersonas);
+          // Explicitly type the result as any[] to avoid TS implicit any error in loop
+          const posts: any[] = await generateThreadsBatch(t, postCount, settings, activePersonas);
           
           // Find if this topic has a source image available in trending list
           const trendingSource = trendingTopics.find(tt => tt.title === t);

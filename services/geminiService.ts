@@ -519,7 +519,7 @@ export const generateThreadsBatch = async (
     count: number, 
     settings: BrandSettings, 
     personas: string[] = []
-) => {
+): Promise<any[]> => {
     // Inject specific personas if available
     const personaConstraint = personas.length > 0 
         ? `Use these specific personas for the posts (rotate if multiple):\n${personas.map((p, i) => `${i+1}. ${p}`).join('\n')}`
