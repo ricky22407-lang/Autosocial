@@ -210,7 +210,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
           const trendingSource = trendingTopics.find(tt => tt.title === t);
           const sourceImageUrl = trendingSource?.imageUrl;
 
-          posts.forEach((p, idx) => {
+          posts.forEach((p: any, idx: number) => {
              const targetAcc = accounts[allNewPosts.length % accounts.length];
              const timestamp = Date.now() + allNewPosts.length + idx;
              
