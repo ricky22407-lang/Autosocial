@@ -69,6 +69,12 @@ const AdminPanel: React.FC<Props> = ({ currentUser }) => {
       loadAllData();
   };
 
+  const handleGenerateKey = async (type: 'RESET_QUOTA' | 'UPGRADE_ROLE', role?: UserRole) => {
+    const key = await generateAdminKey(currentUser.user_id, type, role);
+    setGeneratedKey(key);
+    loadAllData();
+  };
+
   const handleGenerateFeatureKey = async (feature: 'ANALYTICS' | 'AUTOMATION' | 'SEO' | 'THREADS') => {
     const key = await generateAdminKey(currentUser.user_id, 'UNLOCK_FEATURE', undefined, feature);
     setGeneratedKey(key);
@@ -129,7 +135,35 @@ const AdminPanel: React.FC<Props> = ({ currentUser }) => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="bg-card p-6 rounded-xl border border-gray-700">
-                    <h3 className="text-xl font-bold text-white mb-4">🔑 選配功能金鑰生成 <span className="text-xs text-gray-400 font-normal">(一次性，24小時內有效)</span></h3>
+                    <h3 className="text-xl font-bold text-white mb-4">🔑 方案升級金鑰 (Upgrade Key)</h3>
+                    <div className="flex flex-wrap gap-2 mb-4">
+                         <button 
+                            onClick={() => handleGenerateKey('UPGRADE_ROLE', 'starter')}
+                            className="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded font-bold"
+                          >
+                            Starter (創作者)
+                          </button>
+                          <button 
+                            onClick={() => handleGenerateKey('UPGRADE_ROLE', 'pro')}
+                            className="bg-purple-700 hover:bg-purple-600 text-white px-4 py-2 rounded font-bold"
+                          >
+                            Pro (專業版)
+                          </button>
+                          <button 
+                            onClick={() => handleGenerateKey('UPGRADE_ROLE', 'business')}
+                            className="bg-yellow-700 hover:bg-yellow-600 text-white px-4 py-2 rounded font-bold"
+                          >
+                            Business (企業版)
+                          </button>
+                          <button 
+                            onClick={() => handleGenerateKey('RESET_QUOTA')}
+                            className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded font-bold"
+                          >
+                            重置配額
+                          </button>
+                    </div>
+
+                    <h3 className="text-xl font-bold text-white mb-4">🔑 單項功能解鎖</h3>
                     <div className="flex flex-wrap gap-2">
                         <button onClick={() => handleGenerateFeatureKey('ANALYTICS')} className="bg-purple-900 text-purple-200 px-4 py-2 rounded text-sm hover:bg-purple-800 border border-purple-700">📊 數據分析</button>
                         <button onClick={() => handleGenerateFeatureKey('AUTOMATION')} className="bg-indigo-900 text-indigo-200 px-4 py-2 rounded text-sm hover:bg-indigo-800 border border-indigo-700">🤖 自動化</button>
@@ -195,11 +229,12 @@ const AdminPanel: React.FC<Props> = ({ currentUser }) => {
                                     <select 
                                         value={user.role} 
                                         onChange={(e) => handleRoleChange(user.user_id, e.target.value as UserRole)}
-                                        className={`bg-dark border border-gray-600 rounded px-2 py-1 text-xs text-white ${user.role === 'admin' ? 'text-yellow-400 font-bold' : ''}`}
+                                        className={`bg-dark border border-gray-600 rounded px-2 py-1 text-xs text-white ${user.role === 'admin' ? 'text-red-400 font-bold' : user.role === 'business' ? 'text-yellow-400 font-bold' : ''}`}
                                     >
-                                        <option value="user">User (5)</option>
-                                        <option value="pro">Pro (100)</option>
-                                        <option value="vip">VIP (1000)</option>
+                                        <option value="user">User (Free)</option>
+                                        <option value="starter">Starter</option>
+                                        <option value="pro">Pro</option>
+                                        <option value="business">Business</option>
                                         <option value="admin">Admin</option>
                                     </select>
                                 </td>

@@ -42,7 +42,13 @@ export enum ErrorCode {
 // Domain: User & Membership
 // ==========================================
 
-export type UserRole = 'user' | 'pro' | 'vip' | 'admin';
+// Tier Structure:
+// user (Free): 10 Credits. FB Text Only.
+// starter: 500 Credits. FB Schedule, AI Image, Basic Analytics.
+// pro: 2000 Credits. Threads Nurture, SEO, Adv Analytics.
+// business: 5000+ Credits. AutoPilot, Multi-Account.
+// admin: Unlimited.
+export type UserRole = 'user' | 'starter' | 'pro' | 'business' | 'admin';
 
 export interface UserProfile {
   user_id: string;
@@ -161,6 +167,15 @@ export interface TrendingTopic {
   title: string;
   description: string;
   url?: string;
+  imageUrl?: string; // New: Source image from RSS/News
+}
+
+// New: Global Cache Structure
+export interface CachedTrendData {
+  id: string;        // Key: YYYY-MM-DD_Industry
+  topics: TrendingTopic[];
+  createdAt: number;
+  industry: string;
 }
 
 // ==========================================

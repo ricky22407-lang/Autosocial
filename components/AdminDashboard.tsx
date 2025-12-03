@@ -62,11 +62,11 @@ const AdminDashboard: React.FC<Props> = ({ currentUser }) => {
             生成「升級 PRO」金鑰
           </button>
           <button 
-            onClick={() => handleGenerateKey('UPGRADE_ROLE', 'vip')}
+            onClick={() => handleGenerateKey('UPGRADE_ROLE', 'business')}
             disabled={loading}
             className="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded font-bold"
           >
-            生成「升級 VIP」金鑰
+            生成「升級 Business」金鑰
           </button>
         </div>
         
@@ -101,8 +101,9 @@ const AdminDashboard: React.FC<Props> = ({ currentUser }) => {
                     className="bg-dark border border-gray-600 rounded px-2 py-1 text-xs text-white"
                   >
                     <option value="user">User</option>
+                    <option value="starter">Starter</option>
                     <option value="pro">Pro</option>
-                    <option value="vip">VIP</option>
+                    <option value="business">Business</option>
                     <option value="admin">Admin</option>
                   </select>
                 </td>

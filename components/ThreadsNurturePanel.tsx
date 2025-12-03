@@ -1,5 +1,5 @@
 
-
+// #region Imports & Interfaces
 import React, { useState, useEffect } from 'react';
 import { BrandSettings, ThreadsAccount, UserProfile, TrendingTopic } from '../types';
 import { generateThreadsBatch, getTrendingTopics } from '../services/geminiService';
@@ -23,19 +23,21 @@ interface GeneratedPost {
   targetAccountId?: string;
   status: 'idle' | 'publishing' | 'done' | 'failed';
   log?: string;
-  imageSourceType?: 'ai' | 'stock'; 
+  imageSourceType?: 'ai' | 'stock' | 'source_url'; 
   isImageLoading?: boolean; 
 }
 
-type ImageMode = 'none' | 'manual' | 'ai_url' | 'stock_url';
+type ImageMode = 'none' | 'manual' | 'ai_url' | 'stock_url' | 'source_url';
+// #endregion
 
 const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, onQuotaUpdate }) => {
+  // #region State: Account Management
   const [activeTab, setActiveTab] = useState<'accounts' | 'generator'>('accounts');
   const [accounts, setAccounts] = useState<ThreadsAccount[]>(settings.threadsAccounts || []);
-  
   const [newAccount, setNewAccount] = useState({ id: '', username: '', token: '', personaPrompt: '' });
+  // #endregion
 
-  // Generator State
+  // #region State: Content Generator
   const [manualTopic, setManualTopic] = useState('');
   const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
   const [postCount, setPostCount] = useState(1); // 1, 2, 3
@@ -46,12 +48,33 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   
   const [trendingTopics, setTrendingTopics] = useState<TrendingTopic[]>([]);
   const [loadingTrends, setLoadingTrends] = useState(false);
+  // #endregion
 
+  // #region Business Logic: Account Limits
+  const getAccountLimit = () => {
+      if (!user) return 0;
+      if (user.role === 'admin' || user.role === 'business') return 20; // Enterprise/Agency (Business)
+      if (user.role === 'pro') return 3; // Pro Creator
+      return 0; // Free/Starter user shouldn't be here (Blocked by App.tsx)
+  };
+
+  const accountLimit = getAccountLimit();
+  const currentCount = accounts.length;
+  const isLimitReached = currentCount >= accountLimit;
+
+  // Auto-save settings when accounts change
   useEffect(() => {
     onSaveSettings({ ...settings, threadsAccounts: accounts });
   }, [accounts]);
+  // #endregion
 
+  // #region Handlers: Account Actions
   const handleAddAccount = () => {
+    if (isLimitReached) {
+        alert(`⚠️ 您的方案 (${user?.role}) 最多只能綁定 ${accountLimit} 個帳號。\n請升級至 Business (企業版) 方案以解鎖更多帳號額度。`);
+        return;
+    }
+
     if (newAccount.id && newAccount.token) {
       setAccounts([...accounts, { 
           ...newAccount, 
@@ -90,12 +113,14 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
           alert(`延長失敗: ${res.error}`);
       }
   };
+  // #endregion
 
+  // #region Handlers: Topics & Trends
   const loadTrending = async () => {
-    if (!user) return;
+    if (!user || loadingTrends) return;
     
-    // Check Quota for Trend Refresh
-    const allowed = await checkAndUseQuota(user.user_id);
+    // Check Quota for Trend Refresh (1 Point)
+    const allowed = await checkAndUseQuota(user.user_id, 1);
     if (!allowed) {
         alert("⚠️ 配額不足，無法刷新趨勢。");
         return;
@@ -121,14 +146,29 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
           setSelectedTopics([...selectedTopics, title]);
       }
   };
+  // #endregion
+
+  // #region Handlers: Batch Generation
+  // Helper to calculate quota cost based on user selection
+  const calculateCost = () => {
+      if (imageMode === 'ai_url') return 3;
+      if (imageMode === 'source_url' || imageMode === 'stock_url') return 2;
+      return 1; // manual or none
+  };
 
   const generateImageUrl = (prompt: string, query: string, type: 'ai' | 'stock', seed: number): string => {
+      // Encode strict
       if (type === 'ai') {
+          // AI Mode: Artistic, Creative, Illustration style
           const encodedPrompt = encodeURIComponent(prompt || query);
-          return `https://image.pollinations.ai/prompt/${encodedPrompt}?n=${seed}`;
+          // Use standard flux model
+          return `https://image.pollinations.ai/prompt/${encodedPrompt}?n=${seed}&model=flux`;
       } else {
-          const cleanQuery = (query || 'lifestyle').trim().split(/\s+/).join(',').replace(/[^a-zA-Z0-9,]/g, '');
-          return `https://loremflickr.com/800/800/${cleanQuery}?lock=${seed}`;
+          // Stock Mode (New): Use Pollinations with "Photorealism" prompt to simulate Stock Photos
+          // Added strong camera specs: Canon EOS R5, f/1.8, bokeh, etc.
+          const stockPrompt = `${query}, photorealistic, 4k, highly detailed, real photography, cinematic lighting, Canon EOS R5, f/1.8, depth of field, natural colors`;
+          const encodedPrompt = encodeURIComponent(stockPrompt);
+          return `https://image.pollinations.ai/prompt/${encodedPrompt}?n=${seed}&model=flux`;
       }
   };
 
@@ -141,6 +181,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
     if (topicsToProcess.length === 0) return alert('請至少輸入一個主題或選擇熱門話題');
     if (!user) return alert('請先登入');
     if (accounts.length === 0) return alert('請先新增至少一個 Threads 帳號');
+    if (isGenerating) return;
 
     setIsGenerating(true);
     setGeneratedPosts([]); 
@@ -149,13 +190,15 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
     const activePersonas = accounts
         .map(a => a.personaPrompt)
         .filter(p => p && p.trim().length > 0) as string[];
+    
+    // Dynamic Cost Calculation
+    const costPerTopic = calculateCost();
 
     try {
       for (const t of topicsToProcess) {
-          // Deduct 1 quota per Topic (Batch)
-          const allowed = await checkAndUseQuota(user.user_id);
+          const allowed = await checkAndUseQuota(user.user_id, costPerTopic);
           if (!allowed) {
-              alert(`配額不足，已停止於主題: ${t}`);
+              alert(`配額不足 (需要 ${costPerTopic} 點)，已停止於主題: ${t}`);
               break;
           }
           onQuotaUpdate();
@@ -163,19 +206,34 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
           // Pass personas to the service
           const posts = await generateThreadsBatch(t, postCount, settings, activePersonas);
           
+          // Find if this topic has a source image available in trending list
+          const trendingSource = trendingTopics.find(tt => tt.title === t);
+          const sourceImageUrl = trendingSource?.imageUrl;
+
           posts.forEach((p, idx) => {
              const targetAcc = accounts[allNewPosts.length % accounts.length];
              const timestamp = Date.now() + allNewPosts.length + idx;
              
-             let autoImageUrl = undefined;
-             let sourceType: 'ai' | 'stock' = 'stock';
+             let finalImageUrl = undefined;
+             let finalSourceType: 'ai' | 'stock' | 'source_url' = 'stock';
 
-             if (imageMode === 'ai_url') {
-                sourceType = 'ai';
-                autoImageUrl = generateImageUrl(p.imagePrompt, p.imageQuery, 'ai', timestamp);
+             // Image Strategy Logic
+             if (imageMode === 'source_url') {
+                 if (sourceImageUrl) {
+                     finalImageUrl = sourceImageUrl;
+                     finalSourceType = 'source_url';
+                 } else {
+                     // Fallback to Stock (AI Photorealism) if source image missing
+                     // Auto Upgrade: User paid 2 points, gets AI fallback (which is better) for free
+                     finalSourceType = 'stock';
+                     finalImageUrl = generateImageUrl(p.imagePrompt, p.imageQuery, 'stock', timestamp);
+                 }
+             } else if (imageMode === 'ai_url') {
+                finalSourceType = 'ai';
+                finalImageUrl = generateImageUrl(p.imagePrompt, p.imageQuery, 'ai', timestamp);
              } else if (imageMode === 'stock_url') {
-                sourceType = 'stock';
-                autoImageUrl = generateImageUrl(p.imagePrompt, p.imageQuery, 'stock', timestamp);
+                finalSourceType = 'stock';
+                finalImageUrl = generateImageUrl(p.imagePrompt, p.imageQuery, 'stock', timestamp);
              }
 
              allNewPosts.push({
@@ -183,9 +241,9 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                  topic: t,
                  status: 'idle',
                  targetAccountId: targetAcc.id,
-                 imageUrl: autoImageUrl,
-                 imageSourceType: sourceType,
-                 isImageLoading: !!autoImageUrl 
+                 imageUrl: finalImageUrl,
+                 imageSourceType: finalSourceType,
+                 isImageLoading: !!finalImageUrl 
              });
           });
       }
@@ -198,7 +256,9 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       setIsGenerating(false);
     }
   };
+  // #endregion
 
+  // #region Handlers: Post Edits & Publishing
   const handleUpdatePost = (index: number, updates: Partial<GeneratedPost>) => {
       const updated = [...generatedPosts];
       if (updates.imageUrl && updates.imageUrl !== updated[index].imageUrl) {
@@ -214,28 +274,58 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       setGeneratedPosts(updated);
   };
 
+  const handleImageError = (index: number) => {
+      const post = generatedPosts[index];
+      // If image fails to load (404/403), auto-upgrade to Stock Mode
+      // Only retry if it wasn't already a manual failure to avoid infinite loops
+      if (post.imageUrl && !post.imageUrl.includes('placehold.co')) {
+          console.warn(`[Image Rescue] Image failed for post ${index}. Upgrading to AI Stock...`);
+          
+          const newSeed = Date.now() + Math.random();
+          // Force switch to 'stock' type logic using Pollinations
+          const newUrl = generateImageUrl(post.imagePrompt, post.imageQuery, 'stock', newSeed);
+          
+          handleUpdatePost(index, {
+              imageUrl: newUrl,
+              imageSourceType: 'stock',
+              isImageLoading: true,
+              log: '⚠️ 原圖失效，已自動替換為 AI 擬真圖'
+          });
+      } else {
+          // If even fallback fails, show placeholder
+          handleUpdatePost(index, { isImageLoading: false });
+      }
+  };
+
   const handleRefreshImage = (index: number) => {
       const post = generatedPosts[index];
       const newSeed = Date.now() + Math.random();
+      
+      // Toggle between AI (Artistic) and Stock (Realism), ignoring Source URL for manual refresh
       const newType = post.imageSourceType === 'ai' ? 'stock' : 'ai';
       const newUrl = generateImageUrl(post.imagePrompt, post.imageQuery, newType, newSeed);
       
       handleUpdatePost(index, { 
           imageUrl: newUrl,
           imageSourceType: newType,
-          isImageLoading: true 
+          isImageLoading: true,
+          log: undefined // Clear logs
       });
   };
 
   const handleQueryChange = (index: number, newQuery: string) => {
       const post = generatedPosts[index];
       const newSeed = Date.now();
-      const newUrl = generateImageUrl(post.imagePrompt, newQuery, post.imageSourceType || 'ai', newSeed);
+      // Keep current type unless it was source_url, then force stock
+      const typeToUse = post.imageSourceType === 'source_url' ? 'stock' : (post.imageSourceType || 'stock');
+      const newUrl = generateImageUrl(post.imagePrompt, newQuery, typeToUse, newSeed);
       
       handleUpdatePost(index, {
           imageQuery: newQuery,
           imageUrl: newUrl,
-          isImageLoading: true 
+          imageSourceType: typeToUse,
+          isImageLoading: true,
+          log: undefined 
       });
   };
 
@@ -282,12 +372,14 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
     }
     alert("批量發佈流程結束");
   };
+  // #endregion
 
+  // #region Render UI
   return (
     <div className="max-w-6xl mx-auto p-4 animate-fade-in pb-20">
       <div className="flex justify-between items-center mb-6">
-          <h2 className="text-3xl font-bold text-white">🧵 Threads 養號農場 V2.3</h2>
-          <div className="text-xs text-gray-400">多議題批量生成 • Token 自動延展 • 彈性配圖</div>
+          <h2 className="text-3xl font-bold text-white">🧵 Threads 養號農場 V2.5</h2>
+          <div className="text-xs text-gray-400">全域趨勢快取 • 智慧配圖系統 • 多帳號營運</div>
       </div>
 
       <div className="flex border-b border-gray-700 mb-6">
@@ -295,7 +387,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
           onClick={() => setActiveTab('accounts')}
           className={`px-6 py-3 font-bold transition-colors ${activeTab === 'accounts' ? 'text-white border-b-2 border-white' : 'text-gray-500 hover:text-gray-300'}`}
         >
-          👥 帳號管理 ({accounts.length})
+          👥 帳號管理 ({accounts.length}/{accountLimit})
         </button>
         <button 
           onClick={() => setActiveTab('generator')}
@@ -305,28 +397,38 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
         </button>
       </div>
 
+      {/* --- Tab: Accounts --- */}
       {activeTab === 'accounts' && (
           <div className="space-y-6">
               <div className="bg-card p-6 rounded-xl border border-gray-700">
-                  <h3 className="text-lg font-bold text-white mb-4">新增 Threads 帳號</h3>
+                  <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-lg font-bold text-white">新增 Threads 帳號</h3>
+                      <span className={`text-xs px-2 py-1 rounded font-bold ${isLimitReached ? 'bg-red-900 text-red-200' : 'bg-green-900 text-green-200'}`}>
+                          {user?.role === 'pro' ? 'Pro 方案 (限3個)' : user?.role === 'business' ? 'Business 方案 (限20個)' : 'Admin'} : 已綁定 {currentCount} / {accountLimit}
+                      </span>
+                  </div>
+                  
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                       <input 
                         value={newAccount.username}
                         onChange={e => setNewAccount({...newAccount, username: e.target.value})}
                         placeholder="帳號名稱 (方便識別用)"
                         className="bg-dark border border-gray-600 rounded p-2 text-white"
+                        disabled={isLimitReached}
                       />
                       <input 
                         value={newAccount.id}
                         onChange={e => setNewAccount({...newAccount, id: e.target.value})}
                         placeholder="Threads User ID (數字)"
                         className="bg-dark border border-gray-600 rounded p-2 text-white"
+                        disabled={isLimitReached}
                       />
                       <input 
                         value={newAccount.token}
                         onChange={e => setNewAccount({...newAccount, token: e.target.value})}
                         placeholder="Long-lived Access Token"
                         className="md:col-span-2 bg-dark border border-gray-600 rounded p-2 text-white"
+                        disabled={isLimitReached}
                       />
                       <textarea
                         value={newAccount.personaPrompt}
@@ -334,11 +436,18 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                         placeholder="人設 Prompt (例如：你是個毒舌評論家...)"
                         rows={2}
                         className="md:col-span-2 bg-dark border border-gray-600 rounded p-2 text-white text-sm"
+                        disabled={isLimitReached}
                       />
                   </div>
-                  <button onClick={handleAddAccount} disabled={!newAccount.id || !newAccount.token} className="bg-primary hover:bg-blue-600 text-white px-4 py-2 rounded font-bold disabled:opacity-50">
-                      ＋ 新增帳號
-                  </button>
+                  {isLimitReached ? (
+                       <div className="bg-yellow-900/30 border border-yellow-600 text-yellow-200 p-3 rounded text-sm text-center">
+                           ⚠️ 已達方案帳號上限。如需管理更多帳號 (Agency 模式)，請聯繫管理員升級至 Business (企業版) 方案。
+                       </div>
+                  ) : (
+                      <button onClick={handleAddAccount} disabled={!newAccount.id || !newAccount.token} className="bg-primary hover:bg-blue-600 text-white px-4 py-2 rounded font-bold disabled:opacity-50">
+                          ＋ 新增帳號
+                      </button>
+                  )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -384,6 +493,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
           </div>
       )}
 
+      {/* --- Tab: Generator --- */}
       {activeTab === 'generator' && (
           <div className="space-y-8">
               <div className="bg-card p-6 rounded-xl border border-gray-700">
@@ -397,7 +507,12 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                 placeholder="輸入自訂主題..."
                                 className="flex-1 bg-dark border border-gray-600 rounded p-2 text-white focus:ring-2 ring-primary outline-none"
                               />
-                              <button onClick={loadTrending} disabled={loadingTrends} className="bg-secondary px-4 py-2 rounded text-white text-sm hover:bg-indigo-600">
+                              <button 
+                                onClick={loadTrending} 
+                                disabled={loadingTrends} 
+                                className="bg-secondary px-4 py-2 rounded text-white text-sm hover:bg-indigo-600 flex items-center gap-2 disabled:opacity-70"
+                              >
+                                  {loadingTrends ? <div className="loader w-3 h-3"></div> : null}
                                   {loadingTrends ? '搜尋中...' : '刷新趨勢 (扣1點)'}
                               </button>
                           </div>
@@ -417,9 +532,10 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                   <button 
                                     key={i} 
                                     onClick={() => toggleTopic(t.title)}
-                                    className={`px-3 py-1 rounded-full text-xs border transition-colors ${selectedTopics.includes(t.title) ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-600 text-gray-300 hover:border-white'}`}
+                                    className={`px-3 py-1 rounded-full text-xs border transition-colors flex flex-col items-start ${selectedTopics.includes(t.title) ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-600 text-gray-300 hover:border-white'}`}
                                   >
-                                      {t.title}
+                                      <span>{t.title}</span>
+                                      {t.imageUrl && <span className="text-[9px] bg-green-900/50 px-1 rounded mt-0.5 text-green-300">🖼️ 有圖</span>}
                                   </button>
                               ))}
                           </div>
@@ -445,25 +561,31 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                           </div>
 
                           <div>
-                              <label className="block text-xs text-gray-400 mb-1">圖片來源模式</label>
+                              <label className="block text-xs text-gray-400 mb-1">圖片來源模式與成本</label>
                               <select 
                                 value={imageMode} 
                                 onChange={e => setImageMode(e.target.value as ImageMode)}
                                 className="w-full bg-dark border border-gray-600 rounded p-2 text-white text-sm"
                               >
-                                  <option value="ai_url">🎨 AI 生成 (Pollinations)</option>
-                                  <option value="stock_url">📷 關鍵字搜圖 (LoremFlickr)</option>
-                                  <option value="manual">✍️ 手動輸入網址</option>
-                                  <option value="none">❌ 純文字 (無圖片)</option>
+                                  <option value="ai_url">🎨 AI 繪圖 (創意/插畫) - 扣 3 點</option>
+                                  <option value="stock_url">📷 擬真攝影 (AI取代圖庫) - 扣 2 點</option>
+                                  <option value="source_url">📰 新聞原圖 (若無自動轉擬真) - 扣 2 點</option>
+                                  <option value="manual">✍️ 手動輸入網址 - 扣 1 點</option>
+                                  <option value="none">❌ 純文字 (無圖片) - 扣 1 點</option>
                               </select>
+                              <p className="text-[10px] text-gray-500 mt-1">
+                                  {imageMode === 'stock_url' && "使用 AI 生成高畫質擬真照片，解決圖庫重複問題。"}
+                                  {imageMode === 'source_url' && "優先抓取新聞原圖，失敗則自動升級為擬真攝影 (不補扣點)。"}
+                              </p>
                           </div>
 
                           <button 
                              onClick={handleGenerateBatch} 
                              disabled={isGenerating} 
-                             className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white py-3 rounded font-bold shadow-lg transition-all disabled:opacity-50"
+                             className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white py-3 rounded font-bold shadow-lg transition-all disabled:opacity-50 flex justify-center items-center gap-2"
                           >
-                             {isGenerating ? 'AI 正在批量寫作中...' : `🚀 開始生成 (每主題扣 1 點)`}
+                             {isGenerating ? <div className="loader"></div> : null}
+                             {isGenerating ? 'AI 正在批量寫作中...' : `🚀 開始生成 (預計每主題扣 ${calculateCost()} 點)`}
                           </button>
                       </div>
                   </div>
@@ -514,11 +636,11 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                                     <button 
                                                         onClick={() => handleRefreshImage(i)}
                                                         disabled={post.isImageLoading}
-                                                        className={`px-2 py-1 rounded text-xs border whitespace-nowrap transition-all ${
+                                                        className={`px-2 py-1 rounded text-xs border whitespace-nowrap transition-all flex items-center gap-1 ${
                                                             post.isImageLoading ? 'bg-gray-800 text-gray-500' : 'bg-gray-700 text-white'
                                                         }`}
                                                     >
-                                                        {post.isImageLoading ? '...' : `🔄 ${post.imageSourceType}`}
+                                                        {post.isImageLoading ? <div className="loader w-3 h-3 border-2"></div> : '🔄'} {post.isImageLoading ? '' : (post.imageSourceType === 'stock' ? '擬真' : 'AI')}
                                                     </button>
                                                  </div>
                                                  <input 
@@ -535,20 +657,15 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                                         src={post.imageUrl} 
                                                         className={`w-full h-full object-cover transition-opacity duration-300 ${post.isImageLoading ? 'opacity-30' : 'opacity-100'}`}
                                                         onLoad={() => handleImageLoad(i)}
-                                                        onError={(e) => { 
-                                                            handleImageLoad(i);
-                                                            const target = e.target as HTMLImageElement;
-                                                            if (!target.src.includes('placehold.co')) {
-                                                                target.src = 'https://placehold.co/400?text=Image+Load+Error'; 
-                                                            }
-                                                        }}
+                                                        referrerPolicy="no-referrer"
+                                                        onError={() => handleImageError(i)}
                                                       />
                                                   ) : (
                                                       <span className="text-xs text-gray-500">無圖片</span>
                                                   )}
                                                   {post.isImageLoading && (
                                                       <div className="absolute inset-0 flex items-center justify-center">
-                                                          <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+                                                          <div className="loader border-primary border-t-transparent w-6 h-6"></div>
                                                       </div>
                                                   )}
                                               </div>
@@ -565,10 +682,11 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                   <div className="p-3 border-t border-gray-700 bg-gray-800 flex justify-end gap-2">
                                       <button 
                                         onClick={() => handlePublishSingle(i)}
-                                        disabled={post.status === 'done'}
-                                        className={`flex-1 py-2 rounded text-sm font-bold transition-colors ${post.status === 'done' ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white'}`}
+                                        disabled={post.status === 'done' || post.status === 'publishing'}
+                                        className={`flex-1 py-2 rounded text-sm font-bold transition-colors flex justify-center items-center gap-2 ${post.status === 'done' ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-70'}`}
                                       >
-                                          {post.status === 'done' ? '已發佈' : '發佈此篇'}
+                                          {post.status === 'publishing' ? <div className="loader w-3 h-3"></div> : null}
+                                          {post.status === 'done' ? '已發佈' : post.status === 'publishing' ? '發佈中...' : '發佈此篇'}
                                       </button>
                                   </div>
                               </div>
@@ -578,6 +696,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
               )}
           </div>
       )}
+      {/* #endregion */}
     </div>
   );
 };

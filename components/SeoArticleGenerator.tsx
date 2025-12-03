@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { generateSeoArticle } from '../services/geminiService';
 import { checkAndUseQuota } from '../services/authService';
@@ -33,15 +32,18 @@ const SeoArticleGenerator: React.FC<Props> = ({ user, onQuotaUpdate }) => {
             setErrorMsg("請輸入核心關鍵字！");
             return;
         }
-        if (!user) return;
+        if (!user || isGenerating) return;
 
         setErrorMsg('');
         
+        // SEO Articles cost 5 Credits due to length and search tool usage
+        const COST = 5;
+
         // Check Quota
         try {
-            const allowed = await checkAndUseQuota(user.user_id);
+            const allowed = await checkAndUseQuota(user.user_id, COST);
             if (!allowed) {
-                setErrorMsg("⚠️ 配額不足，無法生成文章。請升級方案或聯絡管理員。");
+                setErrorMsg(`⚠️ 配額不足 (需要 ${COST} 點)，無法生成文章。請升級方案或聯絡管理員。`);
                 return;
             }
             onQuotaUpdate();
@@ -169,16 +171,10 @@ const SeoArticleGenerator: React.FC<Props> = ({ user, onQuotaUpdate }) => {
                 <button 
                     onClick={handleGenerate}
                     disabled={isGenerating}
-                    className="mt-6 w-full py-3 px-4 text-white font-bold bg-primary rounded-lg shadow-md hover:bg-blue-600 transition duration-200 flex items-center justify-center disabled:opacity-50"
+                    className="mt-6 w-full py-3 px-4 text-white font-bold bg-primary rounded-lg shadow-md hover:bg-blue-600 transition duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                    {isGenerating ? (
-                        <>
-                            <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-white mr-2"></div>
-                            AI 正在撰寫中 (約需 10-20 秒)...
-                        </>
-                    ) : (
-                        '開始生成純文字文章 (消耗 1 配額)'
-                    )}
+                    {isGenerating ? <div className="loader"></div> : null}
+                    {isGenerating ? 'AI 正在撰寫中 (約需 10-20 秒)...' : '開始生成純文字文章 (消耗 5 配額)'}
                 </button>
             </div>
 

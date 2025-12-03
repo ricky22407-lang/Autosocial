@@ -1,5 +1,4 @@
 
-
 import { UserProfile, UserRole, AdminKey, SystemConfig, LogEntry, DashboardStats } from '../types';
 import { auth, db, isMock, firebase } from './firebase';
 
@@ -75,11 +74,12 @@ export const subscribeAuth = (callback: (user: { uid: string, email: string } | 
 
 const getQuotaForRole = (role: UserRole): number => {
   switch (role) {
-    case 'user': return 5;
-    case 'pro': return 100;
-    case 'vip': return 1000;
-    case 'admin': return 9999;
-    default: return 5;
+    case 'user': return 10;       // Free: 10
+    case 'starter': return 500;   // Starter: 500
+    case 'pro': return 2000;      // Pro: 2000
+    case 'business': return 5000; // Business: 5000+
+    case 'admin': return 99999;
+    default: return 10;
   }
 };
 
@@ -91,7 +91,7 @@ export const login = async (email: string, pass: string) => {
          const uid = 'demo_admin';
          const users = getDb(DB_USERS);
          if (!users[uid]) {
-             users[uid] = { user_id: uid, email, role: 'admin', quota_total: 9999, quota_used: 0, created_at: Date.now(), isSuspended: false, unlockedFeatures: ['ANALYTICS', 'AUTOMATION', 'SEO'] } as UserProfile;
+             users[uid] = { user_id: uid, email, role: 'admin', quota_total: 99999, quota_used: 0, created_at: Date.now(), isSuspended: false, unlockedFeatures: ['ANALYTICS', 'AUTOMATION', 'SEO'] } as UserProfile;
              saveDb(DB_USERS, users);
          }
          localStorage.setItem(SESSION_KEY, uid);
@@ -183,8 +183,8 @@ export const createUserProfile = async (user: { uid: string, email: string }): P
     const newUser: UserProfile = {
         user_id: user.uid,
         email: user.email,
-        role: 'user',
-        quota_total: 5,
+        role: 'user', // Default to Free (User)
+        quota_total: 10,
         quota_used: 0,
         quota_reset_date: Date.now() + 30 * 24 * 60 * 60 * 1000,
         isSuspended: false,
@@ -205,7 +205,12 @@ export const createUserProfile = async (user: { uid: string, email: string }): P
 
 // --- Quota & Role Operations ---
 
-export const checkAndUseQuota = async (userId: string): Promise<boolean> => {
+/**
+ * Checks quota and deducts a specific amount.
+ * @param userId User ID
+ * @param amount Amount to deduct (default: 1)
+ */
+export const checkAndUseQuota = async (userId: string, amount: number = 1): Promise<boolean> => {
     const user = await getUserProfile(userId);
     if (!user) return false;
     if (user.isSuspended) return false;
@@ -229,24 +234,32 @@ export const checkAndUseQuota = async (userId: string): Promise<boolean> => {
             users[userId].quota_reset_date = newReset;
             saveDb(DB_USERS, users);
         }
-        return true; 
+        // Even after reset, check if amount > total (unlikely but safe)
+        if (amount > total) return false;
+        
+        // Deduct
+        return await deduct(userId, amount);
     }
 
-    if (user.quota_used >= user.quota_total) return false;
+    if ((user.quota_used + amount) > user.quota_total) return false;
 
     // Deduct
+    return await deduct(userId, amount);
+};
+
+const deduct = async (userId: string, amount: number): Promise<boolean> => {
     if (!isMock) {
         await db.collection('users').doc(userId).update({
-            quota_used: firebase.firestore.FieldValue.increment(1),
+            quota_used: firebase.firestore.FieldValue.increment(amount),
             updated_at: Date.now()
         });
     } else {
         const users = getDb(DB_USERS);
-        users[userId].quota_used += 1;
+        users[userId].quota_used += amount;
         saveDb(DB_USERS, users);
     }
     return true;
-};
+}
 
 // --- Admin Operations ---
 

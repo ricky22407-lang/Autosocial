@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { AppView, BrandSettings, Post, UserProfile } from './types';
+
+// #region Components Import
 import SettingsForm from './components/SettingsForm';
 import { PostCreator } from './components/PostCreator';
 import ScheduleList from './components/ScheduleList';
@@ -11,9 +13,13 @@ import ThreadsNurturePanel from './components/ThreadsNurturePanel';
 import Login from './components/Login';
 import AdminPanel from './components/AdminPanel';
 import SeoArticleGenerator from './components/SeoArticleGenerator';
+// #endregion
 
+// #region Services & Auth Import
 import { subscribeAuth, logout, getUserProfile, useAdminKey, changeUserPassword } from './services/authService';
+// #endregion
 
+// #region Default Configuration
 const defaultSettings: BrandSettings = {
   industry: '',
   services: '',
@@ -37,7 +43,9 @@ const defaultSettings: BrandSettings = {
     mediaTypePreference: 'image'
   }
 };
+// #endregion
 
+// #region Helper Components (Modals)
 const RedeemModal = ({ onClose, onRedeem }: { onClose: () => void, onRedeem: (key: string) => void }) => {
   const [key, setKey] = useState('');
   return (
@@ -98,8 +106,10 @@ const ChangePasswordModal = ({ onClose }: { onClose: () => void }) => {
         </div>
     );
 };
+// #endregion
 
 const App: React.FC = () => {
+  // #region State Management
   const [user, setUser] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
@@ -111,8 +121,9 @@ const App: React.FC = () => {
   const [editingPost, setEditingPost] = useState<Post | null>(null);
   const [showRedeemModal, setShowRedeemModal] = useState(false);
   const [showPwdModal, setShowPwdModal] = useState(false);
+  // #endregion
 
-  // Auth Listener
+  // #region Auth & Initialization
   useEffect(() => {
     const unsubscribe = subscribeAuth(async (currentUser) => {
       setUser(currentUser);
@@ -144,7 +155,9 @@ const App: React.FC = () => {
     }
     if (savedPosts) setPosts(JSON.parse(savedPosts));
   };
+  // #endregion
 
+  // #region Handlers (Auth, Key, Data)
   const handleLogout = async () => {
     await logout();
     setView(AppView.LOGIN);
@@ -171,11 +184,9 @@ const App: React.FC = () => {
   const handleSaveSettings = (newSettings: BrandSettings) => {
     setSettings(newSettings);
     localStorage.setItem('autosocial_settings', JSON.stringify(newSettings));
-    // No alert here if called from child component rapidly, or optional
   };
 
   const handlePostCreated = (newPost: Post) => {
-    // If editing, replace. If new, append.
     let updatedPosts;
     if (posts.find(p => p.id === newPost.id)) {
         updatedPosts = posts.map(p => p.id === newPost.id ? newPost : p);
@@ -197,23 +208,32 @@ const App: React.FC = () => {
       setPosts(updatedPosts);
       localStorage.setItem('autosocial_posts', JSON.stringify(updatedPosts));
   };
+  // #endregion
 
+  // #region Render Logic & Permissions
   if (loadingAuth) return <div className="h-screen flex items-center justify-center bg-dark text-white">載入中...</div>;
 
   if (view === AppView.LOGIN) {
     return <Login onLoginSuccess={() => {}} />;
   }
 
-  // Permission Checks
-  const hasAnalyticsAccess = userProfile?.role !== 'user' || userProfile?.unlockedFeatures?.includes('ANALYTICS');
-  const hasAutomationAccess = userProfile?.role !== 'user' || userProfile?.unlockedFeatures?.includes('AUTOMATION');
-  const hasSeoAccess = userProfile?.role !== 'user' || userProfile?.unlockedFeatures?.includes('SEO') || userProfile?.unlockedFeatures?.includes('SEO_ARTICLES');
-  const hasThreadsAccess = userProfile?.role !== 'user' || userProfile?.unlockedFeatures?.includes('THREADS');
-  const isAdmin = userProfile?.role === 'admin';
+  // Permission Logic Helpers
+  const role = userProfile?.role || 'user';
+  // Role Hierarchy: user(Free) < starter < pro < business < admin
+  const isStarterPlus = ['starter', 'pro', 'business', 'admin'].includes(role);
+  const isProPlus = ['pro', 'business', 'admin'].includes(role);
+  const isBusinessPlus = ['business', 'admin'].includes(role);
+  const isAdmin = role === 'admin';
+
+  // Specific Feature Access
+  const hasAnalyticsAccess = isStarterPlus || userProfile?.unlockedFeatures?.includes('ANALYTICS');
+  const hasAutomationAccess = isBusinessPlus || userProfile?.unlockedFeatures?.includes('AUTOMATION');
+  const hasSeoAccess = isProPlus || userProfile?.unlockedFeatures?.includes('SEO') || userProfile?.unlockedFeatures?.includes('SEO_ARTICLES');
+  const hasThreadsAccess = isProPlus || userProfile?.unlockedFeatures?.includes('THREADS');
 
   return (
     <div className="min-h-screen bg-dark text-gray-200 flex flex-col md:flex-row">
-      {/* Sidebar */}
+      {/* #region Sidebar Navigation */}
       <aside className="w-full md:w-64 bg-card border-r border-gray-700 flex flex-col">
         <div className="p-6 border-b border-gray-700">
           <h1 className="text-2xl font-bold text-blue-400">AutoSocial AI</h1>
@@ -223,10 +243,11 @@ const App: React.FC = () => {
                     <p className="truncate" title={userProfile.email}>{userProfile.email}</p>
                     <p className="mt-1 flex items-center">
                         <span className={`px-2 py-0.5 rounded text-white mr-2 font-bold text-[10px] uppercase ${
-                            userProfile.role === 'vip' ? 'bg-yellow-600' : 
+                            userProfile.role === 'business' ? 'bg-yellow-600' : 
                             userProfile.role === 'pro' ? 'bg-purple-600' :
+                            userProfile.role === 'starter' ? 'bg-green-600' :
                             userProfile.role === 'admin' ? 'bg-red-600' : 'bg-gray-600'
-                        }`}>{userProfile.role}</span>
+                        }`}>{userProfile.role === 'user' ? 'FREE' : userProfile.role}</span>
                         <span>Quota: {userProfile.quota_used}/{userProfile.quota_total}</span>
                     </p>
                 </>
@@ -243,8 +264,15 @@ const App: React.FC = () => {
              ✨ 建立 FB 貼文
           </button>
           
-          <button onClick={() => setView(AppView.SCHEDULE)} className={`w-full text-left px-4 py-3 rounded transition-colors ${view === AppView.SCHEDULE ? 'bg-primary text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
-             📅 排程管理
+          <button 
+             onClick={() => {
+                 if(isStarterPlus) setView(AppView.SCHEDULE);
+                 else alert("排程管理功能僅限「Starter」以上方案使用。\n\n請升級以解鎖完整功能。");
+             }} 
+             className={`w-full text-left px-4 py-3 rounded transition-colors flex justify-between items-center ${view === AppView.SCHEDULE ? 'bg-primary text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
+          >
+             <span>📅 排程管理</span>
+             {!isStarterPlus && <span className="text-xs">🔒</span>}
           </button>
           
           {/* Group 2: Data & Settings */}
@@ -252,7 +280,7 @@ const App: React.FC = () => {
              <button 
                 onClick={() => {
                     if (hasAnalyticsAccess) setView(AppView.ANALYTICS);
-                    else setShowRedeemModal(true);
+                    else alert("數據分析功能僅限「Starter」以上方案使用。");
                 }} 
                 className={`w-full text-left px-4 py-3 rounded transition-colors flex justify-between items-center ${view === AppView.ANALYTICS ? 'bg-primary text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
               >
@@ -263,7 +291,7 @@ const App: React.FC = () => {
               <button 
                 onClick={() => {
                     if (hasAutomationAccess) setView(AppView.AUTOMATION);
-                    else setShowRedeemModal(true);
+                    else alert("AutoPilot 自動化功能僅限「Business (企業版)」使用。\n\n這是最高階的自動營運功能。");
                 }} 
                 className={`w-full text-left px-4 py-3 rounded transition-colors flex justify-between items-center ${view === AppView.AUTOMATION ? 'bg-primary text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
               >
@@ -281,7 +309,7 @@ const App: React.FC = () => {
               <button 
                 onClick={() => {
                     if (hasThreadsAccess) setView(AppView.THREADS_NURTURE);
-                    else setShowRedeemModal(true);
+                    else alert("Threads 養號功能僅限「Pro (專業版)」以上方案使用。\n\n請升級以解鎖此核心功能。");
                 }} 
                 className={`w-full text-left px-4 py-3 rounded transition-colors flex justify-between items-center ${view === AppView.THREADS_NURTURE ? 'bg-black border border-gray-600 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
               >
@@ -292,7 +320,7 @@ const App: React.FC = () => {
               <button 
                 onClick={() => {
                     if (hasSeoAccess) setView(AppView.SEO_ARTICLES);
-                    else setShowRedeemModal(true);
+                    else alert("SEO 文章生成僅限「Pro (專業版)」以上方案使用。");
                 }} 
                 className={`w-full text-left px-4 py-3 rounded transition-colors flex justify-between items-center ${view === AppView.SEO_ARTICLES ? 'bg-primary text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
               >
@@ -316,8 +344,9 @@ const App: React.FC = () => {
           </button>
         </div>
       </aside>
+      {/* #endregion */}
 
-      {/* Main Content */}
+      {/* #region Main Content View Switch */}
       <main className="flex-1 p-4 md:p-8 overflow-y-auto h-screen">
         {view === AppView.CREATE && (
           <PostCreator 
@@ -371,14 +400,16 @@ const App: React.FC = () => {
            <AdminPanel currentUser={userProfile} />
         )}
       </main>
+      {/* #endregion */}
 
-      {/* Modals */}
+      {/* #region Global Modals */}
       {showRedeemModal && (
           <RedeemModal onClose={() => setShowRedeemModal(false)} onRedeem={handleRedeemKey} />
       )}
       {showPwdModal && (
           <ChangePasswordModal onClose={() => setShowPwdModal(false)} />
       )}
+      {/* #endregion */}
     </div>
   );
 };

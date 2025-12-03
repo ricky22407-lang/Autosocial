@@ -1,5 +1,4 @@
 
-
 import { BrandSettings, AutoPilotConfig } from '../types';
 import { getTrendingTopics, generatePostDraft, generateImage, generateVideo, generateThreadsBatch } from './geminiService';
 import { publishPostToFacebook } from './facebookService';
@@ -12,10 +11,15 @@ const generateImageUrlLocal = (prompt: string, query: string, mode: 'ai_url' | '
     const seed = Date.now();
     if (mode === 'ai_url') {
         const encodedPrompt = encodeURIComponent(prompt || query);
-        return `https://image.pollinations.ai/prompt/${encodedPrompt}?n=${seed}`;
+        // Use standard flux model
+        return `https://image.pollinations.ai/prompt/${encodedPrompt}?n=${seed}&model=flux`;
     } else {
-        const cleanQuery = (query || 'lifestyle').trim().split(/\s+/).join(',').replace(/[^a-zA-Z0-9,]/g, '');
-        return `https://loremflickr.com/800/800/${cleanQuery}?lock=${seed}`;
+        // Updated to match ThreadsNurturePanel Photorealistic logic
+        // Replaces LoremFlickr with Pollinations + Realistic Prompt
+        // Note: Removing 'model=flux-realism' as it might cause 404s.
+        const stockPrompt = `${query}, photorealistic, 4k, highly detailed, real photography, cinematic lighting, Canon EOS R5, f/1.8, depth of field, natural colors`;
+        const encodedPrompt = encodeURIComponent(stockPrompt);
+        return `https://image.pollinations.ai/prompt/${encodedPrompt}?n=${seed}&model=flux`;
     }
 };
 
@@ -26,8 +30,11 @@ export const AutomationClient = {
     const user = getCurrentUser();
     if (!user) throw new Error("使用者未登入");
     
-    // Check quota locally/firebase directly
-    const hasQuota = await checkAndUseQuota(user.uid);
+    // Check quota locally/firebase directly (AutoPilot usually consumes more logic, but for now we stick to 1 base + media cost)
+    // Actually, let's simplify for automation: charge a flat fee or calculate.
+    // Let's assume AutoPilot run costs 1 base point. If it generates AI Image, that's extra internal logic, 
+    // but here we just charge 1 to trigger the run for simplicity unless we want complex transaction.
+    const hasQuota = await checkAndUseQuota(user.uid, 1);
     if (!hasQuota) throw new Error("配額不足，無法執行自動化任務");
 
     const config = settings.autoPilot;
@@ -97,7 +104,8 @@ export const AutomationClient = {
     if (!isMock && db && user.uid) {
         try {
             await db.collection('users').doc(user.uid).update({
-                'quota_used': firebase.firestore.FieldValue.increment(1), // Ensure quota is synced
+                // Note: quota was already decremented by checkAndUseQuota, so we just log timestamp here
+                // 'quota_used': firebase.firestore.FieldValue.increment(1), 
                 updated_at: Date.now()
             });
         } catch (e) { console.error("Failed to update stats", e); }
@@ -118,23 +126,17 @@ export const AutomationClient = {
       const user = getCurrentUser();
       if (!user) throw new Error("使用者未登入");
 
-      const hasQuota = await checkAndUseQuota(user.uid);
+      const hasQuota = await checkAndUseQuota(user.uid, 1);
       if (!hasQuota) throw new Error("配額不足 (Threads AutoPilot)");
 
       const config = settings.threadsAutoPilot;
       if (!config || !config.enabled) throw new Error("Threads 自動化功能未啟用");
 
-      // Filter available accounts: Must be active AND in the target list (if list exists and is not empty)
-      // If targetAccountIds is undefined or empty, we assume no accounts are selected (Strict Mode) or All (Legacy Mode).
-      // Based on user request "Select which account", we should enforce selection.
+      // Filter available accounts
       const targetIds = config.targetAccountIds || [];
-      
       const activeAccounts = settings.threadsAccounts?.filter(a => {
           if (!a.isActive) return false;
-          // If user hasn't selected any, we don't post.
           if (targetIds.length > 0) return targetIds.includes(a.id);
-          // Fallback: If array is missing (old config), maybe allow all? 
-          // But here let's require selection to be safe and explicit.
           return false; 
       }) || [];
 
@@ -142,13 +144,12 @@ export const AutomationClient = {
 
       console.log("[AutoPilot Client] Starting Threads task...");
 
-      // 1. Determine Topic (Trending Only for now, or use Industry)
-      // Threads is very trend-sensitive, so use trending by default.
+      // 1. Determine Topic
       const seedKeyword = settings.industry || '台灣熱門時事';
       const trends = await getTrendingTopics(seedKeyword);
       const topic = trends.length > 0 ? trends[0].title : `${settings.industry} 熱門討論`;
 
-      // 2. Select ONE random account to post (to conserve quota and mimic behavior)
+      // 2. Select ONE random account
       const targetAccount = activeAccounts[Math.floor(Math.random() * activeAccounts.length)];
       const persona = targetAccount.personaPrompt ? [targetAccount.personaPrompt] : [];
 
@@ -173,11 +174,10 @@ export const AutomationClient = {
           console.error("Threads Auto Publish Failed", e);
       }
 
-      // 6. Log/Sync Quota
+      // 6. Log/Sync
       if (!isMock && db && user.uid) {
         try {
             await db.collection('users').doc(user.uid).update({
-                'quota_used': firebase.firestore.FieldValue.increment(1),
                 updated_at: Date.now()
             });
         } catch (e) { console.error("Failed to update stats", e); }

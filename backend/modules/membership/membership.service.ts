@@ -1,4 +1,3 @@
-
 import * as admin from 'firebase-admin';
 import { AppError } from '../../core/appError';
 import { ErrorCode, UserRole } from '../../../types';
@@ -18,7 +17,7 @@ export class MembershipService {
     // Reset logic could go here or in a separate Cron job
     const now = Date.now();
     if (data?.quota?.resetDate && now > data.quota.resetDate) {
-      await this.resetQuota(userId, data.role);
+      await this.resetQuota(userId, data.role as UserRole);
       return true;
     }
 
@@ -42,8 +41,9 @@ export class MembershipService {
 
   async resetQuota(userId: string, role: UserRole): Promise<void> {
     let total = Config.APP.DEFAULT_QUOTA_USER;
+    if (role === 'starter') total = 500;
     if (role === 'pro') total = Config.APP.DEFAULT_QUOTA_PRO;
-    if (role === 'vip') total = Config.APP.DEFAULT_QUOTA_VIP;
+    if (role === 'business') total = Config.APP.DEFAULT_QUOTA_VIP;
 
     const nextReset = new Date();
     nextReset.setMonth(nextReset.getMonth() + 1);
