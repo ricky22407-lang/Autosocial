@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect } from 'react';
 import { BrandSettings, AutoReplyRule, AutoPilotConfig, ThreadsAutoPilotConfig } from '../types';
 import { api } from '../services/apiClient';
@@ -108,9 +107,8 @@ const AutomationPanel: React.FC<Props> = ({ settings, onSave }) => {
       
       setTriggeringThreads(true);
       try {
-          // Dynamic import to avoid circular dependencies if any
-          const { AutomationClient } = await import('../services/automationClient');
-          const result = await AutomationClient.triggerThreads(tempSettings);
+          // Use centralized API client instead of dynamic import to avoid Vite build warnings
+          const result = await api.automation.triggerThreads(tempSettings);
           
           alert(`🚀 Threads 任務執行成功！\n帳號: ${result.targetAccount}\n主題: ${result.topic}\n狀態: ${result.message}`);
       } catch (e: any) {

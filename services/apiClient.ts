@@ -50,6 +50,10 @@ export const api = {
     trigger: async (settings: BrandSettings) => {
         // Run logic in browser instead of calling backend
         return AutomationClient.trigger(settings);
+    },
+    triggerThreads: async (settings: BrandSettings) => {
+        // Run logic in browser
+        return AutomationClient.triggerThreads(settings);
     }
   }
 };

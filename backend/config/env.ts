@@ -5,7 +5,14 @@ dotenv.config();
 
 const getEnv = (key: string) => {
   if (typeof process !== 'undefined' && process.env) {
-    return process.env[key];
+    // 優先讀取沒有前綴的 (後端專用)
+    if (process.env[key]) return process.env[key];
+    
+    // 如果找不到，嘗試讀取 VITE_ 前綴的 (前後端共用)
+    if (process.env[`VITE_${key}`]) return process.env[`VITE_${key}`];
+    
+    // 嘗試 REACT_APP_ 前綴 (舊專案相容)
+    if (process.env[`REACT_APP_${key}`]) return process.env[`REACT_APP_${key}`];
   }
   return '';
 };
