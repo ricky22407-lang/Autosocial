@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
-import './index.css';
+// CSS is now handled by index.html CDN to prevent build issues
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

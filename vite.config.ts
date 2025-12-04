@@ -3,9 +3,10 @@ import react from '@vitejs/plugin-react';
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
-  // Load env file based on `mode` in the current working directory.
-  // Set third parameter to '' to load all env regardless of prefix
-  const env = loadEnv(mode, process.cwd(), '');
+  // Use a safer way to get cwd that works in Vercel environment
+  // Fix: Property 'cwd' does not exist on type 'Process'
+  const cwd = typeof process !== 'undefined' && (process as any).cwd ? (process as any).cwd() : '.';
+  const env = loadEnv(mode, cwd, '');
   
   return {
     plugins: [react()],

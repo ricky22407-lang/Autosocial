@@ -4,13 +4,80 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AutoSocial AI - 社群自動化營運中控台</title>
+    
+    <!-- 1. Tailwind CDN (Ensures UI looks exactly right without build config issues) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 2. Tailwind Configuration (Matches your project colors) -->
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              primary: '#3b82f6',
+              secondary: '#6366f1',
+              dark: '#0f172a',
+              card: '#1e293b',
+            },
+            animation: {
+              'fade-in': 'fadeIn 0.3s ease-in-out',
+            },
+            keyframes: {
+              fadeIn: {
+                '0%': { opacity: '0', transform: 'translateY(10px)' },
+                '100%': { opacity: '1', transform: 'translateY(0)' },
+              }
+            }
+          }
+        }
+      }
+    </script>
+
+    <!-- 3. Global Styles -->
+    <style>
+      body {
+        background-color: #0f172a;
+        color: #e2e8f0;
+      }
+      /* Custom scrollbar */
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #1e293b; 
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #475569; 
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #64748b; 
+      }
+      /* Loading Spinner */
+      .loader {
+        border: 3px solid rgba(255,255,255,0.3);
+        border-radius: 50%;
+        border-top: 3px solid white;
+        width: 1.25rem;
+        height: 1.25rem;
+        -webkit-animation: spin 1s linear infinite;
+        animation: spin 1s linear infinite;
+        display: inline-block;
+        vertical-align: middle;
+      }
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+    </style>
   <script type="importmap">
 {
   "imports": {
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+    "react": "https://aistudiocdn.com/react@^19.2.1",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
+    "react/": "https://aistudiocdn.com/react@^19.2.1/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.31.0",
     "firebase/": "https://aistudiocdn.com/firebase@^12.6.0/",
     "express": "https://aistudiocdn.com/express@^5.2.1",
     "cors": "https://aistudiocdn.com/cors@^2.8.5",
@@ -25,6 +92,7 @@
 </head>
   <body>
     <div id="root"></div>
+    <!-- Clean Vite Entry Point -->
     <script type="module" src="/index.tsx"></script>
   </body>
 </html>
