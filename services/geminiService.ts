@@ -1,24 +1,10 @@
-import { GoogleGenAI, Type } from "@google/genai";
-import { BrandSettings, TrendingTopic, AnalyticsData, CachedTrendData } from "../types";
+import { BrandSettings, TrendingTopic, CachedTrendData } from "../types";
 import { db } from "./firebase"; // Using compat export
 
-// #region Config & Init
-// Using process.env.API_KEY as per coding guidelines.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// 注意：前端不再 import GoogleGenAI SDK，也不讀取 process.env.API_KEY
+// 所有請求都透過 /api/gemini 轉發
 
-// System Prompts
-const SYSTEM_INSTRUCTION_FB = `
-You are an expert social media manager for the Taiwan market.
-Your goal is to write engaging, high-conversion Facebook posts in Traditional Chinese (Taiwan).
-Tone: Professional yet approachable, using local idioms where appropriate.
-Format:
-- Start with a strong hook.
-- Use bullet points for readability.
-- Include 3-5 relevant hashtags.
-- Include emojis.
-`;
-
-// ECP0 Persona Framework for Threads
+// System Prompts (保持不變)
 const SYSTEM_INSTRUCTION_THREADS = `
 [System Instruction]
 Role: You are a genuine, active user on Threads (Taiwan region).
@@ -40,66 +26,70 @@ Language: Traditional Chinese (Taiwan) with authentic internet slang.
 [Specific Character Constraints]
 (This will be injected dynamically based on user persona settings)
 `;
-// #endregion
 
-// #region Helper Functions (Image Validation & Cache)
+// #region Helper Functions (Internal Logic)
 
 /**
- * Helper to clean JSON string from Markdown code blocks
+ * 呼叫我們自己的 Vercel 後端 API
  */
+const callBackendApi = async (action: string, payload: any) => {
+    try {
+        const res = await fetch('/api/gemini', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action, payload })
+        });
+        
+        if (!res.ok) {
+            const errData = await res.json();
+            throw new Error(errData.error || `Server Error: ${res.status}`);
+        }
+        
+        return await res.json();
+    } catch (e: any) {
+        console.error("Backend API Call Failed:", e);
+        throw new Error(e.message || "AI 服務暫時無法使用，請檢查配額或稍後再試。");
+    }
+};
+
 const cleanJsonText = (text: string): string => {
     if (!text) return '{}';
     return text.replace(/```json/g, '').replace(/```/g, '').trim();
 };
 
-/**
- * Simple HTML Entity Decoder
- */
 const decodeHtml = (html: string) => {
     const txt = document.createElement("textarea");
     txt.innerHTML = html;
     return txt.value;
 };
 
-/**
- * Validate News Image URL
- * Filters out common tracking pixels, ads, and social icons
- */
 const isValidNewsImage = (url: string): boolean => {
     if (!url) return false;
     const lower = url.toLowerCase();
-    
-    // Blacklist
     const badKeywords = [
         'pixel', 'tracker', 'analytics', 'facebook.com/tr', 'ads', 
         'doubleclick', 'button', 'share_icon', 'logo', 'placeholder'
     ];
     if (badKeywords.some(k => lower.includes(k))) return false;
-
     return true;
 };
 
-// --- Global Cache Logic ---
-const CACHE_TTL = 4 * 60 * 60 * 1000; // 4 Hours
+// --- Cache Logic (Firebase) ---
+const CACHE_TTL = 4 * 60 * 60 * 1000; 
 
 const checkTrendCache = async (industry: string): Promise<TrendingTopic[] | null> => {
     try {
-        const dateKey = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+        const dateKey = new Date().toISOString().split('T')[0];
         const cacheId = `${dateKey}_${industry.replace(/\s+/g, '_')}`;
-        
         const doc = await db.collection('global_trend_cache').doc(cacheId).get();
-        
         if (doc.exists) {
             const data = doc.data() as CachedTrendData;
             const age = Date.now() - data.createdAt;
             if (age < CACHE_TTL && data.topics && data.topics.length > 0) {
-                console.log(`[Cache Hit] Serving trends for ${industry} from cache.`);
                 return shuffleArray(data.topics);
             }
         }
-    } catch (e) {
-        console.warn("Cache read failed", e);
-    }
+    } catch (e) { console.warn("Cache read failed", e); }
     return null;
 };
 
@@ -107,18 +97,10 @@ const saveTrendCache = async (industry: string, topics: TrendingTopic[]) => {
     try {
         const dateKey = new Date().toISOString().split('T')[0];
         const cacheId = `${dateKey}_${industry.replace(/\s+/g, '_')}`;
-        
-        const cacheData: CachedTrendData = {
-            id: cacheId,
-            industry,
-            topics,
-            createdAt: Date.now()
-        };
-        
-        await db.collection('global_trend_cache').doc(cacheId).set(cacheData);
-    } catch (e) {
-        console.warn("Cache write failed", e);
-    }
+        await db.collection('global_trend_cache').doc(cacheId).set({
+            id: cacheId, industry, topics, createdAt: Date.now()
+        });
+    } catch (e) { console.warn("Cache write failed", e); }
 };
 
 const shuffleArray = <T,>(array: T[]): T[] => {
@@ -129,54 +111,34 @@ const shuffleArray = <T,>(array: T[]): T[] => {
     }
     return arr;
 };
-// #endregion
 
-// #region RSS Fetching (Robust Mode V3.1)
-
-// Helper to fetch text with proxy fallback
+// #region RSS Fetching (Frontend Logic kept intact as it uses public proxies)
 const fetchTextWithProxy = async (targetUrl: string): Promise<string> => {
-    // Proxy 1: AllOrigins (JSONP-like, reliable)
     try {
         const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`);
         const data = await res.json();
         if (data.contents) return data.contents;
-    } catch (e) {
-        console.warn("Proxy 1 (AllOrigins) failed, trying Proxy 2...");
-    }
-
-    // Proxy 2: CorsProxy.io (Direct pipe)
+    } catch (e) {}
     try {
         const res = await fetch(`https://corsproxy.io/?${encodeURIComponent(targetUrl)}`);
         const text = await res.text();
         if (text) return text;
-    } catch (e) {
-        console.warn("Proxy 2 (CorsProxy) failed.");
-    }
-
+    } catch (e) {}
     throw new Error("All RSS proxies failed");
 };
 
-// Main RSS Fetcher
 const fetchRealtimeRss = async (keyword: string): Promise<TrendingTopic[]> => {
     let rssUrl = '';
-    // Use generic list to switch source
     const isGeneric = ['台灣熱門時事', '今日新聞', '熱門話題', '新聞', 'News'].some(k => keyword.includes(k));
 
-    if (isGeneric) {
-        // Yahoo News Taiwan (Standard RSS 2.0 with media:content)
-        rssUrl = 'https://tw.news.yahoo.com/rss';
-    } else {
-        // Google News (Atom/RSS mix)
-        rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(keyword)}+when:1d&hl=zh-TW&gl=TW&ceid=TW:zh-Hant`;
-    }
+    if (isGeneric) rssUrl = 'https://tw.news.yahoo.com/rss';
+    else rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(keyword)}+when:1d&hl=zh-TW&gl=TW&ceid=TW:zh-Hant`;
 
     try {
         const xmlString = await fetchTextWithProxy(rssUrl);
-        
         const parser = new DOMParser();
         const xml = parser.parseFromString(xmlString, "text/xml");
         const items = xml.querySelectorAll("item");
-        
         const results: TrendingTopic[] = [];
         
         for (let i = 0; i < Math.min(items.length, 20); i++) {
@@ -185,56 +147,28 @@ const fetchRealtimeRss = async (keyword: string): Promise<TrendingTopic[]> => {
             const link = item.querySelector("link")?.textContent || "";
             let imageUrl = '';
 
-            // 1. Try media:content (Yahoo Standard)
             const mediaContent = item.getElementsByTagName('media:content')[0];
-            if (mediaContent) {
-                imageUrl = mediaContent.getAttribute('url') || '';
-            }
-
-            // 2. Try enclosure
+            if (mediaContent) imageUrl = mediaContent.getAttribute('url') || '';
             if (!imageUrl) {
                 const enclosure = item.getElementsByTagName('enclosure')[0];
                 if (enclosure && (enclosure.getAttribute('type') || '').startsWith('image')) {
                     imageUrl = enclosure.getAttribute('url') || '';
                 }
             }
-
-            // 3. Try Description Parsing (Google News)
             if (!imageUrl) {
                 const descRaw = item.querySelector("description")?.textContent || "";
-                // Decode HTML entities (e.g. &lt;img) to real tags
                 const descHtml = decodeHtml(descRaw);
-                
-                // Aggressive Regex to find src inside description
-                // Matches <img ... src="http..." ...>
                 const match = descHtml.match(/<img[^>]+src=["']([^"']+)["']/i);
-                if (match && match[1]) {
-                    if (isValidNewsImage(match[1])) {
-                        imageUrl = match[1];
-                    }
-                }
+                if (match && match[1] && isValidNewsImage(match[1])) imageUrl = match[1];
             }
-
-            // 4. Google High-Res Optimization
             if (imageUrl && (imageUrl.includes('googleusercontent.com') || imageUrl.includes('ggpht.com'))) {
-                // Force higher resolution if it's a resize param
-                if (imageUrl.match(/=[wh]\d+/)) {
-                     imageUrl = imageUrl.replace(/=[wh]\d+[-a-z0-9]*/, '=w800');
-                } else {
-                    imageUrl += '=w800';
-                }
+                if (imageUrl.match(/=[wh]\d+/)) imageUrl = imageUrl.replace(/=[wh]\d+[-a-z0-9]*/, '=w800');
+                else imageUrl += '=w800';
             }
-
             if (title && link) {
-                results.push({
-                    title,
-                    description: title, // Use title as desc for cleaner UI
-                    url: link,
-                    imageUrl // Can be empty, UI will handle fallback
-                });
+                results.push({ title, description: title, url: link, imageUrl });
             }
         }
-        
         return results;
     } catch (e) {
         console.warn("RSS fetch flow failed", e);
@@ -243,26 +177,19 @@ const fetchRealtimeRss = async (keyword: string): Promise<TrendingTopic[]> => {
 };
 // #endregion
 
-// #region Core Services (Trending, Draft, Image, SEO, Report)
+// #region Core Services (Updated to use Backend)
 
-/**
- * Get Trending Topics with Global Caching
- */
 export const getTrendingTopics = async (industry: string = "台灣熱門時事", seed?: number): Promise<TrendingTopic[]> => {
-  // 1. Check Cache
   const cached = await checkTrendCache(industry);
-  if (cached) {
-      return cached;
-  }
+  if (cached) return cached;
 
-  // 2. Fetch Fresh Data (Real RSS)
   let topics = await fetchRealtimeRss(industry);
 
-  // 3. Fallback to Gemini ONLY if RSS returns absolutely nothing (Emergency)
   if (topics.length === 0) {
       console.warn("RSS returned 0 items, using Gemini fallback.");
       try {
-        const response = await ai.models.generateContent({
+        // CALL BACKEND
+        const response = await callBackendApi('generateContent', {
             model: 'gemini-2.5-flash',
             contents: `列出目前台灣關於「${industry}」的 5 個熱門社群話題。
             請直接回傳純 JSON 陣列，不要有任何 Markdown 格式。
@@ -271,7 +198,6 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
         
         const cleanText = cleanJsonText(response.text || '[]');
         let raw = JSON.parse(cleanText);
-
         if (Array.isArray(raw)) {
             topics = raw.map((t: any) => ({
                 title: t.title,
@@ -279,22 +205,13 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
                 url: t.url,
             }));
         }
-      } catch (e) {
-          console.error("Gemini fallback failed", e);
-      }
+      } catch (e) { console.error("Gemini fallback failed", e); }
   }
 
-  // 4. Save to Cache
-  if (topics.length > 0) {
-      await saveTrendCache(industry, topics);
-  }
-
+  if (topics.length > 0) await saveTrendCache(industry, topics);
   return topics;
 };
 
-/**
- * Generate Facebook Post Draft
- */
 export const generatePostDraft = async (
     topic: string, 
     settings: BrandSettings, 
@@ -304,14 +221,12 @@ export const generatePostDraft = async (
   const ctaInstruction = options.ctaLinks.length > 0 
       ? `包含以下連結的行動呼籲 (CTA)：\n${options.ctaLinks.join('\n')}` 
       : '無特定連結';
-
   const contextPrompt = topicContext ? `\n參考新聞: ${topicContext.title} (${topicContext.url})` : '';
 
   const prompt = `
     品牌: ${settings.industry}
     語氣: ${settings.brandTone}
     小編人設: ${settings.persona}
-    
     任務: 針對主題「${topic}」${contextPrompt} 寫一篇 FB 貼文。
     要求:
     - 字數: ${options.length}
@@ -321,14 +236,15 @@ export const generatePostDraft = async (
 
     Output JSON Format:
     {
-      "caption": "完整貼文內容...",
-      "ctaText": "點擊這裡購買...",
+      "caption": "...",
+      "ctaText": "...",
       "imagePrompt": "繁體中文圖片生成提示詞...",
       "videoPrompt": "繁體中文影片生成提示詞..."
     }
   `;
 
-  const response = await ai.models.generateContent({
+  // CALL BACKEND
+  const response = await callBackendApi('generateContent', {
     model: "gemini-3-pro-preview",
     contents: prompt,
     config: { responseMimeType: "application/json" }
@@ -337,45 +253,35 @@ export const generatePostDraft = async (
   return JSON.parse(response.text || '{}');
 };
 
-/**
- * Generate Image (with 3-layer Fallback)
- */
 export const generateImage = async (prompt: string): Promise<string> => {
-    // 1. Try Imagen 3 (Best Quality)
+    // 1. Try Imagen 3 (Via Backend)
     try {
-        const response = await ai.models.generateImages({
+        const response = await callBackendApi('generateImages', {
             model: 'imagen-3.0-generate-001',
             prompt: prompt,
             config: { numberOfImages: 1, aspectRatio: '1:1' }
         });
-        const b64 = response.generatedImages?.[0]?.image?.imageBytes;
-        if (b64) return `data:image/png;base64,${b64}`;
-    } catch (e) {
-        console.warn("Imagen 3 failed, trying Gemini 3 Pro...");
-    }
+        if (response.base64) return `data:image/png;base64,${response.base64}`;
+    } catch (e) { console.warn("Imagen 3 failed, trying Gemini 3 Pro..."); }
 
-    // 2. Try Gemini 3 Pro Image (High Quality)
+    // 2. Try Gemini 3 Pro Image (Via Backend)
     try {
-        const response = await ai.models.generateContent({
+        const response = await callBackendApi('generateImages', {
             model: 'gemini-3-pro-image-preview',
-            contents: { parts: [{ text: prompt }] },
+            prompt: prompt, // Backend will wrap this in contents/parts
             config: { imageConfig: { aspectRatio: "1:1" } }
         });
-        const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-        if (part?.inlineData?.data) return `data:image/png;base64,${part.inlineData.data}`;
-    } catch (e) {
-        console.warn("Gemini 3 Pro Image failed, trying Flash...");
-    }
+        if (response.base64) return `data:image/png;base64,${response.base64}`;
+    } catch (e) { console.warn("Gemini 3 Pro Image failed, trying Flash..."); }
 
-    // 3. Try Gemini 2.5 Flash Image (Fastest/Cheapest)
+    // 3. Try Gemini 2.5 Flash Image (Via Backend)
     try {
-        const response = await ai.models.generateContent({
+        const response = await callBackendApi('generateImages', {
             model: 'gemini-2.5-flash-image',
-            contents: { parts: [{ text: prompt }] },
+            prompt: prompt,
             config: { imageConfig: { aspectRatio: "1:1" } }
         });
-        const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-        if (part?.inlineData?.data) return `data:image/png;base64,${part.inlineData.data}`;
+        if (response.base64) return `data:image/png;base64,${response.base64}`;
     } catch (e: any) {
         throw new Error(`所有圖片模型皆生成失敗: ${e.message}`);
     }
@@ -383,44 +289,27 @@ export const generateImage = async (prompt: string): Promise<string> => {
     throw new Error("Unknown error in image generation");
 };
 
-/**
- * Generate Video (Veo) - Using Fallback logic if needed
- */
 export const generateVideo = async (prompt: string): Promise<string> => {
     try {
-        // Try Fast model first
-        let operation = await ai.models.generateVideos({
+        // CALL BACKEND
+        // Backend will handle the polling and key injection
+        const response = await callBackendApi('generateVideos', {
             model: 'veo-3.1-fast-generate-preview',
             prompt: prompt,
             config: { numberOfVideos: 1, resolution: '720p', aspectRatio: '16:9' }
         });
 
-        // Polling with timeout (max 60s)
-        let attempts = 0;
-        while (!operation.done && attempts < 12) {
-            await new Promise(r => setTimeout(r, 5000));
-            operation = await ai.operations.getVideosOperation({ operation: operation });
-            attempts++;
+        if (response.videoBase64) {
+            return `data:video/mp4;base64,${response.videoBase64}`;
         }
-
-        if (!operation.done) throw new Error("Video generation timed out");
-
-        const uri = operation.response?.generatedVideos?.[0]?.video?.uri;
-        if (!uri) throw new Error("No video URI returned");
-
-        // Append key for client-side fetch
-        return `${uri}&key=${process.env.API_KEY}`;
+        throw new Error("No video data returned");
     } catch (e: any) {
         console.warn("Veo failed, fallback to Image:", e);
-        // Fallback to Image generation logic
         const img = await generateImage(prompt);
         throw new Error(`影片生成失敗: ${e.message}`);
     }
 };
 
-/**
- * Generate SEO Article
- */
 export const generateSeoArticle = async (
     topic: string, 
     length: string, 
@@ -433,38 +322,30 @@ export const generateSeoArticle = async (
       Target Length: ${length}
       LSI Keywords: ${keywords}
       Language: Traditional Chinese (Taiwan).
-      
       Requirements:
-      1. Use Markdown format (H1, H2, H3).
-      2. Tone: Authoritative yet readable (E-E-A-T standards).
-      ${options.agenda ? '3. Include a Table of Contents (Agenda) after the intro.' : ''}
-      ${options.meta ? '4. Provide Title Tag & Meta Description at the very top.' : ''}
-      ${options.faq ? '5. Include a FAQ section at the end.' : ''}
-      ${options.refLinks ? '6. Cite authoritative sources/links where possible.' : ''}
+      1. Use Markdown format.
+      ${options.agenda ? '2. Include Agenda.' : ''}
+      ${options.meta ? '3. Include Meta Title & Desc.' : ''}
+      ${options.faq ? '4. Include FAQ.' : ''}
       
-      Output JSON Format (RAW JSON ONLY, NO MARKDOWN):
-      {
-         "fullText": "Markdown content string...",
-         "imageKeyword": "A short English keyword for searching stock photos"
-      }
+      Output JSON Format:
+      { "fullText": "Markdown...", "imageKeyword": "English keyword..." }
     `;
 
-    // 1. First, search for grounding info
+    // Grounding (Google Search) - Requires Backend
     let searchContext = "";
     try {
-         const searchResp = await ai.models.generateContent({
+         const searchResp = await callBackendApi('generateContent', {
             model: "gemini-2.5-flash",
             contents: `Research SEO content for topic: ${topic}. Keywords: ${keywords}`,
-            // Removed responseMimeType: 'application/json' to fix tool use conflict
             config: { tools: [{ googleSearch: {} }] } 
         });
         searchContext = searchResp.text || "";
-    } catch (e) { console.warn("Search grounding failed, continuing without it."); }
+    } catch (e) { console.warn("Search grounding failed"); }
 
-    // 2. Generate Article using context
-    const response = await ai.models.generateContent({
+    const response = await callBackendApi('generateContent', {
         model: "gemini-2.5-flash",
-        contents: `Context from Google Search: ${searchContext}\n\n${prompt}`,
+        contents: `Context: ${searchContext}\n\n${prompt}`,
         config: { responseMimeType: "application/json" }
     });
 
@@ -480,74 +361,37 @@ export const generateSeoArticle = async (
     return parsed;
 };
 
-/**
- * Generate Weekly Report
- */
-export const generateWeeklyReport = async (analytics: AnalyticsData, settings: BrandSettings, topPosts?: any) => {
+export const generateWeeklyReport = async (analytics: any, settings: BrandSettings, topPosts?: any) => {
     const prompt = `
-      Act as a senior social media analyst.
-      Brand: ${settings.industry}
-      Data Period: ${analytics.period}
-      
-      Metrics:
-      - Followers: ${analytics.followers}
-      - Reach: ${analytics.reach}
-      - Engagement Rate: ${analytics.engagementRate}%
-      
-      Top Posts Context: ${topPosts ? JSON.stringify(topPosts) : 'N/A'}
-
-      Please write a weekly performance report in Traditional Chinese:
-      1. Key Achievements (Highlight growth).
-      2. Content Analysis (What worked?).
-      3. Strategic Suggestions for next week.
+      Act as a senior social media analyst. Brand: ${settings.industry}.
+      Metrics: Followers ${analytics.followers}, Reach ${analytics.reach}, Engagement ${analytics.engagementRate}%.
+      Write a weekly performance report in Traditional Chinese.
     `;
-
-    const response = await ai.models.generateContent({
+    const response = await callBackendApi('generateContent', {
         model: "gemini-2.5-flash",
         contents: prompt
     });
-
     return response.text || "報告生成失敗";
 };
 
-/**
- * Generate Threads Batch (One-Shot)
- */
 export const generateThreadsBatch = async (
     topic: string, 
     count: number, 
     settings: BrandSettings, 
     personas: string[] = []
 ): Promise<any[]> => {
-    // Inject specific personas if available
     const personaConstraint = personas.length > 0 
-        ? `Use these specific personas for the posts (rotate if multiple):\n${personas.map((p, i) => `${i+1}. ${p}`).join('\n')}`
-        : 'Adopt a mix of: 1. Cynical/Funny, 2. Emotional/Raw, 3. Insightful.';
+        ? `Personas:\n${personas.map((p, i) => `${i+1}. ${p}`).join('\n')}`
+        : 'Adopt a mix of styles.';
 
     const prompt = `
       ${SYSTEM_INSTRUCTION_THREADS}
-      
       ${personaConstraint}
-
-      Task: Generate ${count} distinct Threads posts about the topic: "${topic}".
-      Industry: ${settings.industry}
-      
-      Requirements for each post:
-      1. Content: Under 500 chars. No hashtags needed (Threads style).
-      2. Visuals: Provide an English prompt for AI image generation AND a short English keyword query for stock photo search.
-      3. Variation: Each post must have a different angle/voice.
-
-      Output JSON Array:
-      [
-        {
-          "caption": "...",
-          "imagePrompt": "Detailed English prompt for AI art...",
-          "imageQuery": "Short English keyword for stock photo (e.g. 'rainy window')"
-        }
-      ]
+      Task: Generate ${count} Threads posts about: "${topic}".
+      Output JSON Array: [{ "caption": "...", "imagePrompt": "...", "imageQuery": "..." }]
     `;
 
-    const response = await ai.models.generateContent({
+    const response = await callBackendApi('generateContent', {
         model: "gemini-2.5-flash",
         contents: prompt,
         config: { responseMimeType: "application/json" }
