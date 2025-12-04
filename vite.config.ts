@@ -3,17 +3,19 @@ import react from '@vitejs/plugin-react';
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
-  // Use a safer way to get cwd that works in Vercel environment
-  // Fix: Property 'cwd' does not exist on type 'Process'
+  // Safe cwd check
   const cwd = typeof process !== 'undefined' && (process as any).cwd ? (process as any).cwd() : '.';
   const env = loadEnv(mode, cwd, '');
   
   return {
     plugins: [react()],
     // Defines global constant replacements.
-    // This effectively polyfills `process.env` in the browser code.
+    // Instead of polyfilling the whole `process.env` (which causes issues),
+    // we strictly replace the specific keys used in the code at build time.
     define: {
-      'process.env': JSON.stringify(env)
+      'process.env.API_KEY': JSON.stringify(env.API_KEY || env.VITE_API_KEY || ''),
+      'process.env.NODE_ENV': JSON.stringify(mode),
+      // If other specific env vars are needed, add them here explicitly
     },
     build: {
       chunkSizeWarningLimit: 1000,
