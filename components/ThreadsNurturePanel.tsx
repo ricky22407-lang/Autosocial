@@ -219,6 +219,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
           const newPosts: GeneratedPost[] = await Promise.all(results.map(async (r, i) => {
               let finalMode = effectiveMode;
               let finalImageUrl = undefined;
+              let errorLog = undefined;
               
               if (finalMode === 'news') {
                   finalImageUrl = newsImg;
@@ -230,7 +231,10 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                       finalImageUrl = await generateImage(r.imagePrompt);
                   } catch (e) {
                       console.warn("AI Image gen failed in batch", e);
-                      finalMode = 'none'; // Degrade gracefully
+                      // CRITICAL FIX: Do NOT degrade to 'none' if user paid for 'ai'.
+                      // Keep mode as 'ai' but URL undefined so user can retry for free.
+                      finalMode = 'ai'; 
+                      errorLog = '圖片生成失敗 (請點擊重試)';
                   }
               }
 
@@ -244,7 +248,8 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                   // Image Data
                   newsImageUrl: newsImg,
                   imageUrl: finalImageUrl,
-                  imageSourceType: finalMode, 
+                  imageSourceType: finalMode,
+                  log: errorLog,
                   
                   status: 'idle',
                   targetAccountId: activeAccounts[i % activeAccounts.length]?.id
@@ -297,60 +302,72 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   // Step 3: Change Image Mode Logic with Precise Pricing
   const handleImageModeChange = async (post: GeneratedPost, newMode: ImageSourceType) => {
       if (!user) return;
-      if (newMode === post.imageSourceType) return; // No change
-
-      // Pricing Cost Table for Upgrade Calculation
-      // Base (Text) = 1 pt.
-      // News Mode = Base + 1 = 2 pts.
-      // Stock Mode = Base + 1 = 2 pts.
-      // AI Mode = Base + 3 = 4 pts.
-      // Upload/None = Base + 0 = 1 pt.
       
+      // Pricing Cost Table for Upgrade Calculation
       const getExtraCost = (m: ImageSourceType) => {
           if (m === 'ai') return 3;
           if (m === 'news') return 1;
-          if (m === 'stock') return 1; // CHANGED: Stock costs 1 extra point
+          if (m === 'stock') return 1; 
           return 0;
       };
 
       const currentExtra = getExtraCost(post.imageSourceType);
       const newExtra = getExtraCost(newMode);
       
-      // We only charge if upgrading to a more expensive tier.
-      const costDiff = Math.max(0, newExtra - currentExtra);
+      // Calculate diff
+      // Note: If newMode == oldMode, cost is 0.
+      let costDiff = Math.max(0, newExtra - currentExtra);
+
+      // Special Case: Retry Logic for AI
+      // If user is clicking 'AI' again on an already 'AI' post
+      if (newMode === 'ai' && post.imageSourceType === 'ai') {
+          if (!post.imageUrl) {
+              // Case 1: Previous generation failed (URL is empty). 
+              // User has already paid for AI mode (4pts).
+              // Free Retry.
+              costDiff = 0;
+          } else {
+              // Case 2: Previous generation success, but user wants variation.
+              // Charge for new generation.
+              if (!confirm("重新生成圖片將再次扣除 3 點。確定嗎？")) return;
+              costDiff = 3;
+          }
+      } else {
+          // Normal mode switching
+          if (newMode === post.imageSourceType && post.imageSourceType !== 'ai') return; // No-op for non-AI re-selection
+          
+          if (costDiff > 0) {
+              if (!confirm(`升級至「${newMode === 'ai' ? 'AI 繪圖' : newMode === 'stock' ? '擬真圖庫' : '新聞圖片'}」模式需要補差額 ${costDiff} 點。確定嗎？`)) {
+                  return;
+              }
+          }
+      }
 
       if (costDiff > 0) {
-          if (!confirm(`升級至「${newMode === 'ai' ? 'AI 繪圖' : newMode === 'stock' ? '擬真圖庫' : '新聞圖片'}」模式需要補差額 ${costDiff} 點。確定嗎？`)) {
-              return;
-          }
           const allowed = await checkAndUseQuota(user.user_id, costDiff);
           if (!allowed) {
-              alert("配額不足，無法切換");
+              alert("配額不足，無法執行");
               return;
           }
-          onQuotaUpdate();
-      } else if (newMode === 'ai' && post.imageSourceType === 'ai') {
-          // If already AI mode and re-selecting (or intentional regenerate trigger), assume regenerate
-          if (!confirm("重新生成 AI 圖片將再次扣除 3 點。確定嗎？")) return;
-          const allowed = await checkAndUseQuota(user.user_id, 3);
-          if (!allowed) return alert("配額不足");
           onQuotaUpdate();
       }
 
       // Update Local State immediately for mode
-      setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageSourceType: newMode } : p));
+      setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageSourceType: newMode, log: undefined } : p));
 
       // Execute Logic (Generate AI Image if needed)
       if (newMode === 'ai') {
-          // Always regenerate if switching to AI, or forced regeneration
           setIsRegeneratingImage(post.id);
           try {
               const url = await generateImage(post.imagePrompt);
               setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageUrl: url } : p));
           } catch (e: any) {
-              alert(`AI 圖片生成失敗: ${e.message}`);
-              // Revert to none if failed
-              setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageSourceType: 'none' } : p));
+              let msg = e.message;
+              if (msg.includes('exhausted')) msg = "API 忙碌中，請稍後重試 (不扣點)";
+              alert(`AI 圖片生成失敗: ${msg}`);
+              
+              // Keep mode as 'ai' but clear URL so retry remains free
+              setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageUrl: undefined, log: '生成失敗 (點擊重試)' } : p));
           } finally {
               setIsRegeneratingImage(null);
           }
@@ -682,7 +699,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                    <li>📝 純文字: <span className="text-green-400">1 點</span></li>
                                    <li>📰 新聞圖: <span className="text-yellow-400">2 點</span> (1文+1圖)</li>
                                    <li>📷 擬真圖庫: <span className="text-yellow-400">2 點</span> (1文+1圖)</li>
-                                   <li>🎨 AI 繪圖: <span className="text-pink-400">4 點</span> (1文+3圖)</li>
+                                   <li>🎨 AI 繪圖: <span className="text-pink-400">4 點</span> (1文+1圖/高耗能)</li>
                                </ul>
                            </div>
                       </div>
@@ -758,16 +775,27 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                       </div>
                                       
                                       <div className="w-full md:w-64 flex flex-col gap-3">
-                                          <div className="flex-1 bg-black rounded flex items-center justify-center overflow-hidden border border-gray-700 min-h-[160px] relative group">
+                                          <div className="flex-1 bg-black rounded flex items-center justify-center overflow-hidden border border-gray-700 min-h-[160px] relative group cursor-pointer" onClick={() => post.imageSourceType === 'ai' && !post.imageUrl ? handleImageModeChange(post, 'ai') : null}>
                                               {post.imageSourceType === 'none' ? (
                                                   <span className="text-gray-500 text-xs">無圖片</span>
                                               ) : (
-                                                  <img 
-                                                      src={getPreviewUrl(post)} 
-                                                      alt="Preview" 
-                                                      className="w-full h-full object-cover absolute inset-0 transition-transform transform group-hover:scale-110" 
-                                                      onError={(e) => (e.currentTarget.src = 'https://placehold.co/400x400?text=Image+Error')}
-                                                  />
+                                                  post.imageUrl || post.newsImageUrl || post.uploadedImageBase64 ? (
+                                                      <img 
+                                                          src={getPreviewUrl(post)} 
+                                                          alt="Preview" 
+                                                          className="w-full h-full object-cover absolute inset-0 transition-transform transform group-hover:scale-110" 
+                                                          onError={(e) => (e.currentTarget.src = 'https://placehold.co/400x400?text=Image+Error')}
+                                                      />
+                                                  ) : (
+                                                      <div className="flex flex-col items-center justify-center h-full text-gray-500 hover:text-white transition-colors">
+                                                           {post.imageSourceType === 'ai' ? (
+                                                               <>
+                                                                 <span className="text-2xl mb-1">⚠️</span>
+                                                                 <span className="text-xs text-center">生成失敗<br/>點此免費重試</span>
+                                                               </>
+                                                           ) : <span className="text-xs">等待圖片...</span>}
+                                                      </div>
+                                                  )
                                               )}
                                           </div>
                                           
