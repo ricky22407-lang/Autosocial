@@ -52,54 +52,61 @@ module.exports = async function (req, res) {
   }
 
   const keyManager = new KeyManager();
+  const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-  // Retry Wrapper
-  async function executeWithRetry(operation) {
+  // Retry Wrapper with Exponential Backoff
+  async function executeWithRetry(operation, retryCount = 0) {
       if (!keyManager.getCurrentKey()) {
           throw new Error("Server Configuration Error: API_KEY is missing in environment variables.");
       }
 
-      let attempts = 0;
-      let lastError = null;
-      const maxAttempts = keyManager.geminiKeys.length || 1; 
+      const maxRetries = 3; // Total retries per key/model attempt
 
-      while (attempts < maxAttempts) {
+      try {
+          const apiKey = keyManager.getCurrentKey();
+          
+          // Dynamic Import SDK
+          let GoogleGenAI;
           try {
-              const apiKey = keyManager.getCurrentKey();
-              
-              // Dynamic Import SDK
-              let GoogleGenAI;
-              try {
-                  const sdk = await import("@google/genai");
-                  GoogleGenAI = sdk.GoogleGenAI;
-              } catch (e) {
-                  throw new Error(`Failed to load @google/genai SDK: ${e.message}`);
-              }
+              const sdk = await import("@google/genai");
+              GoogleGenAI = sdk.GoogleGenAI;
+          } catch (e) {
+              throw new Error(`Failed to load @google/genai SDK: ${e.message}`);
+          }
 
-              const ai = new GoogleGenAI({ apiKey: apiKey });
-              return await operation(ai);
+          const ai = new GoogleGenAI({ apiKey: apiKey });
+          return await operation(ai);
 
-          } catch (error) {
-              lastError = error;
-              const msg = error.message || '';
-              
-              // 429: Too Many Requests, 403: Forbidden, 503: Service Unavailable, 500: Internal
-              const isQuotaError = msg.includes('429') || msg.includes('403') || msg.includes('Quota') || msg.includes('exhausted') || msg.includes('503');
-              
-              if (isQuotaError) {
-                  console.warn(`[API] Key #${keyManager.currentIndex + 1} exhausted/failed: ${msg}`);
+      } catch (error) {
+          const msg = error.message || '';
+          
+          // Identify Quota/Overload Errors
+          // 429: Too Many Requests, 503: Service Unavailable
+          const isQuotaError = msg.includes('429') || msg.includes('Quota') || msg.includes('exhausted') || msg.includes('503');
+          
+          if (isQuotaError) {
+              if (retryCount < maxRetries) {
+                  // Exponential Backoff: 1s, 2s, 4s
+                  const waitTime = Math.pow(2, retryCount) * 1000;
+                  console.warn(`[API] Quota Error (Attempt ${retryCount + 1}). Waiting ${waitTime}ms to retry...`);
+                  await delay(waitTime);
+                  
+                  // Try again recursively
+                  return executeWithRetry(operation, retryCount + 1);
+              } else {
+                  // If all retries on this key failed, try switching key
                   if (keyManager.switchToNextKey()) {
-                      attempts++;
-                      continue; 
+                      console.warn(`[API] Key exhausted. Switching to next key and resetting retries.`);
+                      return executeWithRetry(operation, 0);
                   } else {
                       throw new Error("All API keys exhausted. Please check billing or add more keys.");
                   }
-              } else {
-                  throw error;
               }
+          } else {
+              // Non-retriable error (e.g., Bad Request 400)
+              throw error;
           }
       }
-      throw lastError;
   }
 
   try {
@@ -121,35 +128,56 @@ module.exports = async function (req, res) {
         }
     }
 
-    // --- Action: fetchOgImage (New for News Images) ---
+    // --- Action: fetchOgImage ---
     else if (action === 'fetchOgImage') {
         const { url } = payload;
         try {
-            // Simple fetch and regex parse for og:image to avoid heavy deps like cheerio
             const htmlRes = await fetch(url, {
                 headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36' }
             });
             const html = await htmlRes.text();
-            
-            // Regex to find <meta property="og:image" content="...">
             const match = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i);
             const ogImage = match ? match[1] : null;
-            
             return res.status(200).json({ imageUrl: ogImage });
         } catch (e) {
             console.warn("OG Fetch failed", e);
-            return res.status(200).json({ imageUrl: null }); // Fail gracefully
+            return res.status(200).json({ imageUrl: null });
         }
     }
 
     // --- Action: generateContent ---
     else if (action === 'generateContent') {
       const { model, contents, config } = payload;
-      const result = await executeWithRetry(async (ai) => {
-          const response = await ai.models.generateContent({ model, contents, config });
-          return { text: response.text };
-      });
-      return res.status(200).json(result);
+      
+      // Automatic Model Downgrade Logic
+      const runGeneration = async (currentModel) => {
+          return await executeWithRetry(async (ai) => {
+              const response = await ai.models.generateContent({ 
+                  model: currentModel, 
+                  contents, 
+                  config 
+              });
+              return { text: response.text };
+          });
+      };
+
+      try {
+          const result = await runGeneration(model);
+          return res.status(200).json(result);
+      } catch (e) {
+          // If Gemini 3 Pro fails even after retries, try degrading to Flash (more quota)
+          if (model.includes('gemini-3-pro') || model.includes('gemini-1.5-pro')) {
+              console.warn(`[API] ${model} failed. Downgrading to gemini-2.5-flash for fallback.`);
+              try {
+                  const fallbackResult = await runGeneration('gemini-2.5-flash');
+                  return res.status(200).json(fallbackResult);
+              } catch (fallbackError) {
+                  // If fallback also fails, throw original error
+                  throw e;
+              }
+          }
+          throw e;
+      }
     }
     
     // --- Action: generateImages ---
@@ -158,7 +186,6 @@ module.exports = async function (req, res) {
       
       const result = await executeWithRetry(async (ai) => {
           if (model.includes('flash-image') || model.includes('nano')) {
-             // Gemini 2.5 Flash / Nano
              const response = await ai.models.generateContent({
                  model,
                  contents: { parts: [{ text: prompt }] },
@@ -174,7 +201,6 @@ module.exports = async function (req, res) {
              if (!b64) throw new Error("No image generated by Flash model");
              return { base64: b64 };
           } else {
-             // Imagen Models
              const response = await ai.models.generateImages({ model, prompt, config });
              const b64 = response.generatedImages?.[0]?.image?.imageBytes;
              return { base64: b64 };
@@ -191,7 +217,7 @@ module.exports = async function (req, res) {
            let attempts = 0;
            const maxAttempts = 20;
            while (!operation.done && attempts < maxAttempts) { 
-               await new Promise(r => setTimeout(r, 3000));
+               await delay(3000);
                operation = await ai.operations.getVideosOperation({ operation: operation });
                attempts++;
            }
@@ -214,6 +240,7 @@ module.exports = async function (req, res) {
 
   } catch (error) {
     console.error('[API Error]:', error);
+    // Propagate actual error to frontend so user knows to retry
     return res.status(500).json({ 
         error: error.message || 'Internal Server Error'
     });

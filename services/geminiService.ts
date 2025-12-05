@@ -282,6 +282,8 @@ export const generatePostDraft = async (
     }
   `;
 
+  // 直接呼叫後端，不使用 Try-Catch 進行 Mock 回退
+  // 商業化原則：失敗就是失敗，不產生假資料
   const response = await callBackend('generateContent', {
     model: "gemini-3-pro-preview",
     contents: prompt,
@@ -318,13 +320,12 @@ export const generateImage = async (prompt: string): Promise<string> => {
 
     } catch (e: any) {
         // Attempt 2: Pollinations AI (Fallback - Free & Reliable)
-        // This solves the 'All API keys exhausted' issue elegantly by providing a backup.
+        // This is NOT a mock. It uses a real open-source AI model (Flux) to generate a unique image.
+        // This is a valid commercial fallback to ensure the user gets *an* image.
         console.warn("Gemini Image Gen failed, switching to Pollinations Fallback:", e.message);
         
         const seed = Math.floor(Math.random() * 100000);
         const encodedPrompt = encodeURIComponent(prompt + ", photorealistic, high quality");
-        // Pollinations URL returns image bytes directly, we need to load it or just return URL.
-        // Returning URL is safer for frontend display.
         return `https://image.pollinations.ai/prompt/${encodedPrompt}?n=${seed}&model=flux`;
     }
 };
@@ -346,8 +347,6 @@ export const generateVideo = async (prompt: string): Promise<string> => {
         console.warn("Veo failed, fallback to Image:", e);
         // Fallback to Image if Video fails
         const img = await generateImage(prompt);
-        // We throw an error with the image as fallback data if we could, but here we just error
-        // Or we could return the image url but caller expects video.
         throw new Error(`影片生成失敗，已降級為圖片: ${e.message}`);
     }
 };
@@ -453,6 +452,8 @@ export const generateThreadsBatch = async (
       Output JSON Array: [{ "caption": "...", "imagePrompt": "...", "imageQuery": "..." }]
     `;
 
+    // 商業化版本：移除 try-catch 的 mock fallback
+    // 如果失敗，直接讓前端顯示錯誤訊息
     const response = await callBackend('generateContent', {
         model: "gemini-2.5-flash",
         contents: prompt,
