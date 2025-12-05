@@ -24,7 +24,7 @@ interface GeneratedPost {
   targetAccountId?: string;
   status: 'idle' | 'publishing' | 'done' | 'failed';
   log?: string;
-  imageSourceType?: 'ai' | 'stock' | 'source_url'; 
+  imageSourceType?: 'ai' | 'stock' | 'source_url' | 'none'; // Added 'none' to fix build error
   isImageLoading?: boolean; 
 }
 
