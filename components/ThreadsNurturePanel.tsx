@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { BrandSettings, ThreadsAccount, UserProfile, TrendingTopic } from '../types';
-import { generateCommentReply, getTrendingTopics, generateThreadsBatch } from '../services/geminiService';
+import { generateCommentReply, getTrendingTopics, generateThreadsBatch, generateImage } from '../services/geminiService';
 import { publishThreadsPost, fetchUserThreads, fetchMediaReplies } from '../services/threadsService';
 import { checkAndUseQuota } from '../services/authService';
 
@@ -11,6 +11,8 @@ interface Props {
   onSaveSettings: (settings: BrandSettings) => void;
   onQuotaUpdate: () => void;
 }
+
+type ImageSourceType = 'ai' | 'stock' | 'news' | 'upload' | 'none';
 
 interface GeneratedPost {
   id: string;
@@ -27,7 +29,7 @@ interface GeneratedPost {
   targetAccountId?: string;
   status: 'idle' | 'publishing' | 'done' | 'failed';
   log?: string;
-  imageSourceType: 'ai' | 'stock' | 'news' | 'upload' | 'none';
+  imageSourceType: ImageSourceType;
 }
 
 interface CommentData {
@@ -57,9 +59,12 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   const [manualTopic, setManualTopic] = useState('');
   const [selectedTopics, setSelectedTopics] = useState<string[]>([]); // Typically just 1 for batch focus
   
-  const [genCount, setGenCount] = useState(3);
+  const [genCount, setGenCount] = useState<1 | 2 | 3>(1); // Step 2: Batch count 1, 2, 3
+  const [preSelectedImageMode, setPreSelectedImageMode] = useState<ImageSourceType>('none');
+  
   const [generatedPosts, setGeneratedPosts] = useState<GeneratedPost[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isRegeneratingImage, setIsRegeneratingImage] = useState<string | null>(null);
   
   // Trends
   const [trendingTopics, setTrendingTopics] = useState<TrendingTopic[]>([]);
@@ -157,6 +162,18 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       setGenStep(2);
   };
 
+  // Calculate Cost based on count and image mode
+  const calculateCost = (count: number, mode: ImageSourceType) => {
+      const baseCost = 1; // Basic Text Post
+      let extraCost = 0;
+      
+      if (mode === 'ai') extraCost = 3;      // AI Image (+3)
+      else if (mode === 'news') extraCost = 1; // News Image (+1)
+      // stock/upload/none = 0 extra
+
+      return (baseCost + extraCost) * count;
+  };
+
   const handleGenerateBatch = async () => {
       if (!user) return alert("請先登入");
       const topicSource = selectedTopics.length > 0 ? selectedTopics[0] : manualTopic;
@@ -165,11 +182,21 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       // Find original topic data to get image
       const sourceTopicData = trendingTopics.find(t => t.title === topicSource);
       const newsImg = sourceTopicData?.imageUrl;
+      
+      // Validation: If News Image mode is selected but no news image exists
+      if (preSelectedImageMode === 'news' && !newsImg) {
+          if(!confirm("⚠️ 警告：此話題找不到相關新聞圖片。系統將自動降級為「純文字」模式 (僅扣 1 點/篇)。是否繼續？")) {
+              return;
+          }
+      }
 
       // Step 2 Quota Check
-      const COST = 2;
-      const allowed = await checkAndUseQuota(user.user_id, COST);
-      if (!allowed) return alert(`配額不足 (需 ${COST} 點)`);
+      // If news mode failed, fallback cost to none
+      const effectiveMode = (preSelectedImageMode === 'news' && !newsImg) ? 'none' : preSelectedImageMode;
+      const totalCost = calculateCost(genCount, effectiveMode);
+      
+      const allowed = await checkAndUseQuota(user.user_id, totalCost);
+      if (!allowed) return alert(`配額不足 (需 ${totalCost} 點)`);
       onQuotaUpdate();
 
       setIsGenerating(true);
@@ -182,19 +209,40 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
           const personas = activeAccounts.map(a => a.personaPrompt || '').filter(Boolean);
           const results = await generateThreadsBatch(topicSource, genCount, settings, personas);
 
-          const newPosts: GeneratedPost[] = results.map((r, i) => ({
-              id: Date.now() + '_' + i,
-              topic: topicSource,
-              caption: r.caption,
-              imagePrompt: r.imagePrompt,
-              imageQuery: r.imageQuery,
+          // Prepare final posts
+          const newPosts: GeneratedPost[] = await Promise.all(results.map(async (r, i) => {
+              let finalMode = effectiveMode;
+              let finalImageUrl = undefined;
               
-              // Restore News Image
-              newsImageUrl: newsImg,
-              imageSourceType: newsImg ? 'news' : 'ai', // Default to news if avail, else AI
+              if (finalMode === 'news') {
+                  finalImageUrl = newsImg;
+              }
               
-              status: 'idle',
-              targetAccountId: activeAccounts[i % activeAccounts.length]?.id
+              if (finalMode === 'ai') {
+                  // If AI mode was pre-selected, generate image now (cost already paid)
+                  try {
+                      finalImageUrl = await generateImage(r.imagePrompt);
+                  } catch (e) {
+                      console.warn("AI Image gen failed in batch", e);
+                      finalMode = 'none'; // Degrade gracefully
+                  }
+              }
+
+              return {
+                  id: Date.now() + '_' + i,
+                  topic: topicSource,
+                  caption: r.caption,
+                  imagePrompt: r.imagePrompt,
+                  imageQuery: r.imageQuery,
+                  
+                  // Image Data
+                  newsImageUrl: newsImg,
+                  imageUrl: finalImageUrl,
+                  imageSourceType: finalMode, 
+                  
+                  status: 'idle',
+                  targetAccountId: activeAccounts[i % activeAccounts.length]?.id
+              };
           }));
 
           setGeneratedPosts(newPosts);
@@ -228,17 +276,75 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
 
   const getPreviewUrl = (post: GeneratedPost) => {
       if (post.imageSourceType === 'upload' && post.uploadedImageBase64) return post.uploadedImageBase64;
-      if (post.imageSourceType === 'news' && post.newsImageUrl) return post.newsImageUrl;
-      if (post.imageUrl) return post.imageUrl;
-      if (post.imageSourceType === 'none') return '';
+      if (post.imageSourceType === 'news' && post.newsImageUrl) return post.newsImageUrl; // Prefer specific news url
+      if (post.imageUrl) return post.imageUrl; // AI generated or assigned
       
-      // Fallback for AI/Stock
-      const seed = post.id;
-      let prompt = post.imagePrompt;
+      // Fallback for Stock (Simulated via Pollinations text-to-image with stock prompt)
       if (post.imageSourceType === 'stock') {
-          prompt = `${post.imageQuery}, photorealistic, real life photography, 4k`;
+           const seed = post.id;
+           const prompt = `${post.imageQuery}, photorealistic, real life photography, 4k`;
+           return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?n=${seed}&model=flux`;
       }
-      return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?n=${seed}&model=flux`;
+      return '';
+  };
+
+  // Step 3: Change Image Mode Logic
+  const handleImageModeChange = async (post: GeneratedPost, newMode: ImageSourceType) => {
+      if (!user) return;
+      if (newMode === post.imageSourceType) return; // No change
+
+      // Calculate upgrade cost
+      // Cost Logic: 
+      // Current: None/Stock/Upload=0, News=1, AI=3
+      // We only charge for UPGRADE. We do not refund for downgrade (simplification).
+      
+      const getModeCost = (m: ImageSourceType) => {
+          if (m === 'ai') return 3;
+          if (m === 'news') return 1;
+          return 0;
+      };
+
+      const currentCost = getModeCost(post.imageSourceType);
+      const newCost = getModeCost(newMode);
+      
+      const costDiff = newCost - currentCost;
+
+      if (costDiff > 0) {
+          if (!confirm(`切換至「${newMode === 'ai' ? 'AI 繪圖' : '新聞圖片'}」模式需要補差額 ${costDiff} 點。確定嗎？`)) {
+              return;
+          }
+          const allowed = await checkAndUseQuota(user.user_id, costDiff);
+          if (!allowed) {
+              alert("配額不足，無法切換");
+              return;
+          }
+          onQuotaUpdate();
+      }
+
+      // Update Local State immediately for mode
+      setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageSourceType: newMode } : p));
+
+      // Execute Logic (Generate AI Image if needed)
+      if (newMode === 'ai' && !post.imageUrl) {
+          setIsRegeneratingImage(post.id);
+          try {
+              const url = await generateImage(post.imagePrompt);
+              setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageUrl: url } : p));
+          } catch (e: any) {
+              alert(`AI 圖片生成失敗: ${e.message}`);
+              // Revert to none if failed
+              setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageSourceType: 'none' } : p));
+          } finally {
+              setIsRegeneratingImage(null);
+          }
+      } 
+      // Handle News Logic
+      else if (newMode === 'news') {
+           if (!post.newsImageUrl) {
+               alert("此話題無新聞圖片，已自動切換回純文字。");
+               setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageSourceType: 'none' } : p));
+           }
+      }
   };
 
   const handlePublish = async (post: GeneratedPost) => {
@@ -247,7 +353,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
 
       // Validation for Upload type
       if (post.imageSourceType === 'upload') {
-          if (!confirm("⚠️ 注意：手動上傳的圖片目前僅支援「預覽」。\n\nThreads API 需要公開的圖片網址才能發佈。若您繼續，系統將嘗試發送，但可能會因為圖片非公開網址而失敗 (除非後端有實作自動上傳圖床)。\n\n是否仍要嘗試？")) {
+          if (!confirm("⚠️ 注意：手動上傳的圖片目前僅支援「預覽」。\n\nThreads API 需要公開的圖片網址才能發佈。若您繼續，系統將嘗試發送，但可能會因為圖片非公開網址而失敗。\n\n是否仍要嘗試？")) {
               return;
           }
       }
@@ -256,7 +362,6 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
 
       const imgUrl = post.imageSourceType === 'none' ? undefined : getPreviewUrl(post);
       
-      // Note: publishThreadsPost expects a public URL. Base64 might fail depending on API support.
       const res = await publishThreadsPost(acc, post.caption, imgUrl);
 
       setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { 
@@ -480,13 +585,14 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                       <button 
                                         key={i}
                                         onClick={() => selectTopic(t.title)}
-                                        className={`px-4 py-3 rounded-lg border text-left transition-all ${
+                                        className={`px-4 py-3 rounded-lg border text-left transition-all relative ${
                                             selectedTopics.includes(t.title) 
                                             ? 'bg-blue-900/50 border-primary ring-2 ring-primary text-white' 
                                             : 'bg-dark border-gray-600 text-gray-300 hover:border-gray-400 hover:bg-gray-800'
                                         }`}
                                       >
                                           <div className="font-bold">{t.title}</div>
+                                          {t.imageUrl && <span className="absolute top-2 right-2 text-[10px] bg-green-900 text-green-200 px-1 rounded">有圖</span>}
                                           {t.description && <div className="text-xs text-gray-500 mt-1 line-clamp-1">{t.description}</div>}
                                       </button>
                                   ))}
@@ -511,7 +617,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                   <div className="space-y-8 animate-fade-in">
                       <div className="bg-card p-6 rounded-xl border border-gray-700">
                            <div className="flex items-center justify-between mb-4">
-                               <h3 className="text-xl font-bold text-white">Step 2: 批量生成貼文</h3>
+                               <h3 className="text-xl font-bold text-white">Step 2: 批量生產貼文</h3>
                                <button onClick={resetGenFlow} className="text-sm text-gray-400 hover:text-white underline">← 重新選擇話題</button>
                            </div>
                            
@@ -522,23 +628,40 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                </span>
                            </div>
 
-                           <div className="flex items-end gap-4 max-w-md">
-                               <div className="flex-1">
-                                   <label className="block text-sm text-gray-400 mb-1">生成篇數</label>
-                                   <select value={genCount} onChange={e => setGenCount(Number(e.target.value))} className="w-full bg-dark border border-gray-600 rounded p-2 text-white">
+                           <div className="flex flex-col md:flex-row items-end gap-4">
+                               <div className="flex-1 w-full">
+                                   <label className="block text-sm text-gray-400 mb-1">生成篇數 (每次建議 1-3 篇)</label>
+                                   <select value={genCount} onChange={e => setGenCount(Number(e.target.value) as 1|2|3)} className="w-full bg-dark border border-gray-600 rounded p-2 text-white">
                                        <option value="1">1 篇</option>
+                                       <option value="2">2 篇</option>
                                        <option value="3">3 篇</option>
-                                       <option value="5">5 篇</option>
                                    </select>
                                </div>
-                               <button 
-                                    onClick={handleGenerateBatch}
-                                    disabled={isGenerating}
-                                    className="flex-1 bg-secondary hover:bg-indigo-600 text-white px-6 py-2 rounded font-bold h-[42px] disabled:opacity-50 transition-colors shadow-lg"
-                                >
-                                    {isGenerating ? 'AI 撰寫中...' : '✨ 批量生成 (扣 2 點)'}
-                                </button>
+
+                               <div className="flex-1 w-full">
+                                   <label className="block text-sm text-gray-400 mb-1">圖片模式 (預設)</label>
+                                   <select value={preSelectedImageMode} onChange={e => setPreSelectedImageMode(e.target.value as ImageSourceType)} className="w-full bg-dark border border-gray-600 rounded p-2 text-white">
+                                       <option value="none">❌ 純文字 (1點/篇)</option>
+                                       <option value="news">📰 新聞原圖 (+1點/篇)</option>
+                                       <option value="ai">🎨 AI 繪圖 (+3點/篇)</option>
+                                       <option value="stock">📷 擬真圖庫 (+0點/篇)</option>
+                                       <option value="upload">📤 手動上傳 (+0點/篇)</option>
+                                   </select>
+                               </div>
+
+                               <div className="flex-1 w-full">
+                                   <button 
+                                        onClick={handleGenerateBatch}
+                                        disabled={isGenerating}
+                                        className="w-full bg-secondary hover:bg-indigo-600 text-white px-6 py-2 rounded font-bold h-[42px] disabled:opacity-50 transition-colors shadow-lg"
+                                    >
+                                        {isGenerating ? 'AI 撰寫中...' : `✨ 生成 (共扣 ${calculateCost(genCount, preSelectedImageMode)} 點)`}
+                                    </button>
+                               </div>
                            </div>
+                           <p className="text-xs text-gray-500 mt-2">
+                               * 純文字: 1點 | 新聞圖: 2點 | AI圖: 4點 (含文案費用)
+                           </p>
                       </div>
 
                       {/* Results List */}
@@ -546,7 +669,14 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                           <div className="space-y-6">
                               <h3 className="font-bold text-white text-lg">生成結果預覽</h3>
                               {generatedPosts.map((post) => (
-                                  <div key={post.id} className="bg-dark p-6 rounded border border-gray-600 flex flex-col md:flex-row gap-6 shadow-xl">
+                                  <div key={post.id} className="bg-dark p-6 rounded border border-gray-600 flex flex-col md:flex-row gap-6 shadow-xl relative">
+                                      {/* Loading Overlay for Image Regen */}
+                                      {isRegeneratingImage === post.id && (
+                                          <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-10 rounded">
+                                              <span className="loader mr-2"></span> 圖片生成中...
+                                          </div>
+                                      )}
+
                                       <div className="flex-1 space-y-4">
                                           <div>
                                               <label className="block text-xs text-gray-400 mb-1">貼文內容</label>
@@ -575,20 +705,17 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                                   </select>
                                               </div>
                                               <div className="flex-1">
-                                                  <label className="block text-xs text-gray-400 mb-1">圖片模式</label>
+                                                  <label className="block text-xs text-gray-400 mb-1">圖片模式 (切換模式可能扣點)</label>
                                                   <select 
                                                       value={post.imageSourceType} 
-                                                      onChange={e => {
-                                                          const val = e.target.value as any;
-                                                          setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageSourceType: val } : p));
-                                                      }}
+                                                      onChange={e => handleImageModeChange(post, e.target.value as ImageSourceType)}
                                                       className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-2 text-xs text-white"
                                                   >
-                                                      <option value="ai">🎨 AI 繪圖</option>
-                                                      <option value="stock">📷 擬真圖庫</option>
-                                                      {post.newsImageUrl && <option value="news">📰 新聞原圖</option>}
-                                                      <option value="upload">📤 手動上傳</option>
-                                                      <option value="none">❌ 純文字</option>
+                                                      <option value="none">❌ 純文字 (免費)</option>
+                                                      <option value="news">📰 新聞原圖 (補1點)</option>
+                                                      <option value="ai">🎨 AI 繪圖 (補3點)</option>
+                                                      <option value="stock">📷 擬真圖庫 (免費)</option>
+                                                      <option value="upload">📤 手動上傳 (免費)</option>
                                                   </select>
                                               </div>
                                           </div>

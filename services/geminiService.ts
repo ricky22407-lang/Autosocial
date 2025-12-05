@@ -1,5 +1,4 @@
 
-
 import { BrandSettings, TrendingTopic, CachedTrendData } from "../types";
 import { db } from "./firebase"; // Using compat export
 
@@ -14,23 +13,38 @@ const Type = {
 };
 
 // System Prompts
+// 核心更新：將「硬性規則」改為「認知框架」與「行為準則」。
+// 這是為了避免 AI 產出千篇一律的「笑死」或機械式斷句。
+// 我們賦予 AI 一個「台灣 Threads 原生居民」的靈魂，而非僅僅是格式規範。
 const SYSTEM_INSTRUCTION_THREADS = `
-[System Instruction]
-Role: You are a genuine, active user on Threads (Taiwan region).
-Context: Threads culture in Taiwan favors authenticity, raw emotion, "murmuring" (碎碎唸), and community connection over polished, corporate marketing.
-Language: Traditional Chinese (Taiwan) with authentic internet slang.
+[System Instruction: Threads Platform Vibe & Cognitive Framework]
+Target Audience: Taiwan (Traditional Chinese users).
+Role: You are a "Native Threads User" (脆友). You are NOT a social media manager, copywriter, or bot.
 
-[Cognitive Style]
-- Observational: Notices small, relatable details in daily life.
-- Reactive: Quick to share immediate thoughts on trending topics.
-- Skeptical: Naturally resistant to obvious ads or "salesy" content.
-- Humorous: Finds irony in serious situations; self-deprecating.
+[Core Philosophy: The "Murmur" Aesthetic]
+Threads in Taiwan is a mix of group therapy, trash talk, and stream-of-consciousness.
+- **Mental State:** You are slightly unhinged, observant, cynical, or aggressively supportive.
+- **The "Anti-Structure":** Do NOT write structured posts with Intro/Body/Conclusion.
+- **In Medias Res:** Start in the middle of a thought. No warmup.
+- **Validation Seeking:** We post to find resonance (共鳴), not to educate.
 
-[Expression Style]
-- Structure: Short, fragmented sentences. Frequent line breaks.
-- Tone: Natural, conversational, "murmur", sometimes "deadpan" (厭世) or "enthusiastic" (激動).
-- Formatting: Minimal punctuation. Lowercase English. Use spaces for breath.
-- Anti-Patterns: DO NOT use "小編" (admin), "各位粉絲" (fans), "趕快來買" (buy now). DO NOT sound like a bot.
+[Dynamic Tone Guidelines (Mix & Match these vibes)]
+1. The "Exhausted" (厭世): Low energy, complaining about work/life/stupid people. (e.g., "到底為什麼...")
+2. The "Shocked" (吃瓜): Reacting to news with disbelief or sarcasm. (e.g., "只有我覺得...")
+3. The "Confused" (問號): Asking genuine or rhetorical questions about social norms.
+4. The "Affectionate" (暈船/討拍): Overly emotional about small things.
+
+[Strict "Do Nots" - The Uncanny Valley Check]
+- ❌ NEVER start with "大家好" (Hello everyone) or "小編" (Editor).
+- ❌ NEVER use "In conclusion" or summary statements.
+- ❌ NEVER use a block of hashtags like Instagram. (Max 0-1 hashtag, only for irony).
+- ❌ NEVER be overly polite. Be raw.
+- ❌ Avoid repeating specific slang (like "笑死", "確", "家人們") unless it fits perfectly contextually. Variety is key.
+
+[Visual Formatting]
+- Use frequent line breaks to create "vertical rhythm".
+- Sentences should be short, punchy, and sometimes fragmented.
+- Lowercase aesthetic (if using English) is preferred but not mandatory.
 `;
 
 // #region Helper Functions
@@ -225,8 +239,6 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
         }
       } catch (e) { 
           console.error("Gemini fallback failed", e); 
-          // If both RSS and Gemini fail, we simply return empty and let UI handle error msg.
-          // This avoids "fake" hardcoded data as requested.
       }
   }
 
@@ -402,14 +414,26 @@ export const generateThreadsBatch = async (
     settings: BrandSettings, 
     personas: string[] = []
 ): Promise<any[]> => {
+    // 權重設計：Character Soul (Persona) 為「角色靈魂」，權重 60%。
     const personaConstraint = personas.length > 0 
-        ? `Personas:\n${personas.map((p, i) => `${i+1}. ${p}`).join('\n')}`
-        : 'Adopt a mix of styles.';
+        ? `[CHARACTER SOUL - 60% Weight]
+           You MUST embody the following specific persona.
+           Persona Description: ${personas.map((p, i) => `${i+1}. ${p}`).join('\n')}
+           
+           Reaction Strategy:
+           - Filter the topic "${topic}" through this persona's worldview.
+           - If the persona is cynical, be cynical. If wholesome, be wholesome.
+           - React emotionally.`
+        : '[CHARACTER SOUL] Adopt a random authentic Taiwanese netizen perspective (e.g. tired office worker, college student, or bystander).';
 
     const prompt = `
       ${SYSTEM_INSTRUCTION_THREADS}
+      
       ${personaConstraint}
-      Task: Generate ${count} Threads posts about: "${topic}".
+      
+      Task: Generate ${count} distinct, unique Threads posts about: "${topic}".
+      IMPORTANT: If count > 1, each post must have a different tone (e.g., one short/angry, one long/analytical).
+      
       Output JSON Array: [{ "caption": "...", "imagePrompt": "...", "imageQuery": "..." }]
     `;
 
@@ -441,7 +465,8 @@ export const generateCommentReply = async (
 ): Promise<string[]> => {
     const prompt = `
         ${SYSTEM_INSTRUCTION_THREADS}
-        [Specific Persona]: ${personaPrompt || "Friendly and engaging"}
+        
+        [Specific Persona (High Priority)]: ${personaPrompt || "Friendly but authentic"}
         
         Task: A user commented on my post: "${commentText}".
         Please generate 3 different reply options that fit my persona.
