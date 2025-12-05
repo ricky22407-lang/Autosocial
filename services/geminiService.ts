@@ -4,7 +4,6 @@ import { BrandSettings, TrendingTopic, CachedTrendData } from "../types";
 import { db } from "./firebase"; // Using compat export
 
 // Local Type Definition to replace SDK Import and maintain type safety
-// This prevents importing the heavy SDK into the client bundle
 const Type = {
   STRING: 'STRING',
   NUMBER: 'NUMBER',
@@ -131,31 +130,12 @@ const shuffleArray = <T,>(array: T[]): T[] => {
     return arr;
 };
 
-// #region RSS Fetching
-const fetchTextWithProxy = async (targetUrl: string): Promise<string> => {
-    // Try primary proxy
-    try {
-        const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`);
-        if (res.ok) {
-            const data = await res.json();
-            if (data.contents) return data.contents;
-        }
-    } catch (e) {
-        console.warn("Proxy 1 failed:", e);
-    }
-    
-    // Try secondary proxy
-    try {
-        const res = await fetch(`https://corsproxy.io/?${encodeURIComponent(targetUrl)}`);
-        if (res.ok) {
-            const text = await res.text();
-            if (text) return text;
-        }
-    } catch (e) {
-        console.warn("Proxy 2 failed:", e);
-    }
-    
-    throw new Error("All RSS proxies failed");
+// #region RSS Fetching (Via Backend Proxy)
+const fetchRssContent = async (targetUrl: string): Promise<string> => {
+    // Call our own backend to fetch the RSS content, avoiding browser CORS issues
+    const data = await callBackend('fetchRss', { url: targetUrl });
+    if (!data.text) throw new Error("Backend returned empty RSS content");
+    return data.text;
 };
 
 const fetchRealtimeRss = async (keyword: string): Promise<TrendingTopic[]> => {
@@ -166,7 +146,9 @@ const fetchRealtimeRss = async (keyword: string): Promise<TrendingTopic[]> => {
     else rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(keyword)}+when:1d&hl=zh-TW&gl=TW&ceid=TW:zh-Hant`;
 
     try {
-        const xmlString = await fetchTextWithProxy(rssUrl);
+        // Use server-side proxy
+        const xmlString = await fetchRssContent(rssUrl);
+        
         const parser = new DOMParser();
         const xml = parser.parseFromString(xmlString, "text/xml");
         const items = xml.querySelectorAll("item");
@@ -202,7 +184,9 @@ const fetchRealtimeRss = async (keyword: string): Promise<TrendingTopic[]> => {
         }
         return results;
     } catch (e) {
-        console.warn("RSS fetch flow failed, returning empty list for fallback", e);
+        console.warn("RSS fetch flow failed (Backend Proxy)", e);
+        // We still return empty here so the caller can decide fallback, 
+        // but now it's much more stable due to backend proxy.
         return [];
     }
 };
@@ -217,7 +201,7 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
   let topics = await fetchRealtimeRss(industry);
 
   if (topics.length === 0) {
-      console.warn("RSS returned 0 items, using Gemini fallback via Backend.");
+      console.warn("RSS returned 0 items. Attempting Gemini fallback generation via backend.");
       try {
         // Fallback: Use Gemini 2.5 Flash via Backend
         const response = await callBackend('generateContent', {
@@ -239,10 +223,14 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
                 url: t.url,
             }));
         }
-      } catch (e) { console.error("Gemini fallback failed", e); }
+      } catch (e) { 
+          console.error("Gemini fallback failed", e); 
+          // If both RSS and Gemini fail, we simply return empty and let UI handle error msg.
+          // This avoids "fake" hardcoded data as requested.
+      }
   }
 
-  if (topics.length > 0) await saveTrendCache(industry, topics);
+  if (topics.length > 0 && topics[0].url !== '#') await saveTrendCache(industry, topics);
   return topics;
 };
 

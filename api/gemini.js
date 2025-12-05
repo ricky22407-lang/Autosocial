@@ -70,7 +70,6 @@ module.exports = async function (req, res) {
               if (!apiKey) throw new Error("Server Misconfiguration: No API_KEY found in environment variables.");
 
               // Dynamic Import SDK with specific Key
-              // We use dynamic import to avoid load-time errors if package is missing (though it should be there)
               let GoogleGenAI;
               try {
                   const sdk = await import("@google/genai");
@@ -115,10 +114,35 @@ module.exports = async function (req, res) {
         return res.status(400).json({ error: "Missing 'action' in request body" });
     }
 
-    console.log(`[API] Processing action: ${action}`);
+    // console.log(`[API] Processing action: ${action}`);
+
+    // --- Action Handler: fetchRss (Server-Side Proxy) ---
+    if (action === 'fetchRss') {
+        const { url } = payload;
+        if (!url) throw new Error("Missing URL for RSS fetch");
+
+        try {
+            // Using Node's native fetch (Node 18+) or polyfill provided by Vercel environment
+            const rssRes = await fetch(url, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                }
+            });
+            
+            if (!rssRes.ok) {
+                throw new Error(`RSS Source returned status ${rssRes.status}: ${rssRes.statusText}`);
+            }
+
+            const text = await rssRes.text();
+            return res.status(200).json({ text });
+        } catch (rssError) {
+            console.error("RSS Proxy Failed:", rssError);
+            throw new Error(`Failed to fetch RSS content: ${rssError.message}`);
+        }
+    }
 
     // --- Action Handler: generateContent ---
-    if (action === 'generateContent') {
+    else if (action === 'generateContent') {
       const { model, contents, config } = payload;
       
       const result = await executeWithRetry(async (ai) => {
@@ -194,7 +218,6 @@ module.exports = async function (req, res) {
            const downloadUrl = `${videoUri}&key=${currentKey}`;
            
            // Fetch the video content server-side to return base64 to client
-           // This avoids exposing the raw URI structure or dealing with client-side CORS on video storage
            const videoRes = await fetch(downloadUrl);
            
            if (!videoRes.ok) throw new Error(`Failed to download video: ${videoRes.statusText}`);
