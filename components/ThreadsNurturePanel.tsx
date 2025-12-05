@@ -43,6 +43,16 @@ interface CommentData {
     accountIndex: number;
 }
 
+// Helper: Frontend-only Stock Photo Generator (Flux with Realism Prompt)
+const generateStockUrl = (query: string, seed: string) => {
+    // Force "Candid/Realism" style to differentiate from "AI Art"
+    // Using simple query + strict modifiers works better for "fake stock photos"
+    const realismPrompt = `${query}, candid photography, shot on iPhone 15, natural lighting, grainy, unpolished, 4k, no 3d render, no illustration, hyperrealistic`;
+    const encoded = encodeURIComponent(realismPrompt);
+    // Direct call to Pollinations (Free, Fast, Good for "Stock" tier)
+    return `https://image.pollinations.ai/prompt/${encoded}?n=${seed}&model=flux`;
+};
+
 const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, onQuotaUpdate }) => {
   // #region State
   const [activeTab, setActiveTab] = useState<'accounts' | 'interaction' | 'generator'>('accounts');
@@ -208,8 +218,9 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
               let finalImageUrl = undefined;
               let errorLog = undefined;
               let paid = false;
+              const uniqueSeed = Date.now().toString() + i;
 
-              // --- AI Mode ---
+              // --- AI Mode (Backend, High Quality) ---
               if (finalMode === 'ai') {
                   paid = true;
                   try {
@@ -219,6 +230,12 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                       // Fallback: don't change mode, just log error so user can retry for free
                       errorLog = '圖片生成失敗 (請點擊重試)';
                   }
+              }
+              // --- Stock Mode (Frontend, Fast, Realistic Style) ---
+              else if (finalMode === 'stock') {
+                  // Direct generation, no backend overhead.
+                  // Use 'imageQuery' (shorter) if available for better stock results
+                  finalImageUrl = generateStockUrl(r.imageQuery || r.imagePrompt, uniqueSeed);
               }
               // --- News Mode (Advanced Fetch) ---
               else if (finalMode === 'news') {
@@ -255,7 +272,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                   
                   // Image Data
                   newsImageUrl: finalMode === 'news' ? finalImageUrl : undefined,
-                  imageUrl: finalMode === 'ai' || finalMode === 'news' ? finalImageUrl : undefined,
+                  imageUrl: (finalMode === 'ai' || finalMode === 'stock' || finalMode === 'news') ? finalImageUrl : undefined,
                   imageSourceType: finalMode,
                   log: errorLog,
                   paidForGeneration: paid,
@@ -298,13 +315,6 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       if (post.imageSourceType === 'upload' && post.uploadedImageBase64) return post.uploadedImageBase64;
       if (post.imageSourceType === 'news' && post.newsImageUrl) return post.newsImageUrl;
       if (post.imageUrl) return post.imageUrl;
-      
-      // Fallback for Stock
-      if (post.imageSourceType === 'stock') {
-           const seed = post.id;
-           const prompt = `${post.imageQuery}, photorealistic, real life photography, 4k`;
-           return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?n=${seed}&model=flux`;
-      }
       return '';
   };
 
@@ -376,6 +386,11 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
               setIsRegeneratingImage(null);
           }
       } 
+      else if (newMode === 'stock') {
+           // Fast Client-side Gen
+           const url = generateStockUrl(post.imageQuery || post.imagePrompt, Date.now().toString());
+           setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageUrl: url } : p));
+      }
       else if (newMode === 'news') {
            // If switching to news manually, try to find the image again
            if (!post.newsImageUrl) {
@@ -719,7 +734,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                    <li>📝 純文字: <span className="text-green-400">1 點</span></li>
                                    <li>📰 新聞圖: <span className="text-yellow-400">2 點</span> (1文+1圖)</li>
                                    <li>📷 擬真圖庫: <span className="text-yellow-400">2 點</span> (1文+1圖)</li>
-                                   <li>🎨 AI 繪圖: <span className="text-pink-400">4 點</span> (1文+1圖/高耗能)</li>
+                                   <li>🎨 AI 繪圖: <span className="text-pink-400">4 點</span> (1文+1圖/高算力)</li>
                                </ul>
                            </div>
                       </div>
