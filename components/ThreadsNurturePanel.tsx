@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect } from 'react';
 import { BrandSettings, ThreadsAccount, UserProfile, TrendingTopic } from '../types';
 import { generateCommentReply, getTrendingTopics, generateThreadsBatch } from '../services/geminiService';
@@ -19,11 +18,16 @@ interface GeneratedPost {
   caption: string;
   imagePrompt: string;
   imageQuery: string;
-  imageUrl?: string;
+  
+  // Image Sources
+  imageUrl?: string; // AI generated URL or Final URL
+  newsImageUrl?: string; // From RSS
+  uploadedImageBase64?: string; // From manual upload (Preview only without hosting)
+  
   targetAccountId?: string;
   status: 'idle' | 'publishing' | 'done' | 'failed';
   log?: string;
-  imageSourceType: 'ai' | 'stock' | 'source_url' | 'none';
+  imageSourceType: 'ai' | 'stock' | 'news' | 'upload' | 'none';
 }
 
 interface CommentData {
@@ -75,9 +79,6 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   useEffect(() => {
     onSaveSettings({ ...settings, threadsAccounts: accounts });
   }, [accounts]);
-
-  // We DO NOT auto-load trends anymore. User must click button to pay 1 credit.
-  // This restores the "Pay to view" flow.
 
   const loadTrends = async () => {
       if (!user) return alert("請先登入");
@@ -148,11 +149,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   // --- Generator Handlers ---
   const selectTopic = (title: string) => {
       setSelectedTopics([title]); // Single select for focus
-      setManualTopic(''); // Clear manual
-      // Move to step 2 automatically? Or let user confirm? 
-      // Let's keep user on screen to confirm selection visually, then click Next?
-      // Actually, standard UI: click -> selected. Then click 'Next Step' or 'Generate'.
-      // Let's stay on Step 1 but highlight it.
+      setManualTopic(''); 
   };
 
   const proceedToGenerateUI = () => {
@@ -164,6 +161,10 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       if (!user) return alert("請先登入");
       const topicSource = selectedTopics.length > 0 ? selectedTopics[0] : manualTopic;
       if (!topicSource) return alert("無效話題");
+
+      // Find original topic data to get image
+      const sourceTopicData = trendingTopics.find(t => t.title === topicSource);
+      const newsImg = sourceTopicData?.imageUrl;
 
       // Step 2 Quota Check
       const COST = 2;
@@ -187,7 +188,11 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
               caption: r.caption,
               imagePrompt: r.imagePrompt,
               imageQuery: r.imageQuery,
-              imageSourceType: 'ai',
+              
+              // Restore News Image
+              newsImageUrl: newsImg,
+              imageSourceType: newsImg ? 'news' : 'ai', // Default to news if avail, else AI
+              
               status: 'idle',
               targetAccountId: activeAccounts[i % activeAccounts.length]?.id
           }));
@@ -200,10 +205,34 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       }
   };
 
+  // --- Image Helpers ---
+  const handleFileUpload = (postId: string, e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) {
+          if (file.size > 2 * 1024 * 1024) {
+              alert("圖片過大 (限制 2MB)");
+              return;
+          }
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+               const base64 = ev.target?.result as string;
+               setGeneratedPosts(prev => prev.map(p => p.id === postId ? { 
+                   ...p, 
+                   uploadedImageBase64: base64,
+                   imageSourceType: 'upload' 
+               } : p));
+          };
+          reader.readAsDataURL(file);
+      }
+  };
+
   const getPreviewUrl = (post: GeneratedPost) => {
+      if (post.imageSourceType === 'upload' && post.uploadedImageBase64) return post.uploadedImageBase64;
+      if (post.imageSourceType === 'news' && post.newsImageUrl) return post.newsImageUrl;
       if (post.imageUrl) return post.imageUrl;
       if (post.imageSourceType === 'none') return '';
       
+      // Fallback for AI/Stock
       const seed = post.id;
       let prompt = post.imagePrompt;
       if (post.imageSourceType === 'stock') {
@@ -216,9 +245,18 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       const acc = accounts.find(a => a.id === post.targetAccountId);
       if (!acc) return alert("找不到指定發佈的帳號");
 
+      // Validation for Upload type
+      if (post.imageSourceType === 'upload') {
+          if (!confirm("⚠️ 注意：手動上傳的圖片目前僅支援「預覽」。\n\nThreads API 需要公開的圖片網址才能發佈。若您繼續，系統將嘗試發送，但可能會因為圖片非公開網址而失敗 (除非後端有實作自動上傳圖床)。\n\n是否仍要嘗試？")) {
+              return;
+          }
+      }
+
       setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, status: 'publishing' } : p));
 
       const imgUrl = post.imageSourceType === 'none' ? undefined : getPreviewUrl(post);
+      
+      // Note: publishThreadsPost expects a public URL. Base64 might fail depending on API support.
       const res = await publishThreadsPost(acc, post.caption, imgUrl);
 
       setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { 
@@ -232,7 +270,6 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       setGenStep(1);
       setGeneratedPosts([]);
       setSelectedTopics([]);
-      // We keep trendingTopics cached so user doesn't pay again immediately if they just went back
   };
 
   // --- Interaction Handlers ---
@@ -549,10 +586,25 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                                   >
                                                       <option value="ai">🎨 AI 繪圖</option>
                                                       <option value="stock">📷 擬真圖庫</option>
+                                                      {post.newsImageUrl && <option value="news">📰 新聞原圖</option>}
+                                                      <option value="upload">📤 手動上傳</option>
                                                       <option value="none">❌ 純文字</option>
                                                   </select>
                                               </div>
                                           </div>
+                                          
+                                          {/* Manual Upload UI */}
+                                          {post.imageSourceType === 'upload' && (
+                                              <div className="border border-dashed border-gray-600 p-4 rounded bg-gray-800/50">
+                                                  <input 
+                                                      type="file" 
+                                                      accept="image/png, image/jpeg, image/jpg, image/webp"
+                                                      onChange={(e) => handleFileUpload(post.id, e)}
+                                                      className="text-xs text-gray-300 w-full"
+                                                  />
+                                                  <p className="text-[10px] text-gray-500 mt-1">* 支援 JPG, PNG, WEBP (系統將嘗試中轉網址)</p>
+                                              </div>
+                                          )}
                                       </div>
                                       
                                       <div className="w-full md:w-64 flex flex-col gap-3">
@@ -564,6 +616,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                                       src={getPreviewUrl(post)} 
                                                       alt="Preview" 
                                                       className="w-full h-full object-cover absolute inset-0 transition-transform transform group-hover:scale-110" 
+                                                      onError={(e) => (e.currentTarget.src = 'https://placehold.co/400x400?text=Image+Error')}
                                                   />
                                               )}
                                           </div>
