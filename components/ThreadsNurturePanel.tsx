@@ -163,14 +163,19 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   };
 
   // Calculate Cost based on count and image mode
+  // Pricing Strategy:
+  // Base Text: 1 pt
+  // News Mode: +1 pt (Total 2)
+  // Stock Mode: +1 pt (Total 2) -- CHANGED per user request
+  // AI Mode: +3 pts (Total 4)
   const calculateCost = (count: number, mode: ImageSourceType) => {
-      const baseCost = 1; // Basic Text Post
+      const baseCost = 1; 
       let extraCost = 0;
       
-      if (mode === 'ai') extraCost = 3;      // AI Image (+3)
-      else if (mode === 'news') extraCost = 1; // News Image (+1)
-      // stock/upload/none = 0 extra
-
+      if (mode === 'ai') extraCost = 3;      
+      else if (mode === 'news') extraCost = 1;
+      else if (mode === 'stock') extraCost = 1; // User wants this to cost points
+      
       return (baseCost + extraCost) * count;
   };
 
@@ -191,10 +196,11 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       }
 
       // Step 2 Quota Check
-      // If news mode failed, fallback cost to none
       const effectiveMode = (preSelectedImageMode === 'news' && !newsImg) ? 'none' : preSelectedImageMode;
       const totalCost = calculateCost(genCount, effectiveMode);
       
+      if (!confirm(`確定生成 ${genCount} 篇貼文？\n\n模式：${effectiveMode === 'ai' ? 'AI繪圖' : effectiveMode === 'stock' ? '擬真圖庫' : effectiveMode === 'news' ? '新聞圖片' : '純文字'}\n總計消耗：${totalCost} 點配額`)) return;
+
       const allowed = await checkAndUseQuota(user.user_id, totalCost);
       if (!allowed) return alert(`配額不足 (需 ${totalCost} 點)`);
       onQuotaUpdate();
@@ -288,29 +294,33 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       return '';
   };
 
-  // Step 3: Change Image Mode Logic
+  // Step 3: Change Image Mode Logic with Precise Pricing
   const handleImageModeChange = async (post: GeneratedPost, newMode: ImageSourceType) => {
       if (!user) return;
       if (newMode === post.imageSourceType) return; // No change
 
-      // Calculate upgrade cost
-      // Cost Logic: 
-      // Current: None/Stock/Upload=0, News=1, AI=3
-      // We only charge for UPGRADE. We do not refund for downgrade (simplification).
+      // Pricing Cost Table for Upgrade Calculation
+      // Base (Text) = 1 pt.
+      // News Mode = Base + 1 = 2 pts.
+      // Stock Mode = Base + 1 = 2 pts.
+      // AI Mode = Base + 3 = 4 pts.
+      // Upload/None = Base + 0 = 1 pt.
       
-      const getModeCost = (m: ImageSourceType) => {
+      const getExtraCost = (m: ImageSourceType) => {
           if (m === 'ai') return 3;
           if (m === 'news') return 1;
+          if (m === 'stock') return 1; // CHANGED: Stock costs 1 extra point
           return 0;
       };
 
-      const currentCost = getModeCost(post.imageSourceType);
-      const newCost = getModeCost(newMode);
+      const currentExtra = getExtraCost(post.imageSourceType);
+      const newExtra = getExtraCost(newMode);
       
-      const costDiff = newCost - currentCost;
+      // We only charge if upgrading to a more expensive tier.
+      const costDiff = Math.max(0, newExtra - currentExtra);
 
       if (costDiff > 0) {
-          if (!confirm(`切換至「${newMode === 'ai' ? 'AI 繪圖' : '新聞圖片'}」模式需要補差額 ${costDiff} 點。確定嗎？`)) {
+          if (!confirm(`升級至「${newMode === 'ai' ? 'AI 繪圖' : newMode === 'stock' ? '擬真圖庫' : '新聞圖片'}」模式需要補差額 ${costDiff} 點。確定嗎？`)) {
               return;
           }
           const allowed = await checkAndUseQuota(user.user_id, costDiff);
@@ -319,13 +329,20 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
               return;
           }
           onQuotaUpdate();
+      } else if (newMode === 'ai' && post.imageSourceType === 'ai') {
+          // If already AI mode and re-selecting (or intentional regenerate trigger), assume regenerate
+          if (!confirm("重新生成 AI 圖片將再次扣除 3 點。確定嗎？")) return;
+          const allowed = await checkAndUseQuota(user.user_id, 3);
+          if (!allowed) return alert("配額不足");
+          onQuotaUpdate();
       }
 
       // Update Local State immediately for mode
       setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageSourceType: newMode } : p));
 
       // Execute Logic (Generate AI Image if needed)
-      if (newMode === 'ai' && !post.imageUrl) {
+      if (newMode === 'ai') {
+          // Always regenerate if switching to AI, or forced regeneration
           setIsRegeneratingImage(post.id);
           try {
               const url = await generateImage(post.imagePrompt);
@@ -641,11 +658,11 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                <div className="flex-1 w-full">
                                    <label className="block text-sm text-gray-400 mb-1">圖片模式 (預設)</label>
                                    <select value={preSelectedImageMode} onChange={e => setPreSelectedImageMode(e.target.value as ImageSourceType)} className="w-full bg-dark border border-gray-600 rounded p-2 text-white">
-                                       <option value="none">❌ 純文字 (1點/篇)</option>
-                                       <option value="news">📰 新聞原圖 (+1點/篇)</option>
-                                       <option value="ai">🎨 AI 繪圖 (+3點/篇)</option>
-                                       <option value="stock">📷 擬真圖庫 (+0點/篇)</option>
-                                       <option value="upload">📤 手動上傳 (+0點/篇)</option>
+                                       <option value="none">❌ 純文字 (共 1 點)</option>
+                                       <option value="news">📰 新聞原圖 (共 2 點)</option>
+                                       <option value="ai">🎨 AI 繪圖 (共 4 點)</option>
+                                       <option value="stock">📷 擬真圖庫 (共 2 點)</option>
+                                       <option value="upload">📤 手動上傳 (共 1 點)</option>
                                    </select>
                                </div>
 
@@ -659,9 +676,15 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                     </button>
                                </div>
                            </div>
-                           <p className="text-xs text-gray-500 mt-2">
-                               * 純文字: 1點 | 新聞圖: 2點 | AI圖: 4點 (含文案費用)
-                           </p>
+                           <div className="text-xs text-gray-500 mt-3 p-3 bg-gray-900/50 rounded border border-gray-700">
+                               <p className="font-bold text-gray-400 mb-1">💰 點數價目表 (Per Post)</p>
+                               <ul className="flex flex-wrap gap-4">
+                                   <li>📝 純文字: <span className="text-green-400">1 點</span></li>
+                                   <li>📰 新聞圖: <span className="text-yellow-400">2 點</span> (1文+1圖)</li>
+                                   <li>📷 擬真圖庫: <span className="text-yellow-400">2 點</span> (1文+1圖)</li>
+                                   <li>🎨 AI 繪圖: <span className="text-pink-400">4 點</span> (1文+3圖)</li>
+                               </ul>
+                           </div>
                       </div>
 
                       {/* Results List */}
@@ -705,17 +728,17 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                                   </select>
                                               </div>
                                               <div className="flex-1">
-                                                  <label className="block text-xs text-gray-400 mb-1">圖片模式 (切換模式可能扣點)</label>
+                                                  <label className="block text-xs text-gray-400 mb-1">圖片模式 (升級需補差額)</label>
                                                   <select 
                                                       value={post.imageSourceType} 
                                                       onChange={e => handleImageModeChange(post, e.target.value as ImageSourceType)}
                                                       className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-2 text-xs text-white"
                                                   >
-                                                      <option value="none">❌ 純文字 (免費)</option>
-                                                      <option value="news">📰 新聞原圖 (補1點)</option>
-                                                      <option value="ai">🎨 AI 繪圖 (補3點)</option>
-                                                      <option value="stock">📷 擬真圖庫 (免費)</option>
-                                                      <option value="upload">📤 手動上傳 (免費)</option>
+                                                      <option value="none">❌ 純文字</option>
+                                                      <option value="news">📰 新聞原圖 (共2點)</option>
+                                                      <option value="ai">🎨 AI 繪圖 (共4點)</option>
+                                                      <option value="stock">📷 擬真圖庫 (共2點)</option>
+                                                      <option value="upload">📤 手動上傳</option>
                                                   </select>
                                               </div>
                                           </div>

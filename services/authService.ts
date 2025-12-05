@@ -74,11 +74,12 @@ export const subscribeAuth = (callback: (user: { uid: string, email: string } | 
 };
 
 const getQuotaForRole = (role: UserRole): number => {
+  // Commercial Strategy Quotas
   switch (role) {
-    case 'user': return 10;       // Free: 10
-    case 'starter': return 500;   // Starter: 500
-    case 'pro': return 2000;      // Pro: 2000
-    case 'business': return 5000; // Business: 5000+
+    case 'user': return 10;       // Free Tier: Taste test only
+    case 'starter': return 600;   // ~$15/mo: Basic usage
+    case 'pro': return 2000;      // ~$45/mo: Professional usage
+    case 'business': return 6000; // ~$99/mo: Heavy usage
     case 'admin': return 99999;
     default: return 10;
   }
