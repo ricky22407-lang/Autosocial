@@ -1,5 +1,4 @@
 
-
 import { BrandSettings, TrendingTopic, CachedTrendData } from "../types";
 import { db } from "./firebase"; // Using compat export
 
@@ -42,9 +41,13 @@ const cleanJsonText = (text: string): string => {
 };
 
 const decodeHtml = (html: string) => {
-    const txt = document.createElement("textarea");
-    txt.innerHTML = html;
-    return txt.value;
+    try {
+        const txt = document.createElement("textarea");
+        txt.innerHTML = html;
+        return txt.value;
+    } catch (e) {
+        return html;
+    }
 };
 
 const isValidNewsImage = (url: string): boolean => {
@@ -69,7 +72,15 @@ const callBackend = async (action: string, payload: any) => {
             body: JSON.stringify({ action, payload })
         });
         
-        const data = await res.json();
+        let data;
+        const text = await res.text();
+        
+        try {
+            data = JSON.parse(text);
+        } catch (e) {
+            console.error("Non-JSON response from backend:", text.substring(0, 100));
+            throw new Error(`Server returned invalid format: ${text.substring(0, 50)}...`);
+        }
         
         if (!res.ok) {
             throw new Error(data.error || 'Server Error');
@@ -121,16 +132,28 @@ const shuffleArray = <T,>(array: T[]): T[] => {
 
 // #region RSS Fetching
 const fetchTextWithProxy = async (targetUrl: string): Promise<string> => {
+    // Try primary proxy
     try {
         const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`);
-        const data = await res.json();
-        if (data.contents) return data.contents;
-    } catch (e) {}
+        if (res.ok) {
+            const data = await res.json();
+            if (data.contents) return data.contents;
+        }
+    } catch (e) {
+        console.warn("Proxy 1 failed:", e);
+    }
+    
+    // Try secondary proxy
     try {
         const res = await fetch(`https://corsproxy.io/?${encodeURIComponent(targetUrl)}`);
-        const text = await res.text();
-        if (text) return text;
-    } catch (e) {}
+        if (res.ok) {
+            const text = await res.text();
+            if (text) return text;
+        }
+    } catch (e) {
+        console.warn("Proxy 2 failed:", e);
+    }
+    
     throw new Error("All RSS proxies failed");
 };
 
@@ -178,7 +201,7 @@ const fetchRealtimeRss = async (keyword: string): Promise<TrendingTopic[]> => {
         }
         return results;
     } catch (e) {
-        console.warn("RSS fetch flow failed", e);
+        console.warn("RSS fetch flow failed, returning empty list for fallback", e);
         return [];
     }
 };

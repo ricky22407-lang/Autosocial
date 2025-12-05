@@ -1,5 +1,6 @@
 
-import { UserProfile, UserRole, AdminKey, SystemConfig, LogEntry, DashboardStats } from '../types';
+
+import { UserProfile, UserRole, AdminKey, SystemConfig, LogEntry, DashboardStats, BrandSettings } from '../types';
 import { auth, db, isMock, firebase } from './firebase';
 
 /* 
@@ -179,6 +180,10 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
     }
 };
 
+const generateReferralCode = (uid: string) => {
+    return 'REF-' + uid.substring(0, 5).toUpperCase() + Math.floor(Math.random() * 1000);
+};
+
 export const createUserProfile = async (user: { uid: string, email: string }): Promise<UserProfile> => {
     const newUser: UserProfile = {
         user_id: user.uid,
@@ -189,12 +194,16 @@ export const createUserProfile = async (user: { uid: string, email: string }): P
         quota_reset_date: Date.now() + 30 * 24 * 60 * 60 * 1000,
         isSuspended: false,
         unlockedFeatures: [],
+        referralCode: generateReferralCode(user.uid),
+        referralCount: 0,
         created_at: Date.now(),
         updated_at: Date.now()
     };
 
     if (!isMock) {
-        await db.collection('users').doc(user.uid).set(newUser);
+        // Clean undefined fields just in case
+        const cleanUser = JSON.parse(JSON.stringify(newUser));
+        await db.collection('users').doc(user.uid).set(cleanUser);
     } else {
         const users = getDb(DB_USERS);
         users[user.uid] = newUser;
@@ -203,13 +212,21 @@ export const createUserProfile = async (user: { uid: string, email: string }): P
     return newUser;
 };
 
+// --- Settings Sync (For Backend Cron) ---
+export const updateUserSettings = async (userId: string, settings: BrandSettings) => {
+    if (!isMock) {
+        // Save to a separate collection 'brand_settings' for Backend access
+        // We clean undefined fields to prevent firebase errors
+        const cleanSettings = JSON.parse(JSON.stringify(settings));
+        await db.collection('brand_settings').doc(userId).set(cleanSettings, { merge: true });
+    } else {
+        // LocalStorage fallback handled by frontend component, but we can sim DB here
+        console.log("Mock Sync Settings to Cloud");
+    }
+};
+
 // --- Quota & Role Operations ---
 
-/**
- * Checks quota and deducts a specific amount.
- * @param userId User ID
- * @param amount Amount to deduct (default: 1)
- */
 export const checkAndUseQuota = async (userId: string, amount: number = 1): Promise<boolean> => {
     const user = await getUserProfile(userId);
     if (!user) return false;
@@ -234,7 +251,7 @@ export const checkAndUseQuota = async (userId: string, amount: number = 1): Prom
             users[userId].quota_reset_date = newReset;
             saveDb(DB_USERS, users);
         }
-        // Even after reset, check if amount > total (unlikely but safe)
+        // Even after reset, check if amount > total
         if (amount > total) return false;
         
         // Deduct
@@ -280,16 +297,19 @@ export const generateAdminKey = async (
     feature?: 'ANALYTICS' | 'AUTOMATION' | 'SEO' | 'THREADS'
 ): Promise<string> => {
     const keyString = `KEY-${Date.now().toString().slice(-6)}-${Math.floor(Math.random()*10000)}`;
-    const keyData: AdminKey = {
+    
+    // Fix: Create object dynamically to avoid 'undefined' values which Firebase rejects
+    const keyData: any = {
         key: keyString,
         type,
-        targetRole: role,
-        targetFeature: feature,
         createdBy: adminId,
         createdAt: Date.now(),
         expiresAt: Date.now() + 24 * 60 * 60 * 1000, // 24 hours
         isUsed: false
     };
+
+    if (role) keyData.targetRole = role;
+    if (feature) keyData.targetFeature = feature;
 
     if (!isMock) {
         await db.collection('admin_keys').doc(keyString).set(keyData);
@@ -406,6 +426,47 @@ export const toggleUserSuspension = async (userId: string) => {
              saveDb(DB_USERS, users);
          }
      }
+};
+
+// --- Referral System ---
+
+export const redeemReferralCode = async (currentUserId: string, code: string) => {
+    if (!code) throw new Error("請輸入邀請碼");
+    
+    // Prevent self-referral
+    const currentUser = await getUserProfile(currentUserId);
+    if (currentUser?.referralCode === code) throw new Error("不能使用自己的邀請碼");
+    if (currentUser?.referredBy) throw new Error("您已經兌換過邀請碼了");
+
+    if (!isMock) {
+        // Find owner of code
+        const snapshot = await db.collection('users').where('referralCode', '==', code).limit(1).get();
+        if (snapshot.empty) throw new Error("無效的邀請碼");
+        
+        const referrerDoc = snapshot.docs[0];
+        const referrerId = referrerDoc.id;
+        const reward = 50;
+
+        await db.runTransaction(async (t) => {
+             // 1. Give reward to referrer
+             t.update(referrerDoc.ref, {
+                 quota_total: firebase.firestore.FieldValue.increment(reward),
+                 referralCount: firebase.firestore.FieldValue.increment(1)
+             });
+             
+             // 2. Give reward to current user & mark as referred
+             const userRef = db.collection('users').doc(currentUserId);
+             t.update(userRef, {
+                 quota_total: firebase.firestore.FieldValue.increment(reward),
+                 referredBy: code
+             });
+        });
+        
+        return { success: true, reward };
+    } else {
+        // Mock
+        throw new Error("推薦功能僅在正式環境可用");
+    }
 };
 
 // --- Logs & Stats (Mock-ish implementation for simplicity) ---

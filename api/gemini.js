@@ -18,6 +18,11 @@ module.exports = async function (req, res) {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
+  // Check body existence
+  if (!req.body) {
+      return res.status(400).json({ error: 'Missing Request Body' });
+  }
+
   // --- Multi-Key Manager & Failover Logic ---
   class KeyManager {
       constructor() {
@@ -28,10 +33,6 @@ module.exports = async function (req, res) {
               process.env.API_KEY_3
           ].filter(Boolean);
           
-          this.openAiKeys = [
-              process.env.OPENAI_API_KEY
-          ].filter(Boolean);
-
           this.currentIndex = 0;
       }
 
@@ -47,14 +48,6 @@ module.exports = async function (req, res) {
               return true;
           }
           return false;
-      }
-
-      notifyAdmin(error) {
-          // Simulation of Email Notification
-          // In production, integrate with SendGrid or Nodemailer here.
-          console.error(`[CRITICAL] 🚨 ALL API KEYS EXHAUSTED OR FAILED.`);
-          console.error(`[CRITICAL] Sending email to admin... Subject: API Key Alert. Body: ${error}`);
-          // TODO: await sendEmail('admin@example.com', 'API Failover Alert', error);
       }
   }
 
@@ -72,10 +65,20 @@ module.exports = async function (req, res) {
       while (attempts < maxAttempts) {
           try {
               const apiKey = keyManager.getCurrentKey();
-              if (!apiKey) throw new Error("No API Configuration Found");
+              
+              // Fallback for missing keys - throw detailed error instead of crashing
+              if (!apiKey) throw new Error("Server Misconfiguration: No API_KEY found in environment variables.");
 
               // Dynamic Import SDK with specific Key
-              const { GoogleGenAI } = await import("@google/genai");
+              // We use dynamic import to avoid load-time errors if package is missing (though it should be there)
+              let GoogleGenAI;
+              try {
+                  const sdk = await import("@google/genai");
+                  GoogleGenAI = sdk.GoogleGenAI;
+              } catch (e) {
+                  throw new Error(`Failed to load @google/genai SDK: ${e.message}`);
+              }
+
               const ai = new GoogleGenAI({ apiKey: apiKey });
               
               return await operation(ai);
@@ -83,19 +86,20 @@ module.exports = async function (req, res) {
           } catch (error) {
               lastError = error;
               const msg = error.message || '';
-              const isQuotaError = msg.includes('429') || msg.includes('403') || msg.includes('Quota');
+              
+              // Check for Quota or Permission errors to trigger failover
+              const isQuotaError = msg.includes('429') || msg.includes('403') || msg.includes('Quota') || msg.includes('Resource has been exhausted');
               
               if (isQuotaError) {
-                  console.warn(`[API] Key #${keyManager.currentIndex + 1} failed with Quota Error: ${msg}`);
+                  console.warn(`[API] Key #${keyManager.currentIndex + 1} failed: ${msg}`);
                   if (keyManager.switchToNextKey()) {
                       attempts++;
                       continue; // Retry loop with new key
                   } else {
-                      keyManager.notifyAdmin(msg);
-                      throw new Error("All API keys exhausted. Admin notified.");
+                      throw new Error("All API keys exhausted. Please check billing or add more keys.");
                   }
               } else {
-                  // If it's not a quota error (e.g. Bad Request), throw immediately
+                  // If it's not a quota error (e.g. Bad Request, Invalid Argument), throw immediately
                   throw error;
               }
           }
@@ -106,6 +110,11 @@ module.exports = async function (req, res) {
 
   try {
     const { action, payload } = req.body;
+    
+    if (!action) {
+        return res.status(400).json({ error: "Missing 'action' in request body" });
+    }
+
     console.log(`[API] Processing action: ${action}`);
 
     // --- Action Handler: generateContent ---
@@ -165,7 +174,7 @@ module.exports = async function (req, res) {
            let operation = await ai.models.generateVideos({ model, prompt, config });
 
            let attempts = 0;
-           const maxAttempts = 18; // Extended to 54s
+           const maxAttempts = 18; // Extended to ~54s
            
            while (!operation.done && attempts < maxAttempts) { 
                await new Promise(r => setTimeout(r, 3000));
@@ -181,7 +190,11 @@ module.exports = async function (req, res) {
            if (!videoUri) throw new Error("No video URI returned");
 
            // Use current valid key for download
-           const downloadUrl = `${videoUri}&key=${keyManager.getCurrentKey()}`;
+           const currentKey = keyManager.getCurrentKey();
+           const downloadUrl = `${videoUri}&key=${currentKey}`;
+           
+           // Fetch the video content server-side to return base64 to client
+           // This avoids exposing the raw URI structure or dealing with client-side CORS on video storage
            const videoRes = await fetch(downloadUrl);
            
            if (!videoRes.ok) throw new Error(`Failed to download video: ${videoRes.statusText}`);
@@ -200,6 +213,7 @@ module.exports = async function (req, res) {
 
   } catch (error) {
     console.error('[API Critical Error]:', error);
+    // Ensure we always return JSON, even for critical crashes
     return res.status(500).json({ 
         error: error.message || 'Internal Server Error',
         details: error.toString()

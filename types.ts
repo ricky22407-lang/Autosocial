@@ -61,6 +61,12 @@ export interface UserProfile {
   
   isSuspended: boolean;
   unlockedFeatures: string[]; 
+  
+  // Referral System
+  referralCode?: string; // My code to invite others
+  referredBy?: string;   // Who invited me
+  referralCount?: number;
+
   created_at: number;
   updated_at: number;
 }
@@ -102,6 +108,7 @@ export interface BrandSettings {
   productInfo: string;
   brandTone: string;
   persona: string;
+  logoUrl?: string; // New: Base64 or URL for Watermark
   
   // API Config (Sensitive data should be handled carefully)
   facebookPageId: string;
@@ -259,5 +266,6 @@ export enum AppView {
   AUTOMATION = 'AUTOMATION',
   SEO_ARTICLES = 'SEO_ARTICLES',
   THREADS_NURTURE = 'THREADS_NURTURE',
+  REFERRAL = 'REFERRAL', // New View
   ADMIN = 'ADMIN'
 }

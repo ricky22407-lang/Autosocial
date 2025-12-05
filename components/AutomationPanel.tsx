@@ -1,7 +1,9 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { BrandSettings, AutoReplyRule, AutoPilotConfig, ThreadsAutoPilotConfig } from '../types';
 import { api } from '../services/apiClient';
+import { getCurrentUser, updateUserSettings } from '../services/authService';
 
 interface Props {
   settings: BrandSettings;
@@ -64,14 +66,24 @@ const AutomationPanel: React.FC<Props> = ({ settings, onSave }) => {
 
   const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
 
-  const handleSaveSettings = () => {
-    onSave({
+  const handleSaveSettings = async () => {
+    const newSettings = {
       ...settings,
       autoReply: { enabled: replyEnabled, defaultResponse, rules },
       autoPilot: apConfig,
       threadsAutoPilot: threadsApConfig
-    });
-    alert('設定已儲存！');
+    };
+    
+    // 1. Local Update
+    onSave(newSettings);
+    
+    // 2. Cloud Sync (For Backend Cron)
+    const user = getCurrentUser();
+    if (user) {
+        await updateUserSettings(user.uid, newSettings);
+    }
+    
+    alert('設定已儲存！(同步至雲端)');
   };
 
   const addRule = () => {

@@ -1,7 +1,9 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { BrandSettings, ReferenceFile } from '../types';
 import { validateFacebookToken, refreshLongLivedToken } from '../services/facebookService';
+import { getCurrentUser, updateUserSettings } from '../services/authService';
 
 interface Props {
   onSave: (settings: BrandSettings) => void;
@@ -14,6 +16,7 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
   const [refreshMsg, setRefreshMsg] = useState('');
   // Separate state for raw string input to avoid cursor jumping issues
   const [competitorsRaw, setCompetitorsRaw] = useState(initialSettings.competitors.join(', '));
+  const [isSaving, setIsSaving] = useState(false);
 
   // Auto-save logic to localStorage to prevent data loss on refresh
   useEffect(() => {
@@ -99,11 +102,46 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
     }
   };
 
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      
+      if (file.size > 500 * 1024) { // 500KB limit for Firestore safety
+          alert("Logo 檔案過大，請使用小於 500KB 的圖片");
+          return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+          const base64 = ev.target?.result as string;
+          setFormData(prev => ({ ...prev, logoUrl: base64 }));
+      };
+      reader.readAsDataURL(file);
+  };
+
   const removeFile = (index: number) => {
     setFormData(prev => ({
       ...prev,
       referenceFiles: prev.referenceFiles.filter((_, i) => i !== index)
     }));
+  };
+
+  const handleSaveWrapper = async () => {
+      setIsSaving(true);
+      try {
+          // Local Save
+          onSave(formData);
+          
+          // Cloud Sync
+          const user = getCurrentUser();
+          if (user) {
+              await updateUserSettings(user.uid, formData);
+          }
+      } catch (e) {
+          console.error("Save failed", e);
+      } finally {
+          setIsSaving(false);
+      }
   };
 
   return (
@@ -148,6 +186,24 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
               <option value="Minimalist">極簡風格</option>
             </select>
           </div>
+          
+           {/* Logo Upload */}
+           <div>
+               <label className="block text-sm text-gray-400 mb-1">品牌 Logo (浮水印用)</label>
+               <div className="flex items-center gap-4">
+                   {formData.logoUrl && (
+                       <img src={formData.logoUrl} alt="Logo" className="w-12 h-12 object-contain bg-white rounded" />
+                   )}
+                   <label className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1 rounded cursor-pointer text-sm">
+                       上傳圖片 (Max 500KB)
+                       <input type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
+                   </label>
+                   {formData.logoUrl && (
+                       <button onClick={() => setFormData(p => ({...p, logoUrl: undefined}))} className="text-red-400 text-xs">移除</button>
+                   )}
+               </div>
+           </div>
+
            <div>
             <label className="block text-sm text-gray-400 mb-1">社群小編人設 (Persona)</label>
             <textarea 
@@ -243,10 +299,11 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
 
       <div className="mt-8 flex justify-end">
         <button 
-          onClick={() => onSave(formData)}
-          className="bg-primary hover:bg-blue-600 text-white px-8 py-3 rounded-lg font-bold shadow-lg transition-all"
+          onClick={handleSaveWrapper}
+          disabled={isSaving}
+          className="bg-primary hover:bg-blue-600 text-white px-8 py-3 rounded-lg font-bold shadow-lg transition-all disabled:opacity-50"
         >
-          儲存設定
+          {isSaving ? '儲存同步中...' : '儲存設定 (同步至雲端)'}
         </button>
       </div>
     </div>

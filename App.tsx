@@ -13,6 +13,7 @@ import ThreadsNurturePanel from './components/ThreadsNurturePanel';
 import Login from './components/Login';
 import AdminPanel from './components/AdminPanel';
 import SeoArticleGenerator from './components/SeoArticleGenerator';
+import ReferralPanel from './components/ReferralPanel'; // New Import
 // #endregion
 
 // #region Services & Auth Import
@@ -307,6 +308,14 @@ const App: React.FC = () => {
           {/* Group 3: Growth Tools */}
           <div className="pt-4 border-t border-gray-700">
               <button 
+                onClick={() => setView(AppView.REFERRAL)} 
+                className={`w-full text-left px-4 py-3 rounded transition-colors flex justify-between items-center ${view === AppView.REFERRAL ? 'bg-green-900 border border-green-700 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
+              >
+                 <span>🎁 推薦獎勵</span>
+                 <span className="text-xs bg-green-600 px-1 rounded text-white">Free</span>
+              </button>
+
+              <button 
                 onClick={() => {
                     if (hasThreadsAccess) setView(AppView.THREADS_NURTURE);
                     else alert("Threads 養號功能僅限「Pro (專業版)」以上方案使用。\n\n請升級以解鎖此核心功能。");
@@ -366,6 +375,10 @@ const App: React.FC = () => {
             onEditPost={handleEditPost}
           />
         )}
+        
+        {view === AppView.REFERRAL && (
+            <ReferralPanel user={userProfile} onQuotaUpdate={refreshProfile} />
+        )}
 
         {view === AppView.THREADS_NURTURE && (
            hasThreadsAccess ? 
@@ -382,7 +395,7 @@ const App: React.FC = () => {
         )}
 
         {view === AppView.AUTOMATION && (
-          hasAutomationAccess ? <AutomationPanel settings={settings} onSave={(s) => {handleSaveSettings(s); alert("設定已儲存");}} /> : <div className="p-8 text-center text-gray-500">Access Denied</div>
+          hasAutomationAccess ? <AutomationPanel settings={settings} onSave={(s) => {handleSaveSettings(s);}} /> : <div className="p-8 text-center text-gray-500">Access Denied</div>
         )}
 
         {view === AppView.SEO_ARTICLES && (
@@ -392,7 +405,7 @@ const App: React.FC = () => {
         {view === AppView.SETTINGS && (
           <SettingsForm 
             initialSettings={settings} 
-            onSave={(s) => {handleSaveSettings(s); alert("設定已儲存");}} 
+            onSave={(s) => {handleSaveSettings(s);}} 
           />
         )}
 

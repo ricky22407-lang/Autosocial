@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import { BrandSettings, Post, TrendingTopic, UserProfile } from '../types';
 import { getTrendingTopics, generatePostDraft, generateImage } from '../services/geminiService';
@@ -84,12 +85,15 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [scheduleDate, setScheduleDate] = useState('');
-  const [syncInstagram, setSyncInstagram] = useState(false); // NEW
+  const [syncInstagram, setSyncInstagram] = useState(false);
   
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishResult, setPublishResult] = useState<{success: boolean, msg: string} | null>(null);
   const [hasLoadedDraft, setHasLoadedDraft] = useState(false);
   const [isInputHighlight, setIsInputHighlight] = useState(false);
+  
+  // Watermark State
+  const [isApplyingWatermark, setIsApplyingWatermark] = useState(false);
 
   const isPlaceholderMedia = mediaUrl && (mediaUrl.includes('placehold.co') || mediaUrl.includes('sample/BigBuckBunny'));
 
@@ -410,6 +414,55 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     }
   };
 
+  // --- Watermark Logic ---
+  const handleApplyWatermark = () => {
+      if (!mediaUrl || !settings.logoUrl) return;
+      setIsApplyingWatermark(true);
+
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const mainImg = new Image();
+      mainImg.crossOrigin = "anonymous";
+      mainImg.src = mediaUrl;
+
+      mainImg.onload = () => {
+          canvas.width = mainImg.width;
+          canvas.height = mainImg.height;
+
+          // Draw main image
+          ctx.drawImage(mainImg, 0, 0);
+
+          // Draw logo
+          const logoImg = new Image();
+          logoImg.src = settings.logoUrl!;
+          logoImg.onload = () => {
+              // Calculate logo size (e.g., 15% of width)
+              const logoWidth = canvas.width * 0.15;
+              const logoHeight = (logoImg.height / logoImg.width) * logoWidth;
+              const padding = canvas.width * 0.05;
+
+              // Position: Bottom Right
+              const x = canvas.width - logoWidth - padding;
+              const y = canvas.height - logoHeight - padding;
+              
+              ctx.globalAlpha = 0.8; // Slight transparency
+              ctx.drawImage(logoImg, x, y, logoWidth, logoHeight);
+
+              // Output
+              const newUrl = canvas.toDataURL('image/png');
+              setMediaUrl(newUrl);
+              setIsApplyingWatermark(false);
+          };
+      };
+      
+      mainImg.onerror = () => {
+          alert("無法讀取圖片進行浮水印合成 (可能是跨域問題)");
+          setIsApplyingWatermark(false);
+      }
+  };
+
   const handleFinalize = async (schedule: boolean) => {
     if (!user || isPublishing) return;
     setIsPublishing(true);
@@ -456,7 +509,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
         newPost.publishedUrl = result.url;
         newPost.status = 'published';
         onPostCreated(newPost);
-        const msg = `發佈成功！${result.error || ''}`; // Use error field for IG success msg hack
+        const msg = `發佈成功！${result.error || ''}`; 
         setPublishResult({ success: true, msg });
       } else {
         newPost.status = 'failed';
@@ -681,6 +734,19 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                     </div>
                 )}
             </div>
+            
+            {/* --- Tools & Actions --- */}
+            {mediaUrl && settings.logoUrl && (
+                <div className="mb-4">
+                     <button 
+                        onClick={handleApplyWatermark} 
+                        disabled={isApplyingWatermark}
+                        className="w-full bg-gray-700 hover:bg-gray-600 text-white text-sm py-2 rounded flex items-center justify-center gap-2"
+                     >
+                         {isApplyingWatermark ? '合成中...' : '🏷️ 套用品牌浮水印 (免費)'}
+                     </button>
+                </div>
+            )}
             
             {/* --- Publish Config Section --- */}
             {publishResult ? <div className={`p-4 rounded text-center font-bold ${publishResult.success ? 'bg-green-900/50 text-green-200 border border-green-700' : 'bg-red-900/50 text-red-200 border border-red-700'}`}>{publishResult.msg}</div> : (
