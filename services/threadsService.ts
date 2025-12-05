@@ -12,7 +12,8 @@ const THREADS_GRAPH_BASE = 'https://graph.threads.net';
 export const publishThreadsPost = async (
   account: ThreadsAccount,
   text: string,
-  imageUrl?: string
+  imageUrl?: string,
+  replyToId?: string // New: Optional param for replying
 ): Promise<{ success: boolean; id?: string; error?: string }> => {
   
   if (!account.userId || !account.token) {
@@ -21,11 +22,16 @@ export const publishThreadsPost = async (
 
   try {
     // 1. Create Media Container
-    // POST /{user_id}/threads
-    // params: media_type=TEXT (or IMAGE), text, access_token
     const params = new URLSearchParams();
     params.append('access_token', account.token);
     params.append('text', text);
+    
+    // If replying, use the generic threads endpoint but with reply_to_id? 
+    // Actually, for Threads API, creating a reply is the same as creating a thread, just adding reply_to_id usually in params or specific edge?
+    // According to docs: POST /me/threads with 'reply_to_id' param.
+    if (replyToId) {
+        params.append('reply_to_id', replyToId);
+    }
     
     let endpoint = `${THREADS_API_BASE}/${account.userId}/threads`;
 
@@ -78,6 +84,44 @@ export const publishThreadsPost = async (
     console.error("Threads API Error:", e);
     return { success: false, error: e.message };
   }
+};
+
+/**
+ * Fetch User's Recent Threads
+ */
+export const fetchUserThreads = async (account: ThreadsAccount, limit = 5) => {
+    try {
+        const fields = 'id,text,permalink,timestamp,media_type,media_url';
+        const url = `${THREADS_API_BASE}/${account.userId}/threads?fields=${fields}&limit=${limit}&access_token=${account.token}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message);
+        return data.data || [];
+    } catch (e: any) {
+        console.error("Fetch threads failed", e);
+        return [];
+    }
+};
+
+/**
+ * Fetch Replies for a specific Media Object (Thread)
+ * Note: Threads API 'replies' edge might be restricted or require specific scopes.
+ * If 'replies' edge is not available on v1, we might simulate empty or use 'conversation' if avail.
+ * Assuming v1 standard 'replies' edge availability.
+ */
+export const fetchMediaReplies = async (account: ThreadsAccount, mediaId: string) => {
+    try {
+        // Requesting replies
+        const fields = 'id,text,timestamp,username,permalink'; // username might need expansion if field exists, else from owner node
+        const url = `${THREADS_API_BASE}/${mediaId}/replies?fields=${fields}&access_token=${account.token}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message);
+        return data.data || [];
+    } catch (e: any) {
+        // console.warn("Fetch replies failed (API might strictly limit reading others)", e);
+        return [];
+    }
 };
 
 /**

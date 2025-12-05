@@ -10,9 +10,9 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     define: {
-      // Allow process.env to exist for runtime injection
+      // Security Fix: Do NOT inject API_KEY into client-side code for SaaS production.
+      // The API_KEY should only live in the backend (Vercel Functions).
       'process.env.NODE_ENV': JSON.stringify(mode),
-      // We do NOT stringify process.env.API_KEY here because it might be injected dynamically by the host environment
     },
     build: {
       chunkSizeWarningLimit: 1000,

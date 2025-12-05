@@ -1,11 +1,18 @@
 
-import { GoogleGenAI, Type, Modality } from "@google/genai";
+
 import { BrandSettings, TrendingTopic, CachedTrendData } from "../types";
 import { db } from "./firebase"; // Using compat export
 
-// 使用環境變數中的 API Key 初始化
-// 注意：在 Preview 環境中，API Key 會由平台自動注入至 process.env.API_KEY
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Local Type Definition to replace SDK Import and maintain type safety
+// This prevents importing the heavy SDK into the client bundle
+const Type = {
+  STRING: 'STRING',
+  NUMBER: 'NUMBER',
+  INTEGER: 'INTEGER',
+  BOOLEAN: 'BOOLEAN',
+  ARRAY: 'ARRAY',
+  OBJECT: 'OBJECT'
+};
 
 // System Prompts
 const SYSTEM_INSTRUCTION_THREADS = `
@@ -49,6 +56,29 @@ const isValidNewsImage = (url: string): boolean => {
     ];
     if (badKeywords.some(k => lower.includes(k))) return false;
     return true;
+};
+
+// --- Backend API Caller ---
+const callBackend = async (action: string, payload: any) => {
+    try {
+        const res = await fetch('/api/gemini', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ action, payload })
+        });
+        
+        const data = await res.json();
+        
+        if (!res.ok) {
+            throw new Error(data.error || 'Server Error');
+        }
+        return data;
+    } catch (e: any) {
+        console.error(`Backend API Error [${action}]:`, e);
+        throw e;
+    }
 };
 
 // --- Cache Logic (Firebase) ---
@@ -163,10 +193,10 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
   let topics = await fetchRealtimeRss(industry);
 
   if (topics.length === 0) {
-      console.warn("RSS returned 0 items, using Gemini fallback.");
+      console.warn("RSS returned 0 items, using Gemini fallback via Backend.");
       try {
-        // Fallback: Use Gemini 2.5 Flash
-        const response = await ai.models.generateContent({
+        // Fallback: Use Gemini 2.5 Flash via Backend
+        const response = await callBackend('generateContent', {
             model: 'gemini-2.5-flash',
             contents: `列出目前台灣關於「${industry}」的 5 個熱門社群話題。
             請直接回傳純 JSON 陣列，不要有任何 Markdown 格式。
@@ -223,8 +253,8 @@ export const generatePostDraft = async (
     }
   `;
 
-  // Use Gemini 3 Pro for complex reasoning
-  const response = await ai.models.generateContent({
+  // Use Backend for Gemini 3 Pro
+  const response = await callBackend('generateContent', {
     model: "gemini-3-pro-preview",
     contents: prompt,
     config: { 
@@ -241,23 +271,19 @@ export const generatePostDraft = async (
     }
   });
 
-  return JSON.parse(response.text || '{}');
+  return JSON.parse(cleanJsonText(response.text || '{}'));
 };
 
 export const generateImage = async (prompt: string): Promise<string> => {
-    // Default to Flash Image as per guidelines for general tasks
     try {
-        const response = await ai.models.generateContent({
+        const response = await callBackend('generateImages', {
             model: 'gemini-2.5-flash-image',
-            contents: { parts: [{ text: prompt }] },
+            prompt: prompt,
             config: { imageConfig: { aspectRatio: "1:1" } }
         });
-
-        // Loop to find image part
-        for (const part of response.candidates?.[0]?.content?.parts || []) {
-             if (part.inlineData) {
-                 return `data:image/png;base64,${part.inlineData.data}`;
-             }
+        
+        if (response.base64) {
+             return `data:image/png;base64,${response.base64}`;
         }
         throw new Error("No image data found in response");
     } catch (e: any) {
@@ -266,38 +292,17 @@ export const generateImage = async (prompt: string): Promise<string> => {
 };
 
 export const generateVideo = async (prompt: string): Promise<string> => {
-    // Ensure user has selected a key for Veo (high compute cost)
-    if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
-         if (!await window.aistudio.hasSelectedApiKey()) {
-             await window.aistudio.openSelectKey();
-             // Re-init AI with new key if needed, though process.env should update or we assume strict execution context
-         }
-    }
-
     try {
-        let operation = await ai.models.generateVideos({
+        const response = await callBackend('generateVideos', {
             model: 'veo-3.1-fast-generate-preview',
             prompt: prompt,
             config: { numberOfVideos: 1, resolution: '720p', aspectRatio: '16:9' }
         });
 
-        while (!operation.done) {
-            await new Promise(resolve => setTimeout(resolve, 5000));
-            operation = await ai.operations.getVideosOperation({operation: operation});
+        if (response.videoBase64) {
+            return `data:video/mp4;base64,${response.videoBase64}`;
         }
-
-        const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
-        if (!videoUri) throw new Error("No video URI returned");
-
-        // The response body contains MP4 bytes. Must append API key.
-        const response = await fetch(`${videoUri}&key=${process.env.API_KEY}`);
-        const blob = await response.blob();
-        
-        return new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.readAsDataURL(blob);
-        });
+        throw new Error("No video data returned");
 
     } catch (e: any) {
         console.warn("Veo failed, fallback to Image:", e);
@@ -328,10 +333,12 @@ export const generateSeoArticle = async (
       { "fullText": "Markdown...", "imageKeyword": "English keyword..." }
     `;
 
-    // Grounding (Google Search) with Gemini 2.5 Flash
+    // Grounding (Google Search) with Gemini 2.5 Flash via Backend
+    // In this SaaS architecture, we can push the grounding logic to backend too
+    // But to minimize rewrite, we can just call generateContent with tool config
     let searchContext = "";
     try {
-         const searchResp = await ai.models.generateContent({
+         const searchResp = await callBackend('generateContent', {
             model: "gemini-2.5-flash",
             contents: `Research SEO content for topic: ${topic}. Keywords: ${keywords}`,
             config: { tools: [{ googleSearch: {} }] } 
@@ -339,7 +346,7 @@ export const generateSeoArticle = async (
         searchContext = searchResp.text || "";
     } catch (e) { console.warn("Search grounding failed"); }
 
-    const response = await ai.models.generateContent({
+    const response = await callBackend('generateContent', {
         model: "gemini-2.5-flash",
         contents: `Context: ${searchContext}\n\n${prompt}`,
         config: { 
@@ -372,7 +379,7 @@ export const generateWeeklyReport = async (analytics: any, settings: BrandSettin
       Metrics: Followers ${analytics.followers}, Reach ${analytics.reach}, Engagement ${analytics.engagementRate}%.
       Write a weekly performance report in Traditional Chinese.
     `;
-    const response = await ai.models.generateContent({
+    const response = await callBackend('generateContent', {
         model: "gemini-2.5-flash",
         contents: prompt
     });
@@ -396,7 +403,7 @@ export const generateThreadsBatch = async (
       Output JSON Array: [{ "caption": "...", "imagePrompt": "...", "imageQuery": "..." }]
     `;
 
-    const response = await ai.models.generateContent({
+    const response = await callBackend('generateContent', {
         model: "gemini-2.5-flash",
         contents: prompt,
         config: { 
@@ -415,6 +422,36 @@ export const generateThreadsBatch = async (
         }
     });
 
-    return JSON.parse(response.text || '[]');
+    return JSON.parse(cleanJsonText(response.text || '[]'));
+};
+
+export const generateCommentReply = async (
+    commentText: string,
+    personaPrompt: string
+): Promise<string[]> => {
+    const prompt = `
+        ${SYSTEM_INSTRUCTION_THREADS}
+        [Specific Persona]: ${personaPrompt || "Friendly and engaging"}
+        
+        Task: A user commented on my post: "${commentText}".
+        Please generate 3 different reply options that fit my persona.
+        They should be short, authentic, and encourage further conversation if possible.
+        
+        Output JSON Array of strings: ["Option 1", "Option 2", "Option 3"]
+    `;
+
+    const response = await callBackend('generateContent', {
+        model: "gemini-2.5-flash",
+        contents: prompt,
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING }
+            }
+        }
+    });
+    
+    return JSON.parse(cleanJsonText(response.text || '[]'));
 };
 // #endregion

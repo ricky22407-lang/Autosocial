@@ -91,6 +91,7 @@ export interface ThreadsAutoPilotConfig {
   imageMode: 'ai_url' | 'stock_url' | 'none';
   targetAccountIds?: string[]; // New: Specific accounts to nurture
   lastRunAt?: number;
+  autoLikeEnabled?: boolean; // New: Randomly like posts
 }
 
 export interface BrandSettings {
@@ -161,6 +162,7 @@ export interface Post {
   firstComment?: string;
   errorLog?: string;
   createdAt: number;
+  syncInstagram?: boolean; // New: Sync to IG
 }
 
 export interface TrendingTopic {
@@ -188,6 +190,14 @@ export interface AnalyticsData {
   reach: number;
   engagementRate: number;
   period: string;
+}
+
+export interface CompetitorData {
+    name: string;
+    sentiment: 'Positive' | 'Neutral' | 'Negative';
+    recentTopic: string;
+    engagementLevel: 'High' | 'Medium' | 'Low';
+    summary: string;
 }
 
 export interface TopPostData {

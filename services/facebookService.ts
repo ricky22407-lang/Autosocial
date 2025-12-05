@@ -1,5 +1,4 @@
 
-
 import { AnalyticsData, TopPostData } from "../types";
 
 const FB_API_VERSION = 'v17.0'; 
@@ -8,7 +7,6 @@ const FB_API_VERSION = 'v17.0';
 const graphApi = async (endpoint: string, token: string, method = 'GET', body?: any) => {
   const url = `https://graph.facebook.com/${FB_API_VERSION}/${endpoint}`;
   
-  // Corrected: Do not set Content-Type for GET requests to avoid browser/CORS issues
   const headers: HeadersInit = {};
   if (method !== 'GET' && method !== 'HEAD') {
       (headers as any)['Content-Type'] = 'application/json';
@@ -21,7 +19,6 @@ const graphApi = async (endpoint: string, token: string, method = 'GET', body?: 
     headers,
   };
 
-  // Only attach body for non-GET/HEAD requests
   if (method !== 'GET' && method !== 'HEAD' && body) {
     options.body = JSON.stringify(body);
   }
@@ -40,7 +37,6 @@ const graphApi = async (endpoint: string, token: string, method = 'GET', body?: 
   }
 };
 
-// --- Helper to convert Base64 to Blob for Upload ---
 const base64ToBlob = async (base64: string): Promise<Blob> => {
   const res = await fetch(base64);
   return await res.blob();
@@ -49,7 +45,6 @@ const base64ToBlob = async (base64: string): Promise<Blob> => {
 export const validateFacebookToken = async (token: string): Promise<boolean> => {
   if (!token) return false;
   try {
-    // Call /me to validate token
     await graphApi('me', token);
     return true;
   } catch (e) {
@@ -57,13 +52,61 @@ export const validateFacebookToken = async (token: string): Promise<boolean> => 
   }
 };
 
+// --- NEW: Publish to Instagram (via FB Graph) ---
+export const publishToInstagram = async (
+    pageId: string,
+    token: string,
+    imageUrl: string,
+    caption: string
+): Promise<{ success: boolean; id?: string; error?: string }> => {
+    try {
+        // 1. Get Linked IG Business Account ID
+        const pageData = await graphApi(`${pageId}?fields=instagram_business_account`, token);
+        const igUserId = pageData.instagram_business_account?.id;
+
+        if (!igUserId) {
+            return { success: false, error: "此粉專未連結 Instagram 商業帳號" };
+        }
+
+        // 2. Create Media Container
+        // IG requires a public URL. If imageUrl is Base64, we might fail unless we upload to a temp host.
+        // For this demo, we assume the user provides a public URL (e.g. from stock or previous FB upload).
+        // Since FB Graph API for IG doesn't accept direct file upload easily from browser without backend proxy for binary,
+        // we will rely on URL. *Limitation*: Generated AI images (Base64) need hosting.
+        
+        // WORKAROUND: If it's base64, we can't post to IG directly via Client-Side API easily.
+        // We return error if not http/https.
+        if (!imageUrl.startsWith('http')) {
+            return { success: false, error: "IG 同步僅支援公開網址圖片 (Base64 不支援)" };
+        }
+
+        const containerRes = await graphApi(`${igUserId}/media`, token, 'POST', {
+            image_url: imageUrl,
+            caption: caption
+        });
+        const containerId = containerRes.id;
+
+        // 3. Publish Container
+        const publishRes = await graphApi(`${igUserId}/media_publish`, token, 'POST', {
+            creation_id: containerId
+        });
+
+        return { success: true, id: publishRes.id };
+
+    } catch (e: any) {
+        console.warn("IG Publish Failed:", e);
+        return { success: false, error: e.message || "IG 發佈失敗" };
+    }
+};
+
 export const publishPostToFacebook = async (
   pageId: string,
   token: string,
   message: string,
   mediaUrl?: string,
-  firstComment?: string
-): Promise<{ success: boolean; url?: string; error?: string }> => {
+  firstComment?: string,
+  syncInstagram?: boolean
+): Promise<{ success: boolean; url?: string; error?: string; igResult?: string }> => {
   
   if (!pageId || !token) {
      return { success: false, error: '未設定 Page ID 或 Token' };
@@ -71,6 +114,7 @@ export const publishPostToFacebook = async (
 
   try {
     let postId;
+    let publishedMediaUrl = mediaUrl; // Store the final URL FB sees
 
     // 1. Post logic
     if (mediaUrl) {
@@ -80,7 +124,6 @@ export const publishPostToFacebook = async (
       const endpoint = isVideoUrl ? `${pageId}/videos` : `${pageId}/photos`;
 
       if (isBase64) {
-        // --- STRATEGY A: Direct Upload (Multipart) for Base64 ---
         try {
             const blob = await base64ToBlob(mediaUrl);
             const formData = new FormData();
@@ -89,39 +132,34 @@ export const publishPostToFacebook = async (
             formData.append('source', blob);
             
             const uploadUrl = `https://graph.facebook.com/${FB_API_VERSION}/${endpoint}`;
-            const res = await fetch(uploadUrl, {
-                method: 'POST',
-                body: formData
-            });
+            const res = await fetch(uploadUrl, { method: 'POST', body: formData });
             
             const data = await res.json();
             if (data.error) throw new Error(data.error.message);
             postId = data.id || data.post_id;
+            // Note: We don't get a public URL back easily for IG sync here unless we query it back.
 
         } catch (uploadError: any) {
-            console.error("Image upload failed, falling back to text only:", uploadError);
+            console.error("Image upload failed:", uploadError);
             const res = await graphApi(`${pageId}/feed`, token, 'POST', { 
-                message: `${message}\n\n(註：圖片上傳失敗 - ${uploadError.message || '格式錯誤'})` 
+                message: `${message}\n\n(註：圖片上傳失敗 - ${uploadError.message})` 
             });
             postId = res.id;
         }
 
       } else if (mediaUrl.startsWith('http')) {
-        // --- STRATEGY B: URL Upload for Hosted Media ---
         const payload: any = { message };
         if (isVideoUrl) payload.file_url = mediaUrl;
         else payload.url = mediaUrl;
 
         const res = await graphApi(endpoint, token, 'POST', payload);
         postId = res.id || res.post_id;
-
       } else {
         const res = await graphApi(`${pageId}/feed`, token, 'POST', { message });
         postId = res.id;
       }
 
     } else {
-      // Text only
       const res = await graphApi(`${pageId}/feed`, token, 'POST', { message });
       postId = res.id;
     }
@@ -130,14 +168,26 @@ export const publishPostToFacebook = async (
     if (firstComment && postId) {
       try {
         await graphApi(`${postId}/comments`, token, 'POST', { message: firstComment });
-      } catch (e) {
-        console.warn("Failed to post first comment", e);
-      }
+      } catch (e) { console.warn("Failed to post first comment", e); }
+    }
+
+    // 3. Instagram Sync Logic
+    let igMsg = '';
+    if (syncInstagram && mediaUrl && mediaUrl.startsWith('http')) {
+        const igRes = await publishToInstagram(pageId, token, mediaUrl, message);
+        if (igRes.success) {
+            igMsg = ' (IG 同步成功)';
+        } else {
+            igMsg = ` (IG 同步失敗: ${igRes.error})`;
+        }
+    } else if (syncInstagram) {
+        igMsg = ' (IG 同步略過：需為公開圖片網址)';
     }
 
     return { 
       success: true, 
-      url: `https://facebook.com/${postId}` 
+      url: `https://facebook.com/${postId}`,
+      error: igMsg ? `FB 成功${igMsg}` : undefined // Hack to pass info message
     };
 
   } catch (e: any) {
@@ -145,43 +195,26 @@ export const publishPostToFacebook = async (
   }
 };
 
-// --- Real Analytics ---
-
+// ... existing analytics code ...
 export const fetchPageAnalytics = async (pageId: string, token?: string): Promise<AnalyticsData | null> => {
   if (!pageId || !token) return null; 
 
   try {
-    // 1. Get Page Info (Followers)
     const pageInfo = await graphApi(`${pageId}?fields=followers_count`, token, 'GET');
     const followers = pageInfo.followers_count || 0;
     
-    // 2. Get Insights - Fetched individually to prevent total failure
     let reach = 0;
     let engagedUsers = 0;
 
-    // A. Fetch Reach (Unique Impressions)
     try {
-        const reachData = await graphApi(
-            `${pageId}/insights?metric=page_impressions_unique&period=days_28`, 
-            token, 
-            'GET'
-        );
+        const reachData = await graphApi(`${pageId}/insights?metric=page_impressions_unique&period=days_28`, token, 'GET');
         reach = reachData.data?.[0]?.values?.[0]?.value || 0;
-    } catch (e) {
-        console.warn("FB Analytics: Reach fetch failed (ignoring)", e);
-    }
+    } catch (e) {}
 
-    // B. Fetch Engagement (Engaged Users)
     try {
-        const engageData = await graphApi(
-            `${pageId}/insights?metric=page_engaged_users&period=days_28`, 
-            token, 
-            'GET'
-        );
+        const engageData = await graphApi(`${pageId}/insights?metric=page_engaged_users&period=days_28`, token, 'GET');
         engagedUsers = engageData.data?.[0]?.values?.[0]?.value || 0;
-    } catch (e) {
-         console.warn("FB Analytics: Engaged Users fetch failed (ignoring)", e);
-    }
+    } catch (e) {}
     
     const engagementRate = reach > 0 ? ((engagedUsers / reach) * 100).toFixed(2) : 0;
 
@@ -198,14 +231,8 @@ export const fetchPageAnalytics = async (pageId: string, token?: string): Promis
   }
 };
 
-/**
- * Fetches recent posts and identifies the ones with highest reach and engagement.
- * Limit to last 15 posts to avoid API timeouts.
- */
 export const fetchPageTopPosts = async (pageId: string, token: string): Promise<{ topReach?: TopPostData, topEngagement?: TopPostData }> => {
     try {
-        // Fetch last 15 posts with basic fields and INSIGHTS in a nested request
-        // metric: post_impressions_unique (Reach), post_engaged_users (Engagement)
         const fields = 'id,message,created_time,full_picture,permalink_url,insights.metric(post_impressions_unique,post_engaged_users)';
         const feedUrl = `${pageId}/feed?limit=15&fields=${fields}`;
         
@@ -215,9 +242,7 @@ export const fetchPageTopPosts = async (pageId: string, token: string): Promise<
         if (posts.length === 0) return {};
 
         const processedPosts: TopPostData[] = posts.map((p: any) => {
-            // Safe extraction of metrics from nested data structure
             const insights = p.insights?.data || [];
-            
             const reachMetric = insights.find((m: any) => m.name === 'post_impressions_unique');
             const engageMetric = insights.find((m: any) => m.name === 'post_engaged_users');
 
@@ -229,35 +254,25 @@ export const fetchPageTopPosts = async (pageId: string, token: string): Promise<
                 permalink_url: p.permalink_url,
                 reach: reachMetric?.values?.[0]?.value || 0,
                 engagedUsers: engageMetric?.values?.[0]?.value || 0,
-                type: 'reach' // placeholder
+                type: 'reach' 
             };
         });
 
-        // Find Top Reach
         const sortedByReach = [...processedPosts].sort((a, b) => b.reach - a.reach);
         const topReachPost = sortedByReach[0];
         if (topReachPost) topReachPost.type = 'reach';
 
-        // Find Top Engagement
         const sortedByEngagement = [...processedPosts].sort((a, b) => b.engagedUsers - a.engagedUsers);
         const topEngagePost = sortedByEngagement[0];
         if (topEngagePost) topEngagePost.type = 'engagement';
 
-        // If same post is top for both, that's fine.
-        return {
-            topReach: topReachPost,
-            topEngagement: topEngagePost
-        };
+        return { topReach: topReachPost, topEngagement: topEngagePost };
 
     } catch (e) {
-        console.warn("Failed to fetch top posts details", e);
         return {};
     }
 };
 
 export const refreshLongLivedToken = async (currentToken: string): Promise<{ success: boolean; newToken?: string; expiry?: number }> => {
-    // This usually requires App ID / App Secret on backend. 
-    // Client-side refresh is limited.
-    console.error("Token refresh requires backend.");
     return { success: false };
 };
