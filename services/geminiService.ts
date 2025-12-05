@@ -1,10 +1,13 @@
+
+import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { BrandSettings, TrendingTopic, CachedTrendData } from "../types";
 import { db } from "./firebase"; // Using compat export
 
-// 注意：前端不再 import GoogleGenAI SDK，也不讀取 process.env.API_KEY
-// 所有請求都透過 /api/gemini 轉發
+// 使用環境變數中的 API Key 初始化
+// 注意：在 Preview 環境中，API Key 會由平台自動注入至 process.env.API_KEY
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-// System Prompts (保持不變)
+// System Prompts
 const SYSTEM_INSTRUCTION_THREADS = `
 [System Instruction]
 Role: You are a genuine, active user on Threads (Taiwan region).
@@ -22,35 +25,9 @@ Language: Traditional Chinese (Taiwan) with authentic internet slang.
 - Tone: Natural, conversational, "murmur", sometimes "deadpan" (厭世) or "enthusiastic" (激動).
 - Formatting: Minimal punctuation. Lowercase English. Use spaces for breath.
 - Anti-Patterns: DO NOT use "小編" (admin), "各位粉絲" (fans), "趕快來買" (buy now). DO NOT sound like a bot.
-
-[Specific Character Constraints]
-(This will be injected dynamically based on user persona settings)
 `;
 
-// #region Helper Functions (Internal Logic)
-
-/**
- * 呼叫我們自己的 Vercel 後端 API
- */
-const callBackendApi = async (action: string, payload: any) => {
-    try {
-        const res = await fetch('/api/gemini', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action, payload })
-        });
-        
-        if (!res.ok) {
-            const errData = await res.json();
-            throw new Error(errData.error || `Server Error: ${res.status}`);
-        }
-        
-        return await res.json();
-    } catch (e: any) {
-        console.error("Backend API Call Failed:", e);
-        throw new Error(e.message || "AI 服務暫時無法使用，請檢查配額或稍後再試。");
-    }
-};
+// #region Helper Functions
 
 const cleanJsonText = (text: string): string => {
     if (!text) return '{}';
@@ -112,7 +89,7 @@ const shuffleArray = <T,>(array: T[]): T[] => {
     return arr;
 };
 
-// #region RSS Fetching (Frontend Logic kept intact as it uses public proxies)
+// #region RSS Fetching
 const fetchTextWithProxy = async (targetUrl: string): Promise<string> => {
     try {
         const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`);
@@ -177,7 +154,7 @@ const fetchRealtimeRss = async (keyword: string): Promise<TrendingTopic[]> => {
 };
 // #endregion
 
-// #region Core Services (Updated to use Backend)
+// #region Core Services
 
 export const getTrendingTopics = async (industry: string = "台灣熱門時事", seed?: number): Promise<TrendingTopic[]> => {
   const cached = await checkTrendCache(industry);
@@ -188,12 +165,15 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
   if (topics.length === 0) {
       console.warn("RSS returned 0 items, using Gemini fallback.");
       try {
-        // CALL BACKEND
-        const response = await callBackendApi('generateContent', {
+        // Fallback: Use Gemini 2.5 Flash
+        const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: `列出目前台灣關於「${industry}」的 5 個熱門社群話題。
             請直接回傳純 JSON 陣列，不要有任何 Markdown 格式。
-            格式: [{ "title": "...", "description": "...", "url": "..." }]`
+            格式: [{ "title": "...", "description": "...", "url": "..." }]`,
+            config: {
+                responseMimeType: "application/json"
+            }
         });
         
         const cleanText = cleanJsonText(response.text || '[]');
@@ -243,70 +223,86 @@ export const generatePostDraft = async (
     }
   `;
 
-  // CALL BACKEND
-  const response = await callBackendApi('generateContent', {
+  // Use Gemini 3 Pro for complex reasoning
+  const response = await ai.models.generateContent({
     model: "gemini-3-pro-preview",
     contents: prompt,
-    config: { responseMimeType: "application/json" }
+    config: { 
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            caption: { type: Type.STRING },
+            ctaText: { type: Type.STRING },
+            imagePrompt: { type: Type.STRING },
+            videoPrompt: { type: Type.STRING }
+          }
+        }
+    }
   });
 
   return JSON.parse(response.text || '{}');
 };
 
 export const generateImage = async (prompt: string): Promise<string> => {
-    // 1. Try Imagen 3 (Via Backend)
+    // Default to Flash Image as per guidelines for general tasks
     try {
-        const response = await callBackendApi('generateImages', {
-            model: 'imagen-3.0-generate-001',
-            prompt: prompt,
-            config: { numberOfImages: 1, aspectRatio: '1:1' }
-        });
-        if (response.base64) return `data:image/png;base64,${response.base64}`;
-    } catch (e) { console.warn("Imagen 3 failed, trying Gemini 3 Pro..."); }
-
-    // 2. Try Gemini 3 Pro Image (Via Backend)
-    try {
-        const response = await callBackendApi('generateImages', {
-            model: 'gemini-3-pro-image-preview',
-            prompt: prompt, // Backend will wrap this in contents/parts
-            config: { imageConfig: { aspectRatio: "1:1" } }
-        });
-        if (response.base64) return `data:image/png;base64,${response.base64}`;
-    } catch (e) { console.warn("Gemini 3 Pro Image failed, trying Flash..."); }
-
-    // 3. Try Gemini 2.5 Flash Image (Via Backend)
-    try {
-        const response = await callBackendApi('generateImages', {
+        const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash-image',
-            prompt: prompt,
+            contents: { parts: [{ text: prompt }] },
             config: { imageConfig: { aspectRatio: "1:1" } }
         });
-        if (response.base64) return `data:image/png;base64,${response.base64}`;
+
+        // Loop to find image part
+        for (const part of response.candidates?.[0]?.content?.parts || []) {
+             if (part.inlineData) {
+                 return `data:image/png;base64,${part.inlineData.data}`;
+             }
+        }
+        throw new Error("No image data found in response");
     } catch (e: any) {
-        throw new Error(`所有圖片模型皆生成失敗: ${e.message}`);
+        throw new Error(`圖片生成失敗: ${e.message}`);
     }
-    
-    throw new Error("Unknown error in image generation");
 };
 
 export const generateVideo = async (prompt: string): Promise<string> => {
+    // Ensure user has selected a key for Veo (high compute cost)
+    if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
+         if (!await window.aistudio.hasSelectedApiKey()) {
+             await window.aistudio.openSelectKey();
+             // Re-init AI with new key if needed, though process.env should update or we assume strict execution context
+         }
+    }
+
     try {
-        // CALL BACKEND
-        // Backend will handle the polling and key injection
-        const response = await callBackendApi('generateVideos', {
+        let operation = await ai.models.generateVideos({
             model: 'veo-3.1-fast-generate-preview',
             prompt: prompt,
             config: { numberOfVideos: 1, resolution: '720p', aspectRatio: '16:9' }
         });
 
-        if (response.videoBase64) {
-            return `data:video/mp4;base64,${response.videoBase64}`;
+        while (!operation.done) {
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            operation = await ai.operations.getVideosOperation({operation: operation});
         }
-        throw new Error("No video data returned");
+
+        const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
+        if (!videoUri) throw new Error("No video URI returned");
+
+        // The response body contains MP4 bytes. Must append API key.
+        const response = await fetch(`${videoUri}&key=${process.env.API_KEY}`);
+        const blob = await response.blob();
+        
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(blob);
+        });
+
     } catch (e: any) {
         console.warn("Veo failed, fallback to Image:", e);
         const img = await generateImage(prompt);
-        throw new Error(`影片生成失敗: ${e.message}`);
+        throw new Error(`影片生成失敗，已降級為圖片: ${e.message}`);
     }
 };
 
@@ -332,10 +328,10 @@ export const generateSeoArticle = async (
       { "fullText": "Markdown...", "imageKeyword": "English keyword..." }
     `;
 
-    // Grounding (Google Search) - Requires Backend
+    // Grounding (Google Search) with Gemini 2.5 Flash
     let searchContext = "";
     try {
-         const searchResp = await callBackendApi('generateContent', {
+         const searchResp = await ai.models.generateContent({
             model: "gemini-2.5-flash",
             contents: `Research SEO content for topic: ${topic}. Keywords: ${keywords}`,
             config: { tools: [{ googleSearch: {} }] } 
@@ -343,10 +339,19 @@ export const generateSeoArticle = async (
         searchContext = searchResp.text || "";
     } catch (e) { console.warn("Search grounding failed"); }
 
-    const response = await callBackendApi('generateContent', {
+    const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: `Context: ${searchContext}\n\n${prompt}`,
-        config: { responseMimeType: "application/json" }
+        config: { 
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                    fullText: { type: Type.STRING },
+                    imageKeyword: { type: Type.STRING }
+                }
+            }
+        }
     });
 
     const cleanText = cleanJsonText(response.text || '{}');
@@ -367,7 +372,7 @@ export const generateWeeklyReport = async (analytics: any, settings: BrandSettin
       Metrics: Followers ${analytics.followers}, Reach ${analytics.reach}, Engagement ${analytics.engagementRate}%.
       Write a weekly performance report in Traditional Chinese.
     `;
-    const response = await callBackendApi('generateContent', {
+    const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: prompt
     });
@@ -391,10 +396,23 @@ export const generateThreadsBatch = async (
       Output JSON Array: [{ "caption": "...", "imagePrompt": "...", "imageQuery": "..." }]
     `;
 
-    const response = await callBackendApi('generateContent', {
+    const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: prompt,
-        config: { responseMimeType: "application/json" }
+        config: { 
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        caption: { type: Type.STRING },
+                        imagePrompt: { type: Type.STRING },
+                        imageQuery: { type: Type.STRING }
+                    }
+                }
+            }
+        }
     });
 
     return JSON.parse(response.text || '[]');
