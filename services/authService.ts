@@ -181,7 +181,10 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
 };
 
 const generateReferralCode = (uid: string) => {
-    return 'REF-' + uid.substring(0, 5).toUpperCase() + Math.floor(Math.random() * 1000);
+    // Generate a code like "REF-A1B2C-789"
+    const prefix = uid.substring(0, 5).toUpperCase().replace(/[^A-Z0-9]/g, 'X');
+    const random = Math.floor(100 + Math.random() * 900); // 3 digit random
+    return `REF-${prefix}-${random}`;
 };
 
 export const createUserProfile = async (user: { uid: string, email: string }): Promise<UserProfile> => {
@@ -444,7 +447,6 @@ export const redeemReferralCode = async (currentUserId: string, code: string) =>
         if (snapshot.empty) throw new Error("無效的邀請碼");
         
         const referrerDoc = snapshot.docs[0];
-        const referrerId = referrerDoc.id;
         const reward = 50;
 
         await db.runTransaction(async (t) => {
@@ -464,8 +466,26 @@ export const redeemReferralCode = async (currentUserId: string, code: string) =>
         
         return { success: true, reward };
     } else {
-        // Mock
-        throw new Error("推薦功能僅在正式環境可用");
+        // Mock (for demo/testing without real backend auth sometimes)
+        // Simulate lookup
+        const users = getDb(DB_USERS);
+        const referrerId = Object.keys(users).find(uid => users[uid].referralCode === code);
+        
+        if (!referrerId) throw new Error("無效的邀請碼 (Mock)");
+        if (referrerId === currentUserId) throw new Error("不能使用自己的邀請碼");
+        
+        const reward = 50;
+        
+        // Update Referrer
+        users[referrerId].quota_total += reward;
+        users[referrerId].referralCount = (users[referrerId].referralCount || 0) + 1;
+        
+        // Update Current User
+        users[currentUserId].quota_total += reward;
+        users[currentUserId].referredBy = code;
+        
+        saveDb(DB_USERS, users);
+        return { success: true, reward };
     }
 };
 

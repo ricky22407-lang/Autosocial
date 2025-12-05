@@ -31,7 +31,7 @@ module.exports = async function (req, res) {
               process.env.API_KEY,
               process.env.API_KEY_2,
               process.env.API_KEY_3
-          ].filter(Boolean);
+          ].filter(k => k && k.length > 0); // Strict filter
           
           this.currentIndex = 0;
       }
@@ -55,10 +55,14 @@ module.exports = async function (req, res) {
 
   // Retry Wrapper
   async function executeWithRetry(operation) {
+      // Fail fast if no keys configured
+      if (!keyManager.getCurrentKey()) {
+          throw new Error("Server Configuration Error: API_KEY is missing in environment variables.");
+      }
+
       let attempts = 0;
       let lastError = null;
 
-      // Try current key, if fail, switch and retry
       // Max attempts = number of keys available
       const maxAttempts = keyManager.geminiKeys.length || 1; 
 
@@ -66,9 +70,6 @@ module.exports = async function (req, res) {
           try {
               const apiKey = keyManager.getCurrentKey();
               
-              // Fallback for missing keys - throw detailed error instead of crashing
-              if (!apiKey) throw new Error("Server Misconfiguration: No API_KEY found in environment variables.");
-
               // Dynamic Import SDK with specific Key
               let GoogleGenAI;
               try {
@@ -87,10 +88,11 @@ module.exports = async function (req, res) {
               const msg = error.message || '';
               
               // Check for Quota or Permission errors to trigger failover
-              const isQuotaError = msg.includes('429') || msg.includes('403') || msg.includes('Quota') || msg.includes('Resource has been exhausted');
+              // 429: Too Many Requests, 403: Forbidden (Quota), 503: Service Unavailable
+              const isQuotaError = msg.includes('429') || msg.includes('403') || msg.includes('Quota') || msg.includes('exhausted');
               
               if (isQuotaError) {
-                  console.warn(`[API] Key #${keyManager.currentIndex + 1} failed: ${msg}`);
+                  console.warn(`[API] Key #${keyManager.currentIndex + 1} exhausted: ${msg}`);
                   if (keyManager.switchToNextKey()) {
                       attempts++;
                       continue; // Retry loop with new key
@@ -114,15 +116,12 @@ module.exports = async function (req, res) {
         return res.status(400).json({ error: "Missing 'action' in request body" });
     }
 
-    // console.log(`[API] Processing action: ${action}`);
-
     // --- Action Handler: fetchRss (Server-Side Proxy) ---
     if (action === 'fetchRss') {
         const { url } = payload;
         if (!url) throw new Error("Missing URL for RSS fetch");
 
         try {
-            // Using Node's native fetch (Node 18+) or polyfill provided by Vercel environment
             const rssRes = await fetch(url, {
                 headers: {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -236,10 +235,9 @@ module.exports = async function (req, res) {
 
   } catch (error) {
     console.error('[API Critical Error]:', error);
-    // Ensure we always return JSON, even for critical crashes
     return res.status(500).json({ 
         error: error.message || 'Internal Server Error',
-        details: error.toString()
+        details: process.env.NODE_ENV === 'development' ? error.toString() : undefined
     });
   }
 };

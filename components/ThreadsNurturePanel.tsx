@@ -23,7 +23,6 @@ interface GeneratedPost {
   targetAccountId?: string;
   status: 'idle' | 'publishing' | 'done' | 'failed';
   log?: string;
-  // FIX: Explicitly include 'none' to match code logic
   imageSourceType: 'ai' | 'stock' | 'source_url' | 'none';
 }
 
@@ -49,9 +48,11 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       personaPrompt: '' 
   });
   
-  // Generator
+  // Generator State Machine: 1 (Discover) -> 2 (Generate)
+  const [genStep, setGenStep] = useState<1 | 2>(1);
   const [manualTopic, setManualTopic] = useState('');
-  const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
+  const [selectedTopics, setSelectedTopics] = useState<string[]>([]); // Typically just 1 for batch focus
+  
   const [genCount, setGenCount] = useState(3);
   const [generatedPosts, setGeneratedPosts] = useState<GeneratedPost[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -75,15 +76,22 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
     onSaveSettings({ ...settings, threadsAccounts: accounts });
   }, [accounts]);
 
-  useEffect(() => {
-      if (activeTab === 'generator' && trendingTopics.length === 0) {
-          loadTrends();
-      }
-  }, [activeTab]);
+  // We DO NOT auto-load trends anymore. User must click button to pay 1 credit.
+  // This restores the "Pay to view" flow.
 
   const loadTrends = async () => {
+      if (!user) return alert("請先登入");
+
+      // Step 1 Quota Check
+      const COST = 1;
+      const allowed = await checkAndUseQuota(user.user_id, COST);
+      if (!allowed) return alert(`配額不足 (需要 ${COST} 點)`);
+      onQuotaUpdate();
+
       setLoadingTrends(true);
       setTrendError('');
+      setTrendingTopics([]);
+
       try {
           const industry = settings.industry || '台灣熱門時事';
           const trends = await getTrendingTopics(industry);
@@ -108,7 +116,6 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
           return;
       }
 
-      // Check limits
       const limit = user?.role === 'business' || user?.role === 'admin' ? 20 : (user?.role === 'pro' ? 5 : 0);
       if (accounts.length >= limit) {
           alert(`您的方案最多只能新增 ${limit} 個帳號。`);
@@ -116,8 +123,8 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       }
 
       const newAccount: ThreadsAccount = {
-          id: Date.now().toString(), // Internal unique ID
-          userId: userIdInput.trim(), // Actual Threads UID
+          id: Date.now().toString(), 
+          userId: userIdInput.trim(), 
           token: token.trim(),
           username: username.trim() || `User_${userIdInput.slice(-4)}`,
           isActive: true,
@@ -139,21 +146,26 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   };
 
   // --- Generator Handlers ---
-  const toggleTopic = (title: string) => {
-      if (selectedTopics.includes(title)) {
-          setSelectedTopics(selectedTopics.filter(t => t !== title));
-      } else {
-          if (selectedTopics.length >= 3) return;
-          setSelectedTopics([...selectedTopics, title]);
-      }
+  const selectTopic = (title: string) => {
+      setSelectedTopics([title]); // Single select for focus
+      setManualTopic(''); // Clear manual
+      // Move to step 2 automatically? Or let user confirm? 
+      // Let's keep user on screen to confirm selection visually, then click Next?
+      // Actually, standard UI: click -> selected. Then click 'Next Step' or 'Generate'.
+      // Let's stay on Step 1 but highlight it.
+  };
+
+  const proceedToGenerateUI = () => {
+      if (selectedTopics.length === 0 && !manualTopic) return alert("請先選擇或輸入一個話題");
+      setGenStep(2);
   };
 
   const handleGenerateBatch = async () => {
       if (!user) return alert("請先登入");
-      const topicSource = selectedTopics.length > 0 ? selectedTopics.join('、') : manualTopic;
-      if (!topicSource) return alert("請選擇或輸入話題");
+      const topicSource = selectedTopics.length > 0 ? selectedTopics[0] : manualTopic;
+      if (!topicSource) return alert("無效話題");
 
-      // Quota check
+      // Step 2 Quota Check
       const COST = 2;
       const allowed = await checkAndUseQuota(user.user_id, COST);
       if (!allowed) return alert(`配額不足 (需 ${COST} 點)`);
@@ -163,7 +175,6 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       setGeneratedPosts([]);
 
       try {
-          // Collect Personas
           const activeAccounts = accounts.filter(a => a.isActive);
           if (activeAccounts.length === 0) throw new Error("無活躍帳號，請先啟用或新增帳號");
           
@@ -178,7 +189,6 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
               imageQuery: r.imageQuery,
               imageSourceType: 'ai',
               status: 'idle',
-              // Round-robin assign to active accounts
               targetAccountId: activeAccounts[i % activeAccounts.length]?.id
           }));
 
@@ -194,7 +204,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       if (post.imageUrl) return post.imageUrl;
       if (post.imageSourceType === 'none') return '';
       
-      const seed = post.id; // stable seed
+      const seed = post.id;
       let prompt = post.imagePrompt;
       if (post.imageSourceType === 'stock') {
           prompt = `${post.imageQuery}, photorealistic, real life photography, 4k`;
@@ -209,7 +219,6 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, status: 'publishing' } : p));
 
       const imgUrl = post.imageSourceType === 'none' ? undefined : getPreviewUrl(post);
-      
       const res = await publishThreadsPost(acc, post.caption, imgUrl);
 
       setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { 
@@ -217,6 +226,13 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
           status: res.success ? 'done' : 'failed',
           log: res.success ? '發佈成功' : res.error 
       } : p));
+  };
+
+  const resetGenFlow = () => {
+      setGenStep(1);
+      setGeneratedPosts([]);
+      setSelectedTopics([]);
+      // We keep trendingTopics cached so user doesn't pay again immediately if they just went back
   };
 
   // --- Interaction Handlers ---
@@ -232,7 +248,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
               const acc = accounts[i];
               if (!acc.isActive) continue;
               
-              const threads = await fetchUserThreads(acc, 3); // last 3 posts
+              const threads = await fetchUserThreads(acc, 3);
               for (const thread of threads) {
                   const replies = await fetchMediaReplies(acc, thread.id);
                   replies.forEach((r: any) => {
@@ -382,129 +398,195 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
           </div>
       )}
 
-      {/* VIEW: GENERATOR */}
+      {/* VIEW: GENERATOR (2-Step Flow) */}
       {activeTab === 'generator' && (
-          <div className="space-y-8">
-              <div className="bg-card p-6 rounded-xl border border-gray-700">
-                  <h3 className="font-bold text-white mb-4">步驟 1: 選擇話題</h3>
-                  
-                  {loadingTrends ? (
-                      <div className="text-sm text-gray-400 animate-pulse">正在載入熱門話題...</div>
-                  ) : (
-                      <div className="flex flex-wrap gap-2 mb-4">
-                          {trendingTopics.map((t, i) => (
-                              <button 
-                                key={i}
-                                onClick={() => toggleTopic(t.title)}
-                                className={`px-3 py-1 rounded-full text-sm border transition-colors ${selectedTopics.includes(t.title) ? 'bg-primary border-primary text-white' : 'bg-transparent border-gray-600 text-gray-400 hover:border-gray-400 hover:text-white'}`}
-                              >
-                                  {t.title}
-                              </button>
-                          ))}
-                      </div>
-                  )}
-                  {trendError && <p className="text-yellow-500 text-xs mb-4">⚠️ {trendError}</p>}
-
-                  <div className="flex flex-col md:flex-row gap-4 items-end">
-                      <div className="flex-1 w-full">
-                          <label className="block text-xs text-gray-400 mb-1">自訂主題</label>
-                          <input 
-                              value={manualTopic}
-                              onChange={e => setManualTopic(e.target.value)}
-                              className="w-full bg-dark border border-gray-600 rounded p-2 text-white focus:border-primary outline-none"
-                              placeholder="例如：台北咖啡廳推薦"
-                          />
-                      </div>
-                      <div className="w-full md:w-32">
-                          <label className="block text-xs text-gray-400 mb-1">數量</label>
-                          <select value={genCount} onChange={e => setGenCount(Number(e.target.value))} className="w-full bg-dark border border-gray-600 rounded p-2 text-white">
-                              <option value="1">1 篇</option>
-                              <option value="3">3 篇</option>
-                              <option value="5">5 篇</option>
-                          </select>
-                      </div>
-                      <button 
-                        onClick={handleGenerateBatch}
-                        disabled={isGenerating || (selectedTopics.length === 0 && !manualTopic)}
-                        className="w-full md:w-auto bg-secondary hover:bg-indigo-600 text-white px-6 py-2 rounded font-bold h-[42px] disabled:opacity-50 transition-colors"
-                      >
-                          {isGenerating ? '生成中...' : '✨ 批量生成'}
-                      </button>
-                  </div>
-              </div>
-
-              {/* Results */}
-              {generatedPosts.length > 0 && (
-                  <div className="space-y-4 animate-fade-in">
-                      <h3 className="font-bold text-white">步驟 2: 預覽與發佈</h3>
-                      {generatedPosts.map((post) => (
-                          <div key={post.id} className="bg-dark p-4 rounded border border-gray-600 flex flex-col md:flex-row gap-6">
-                              <div className="flex-1 space-y-3">
-                                  <textarea 
-                                      value={post.caption}
-                                      onChange={e => {
-                                          const val = e.target.value;
-                                          setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, caption: val } : p));
-                                      }}
-                                      className="w-full h-32 bg-gray-800 border border-gray-700 rounded p-3 text-white text-sm resize-none focus:border-primary outline-none"
-                                  />
-                                  <div className="flex gap-4">
-                                      <select 
-                                          value={post.targetAccountId} 
-                                          onChange={e => {
-                                              const val = e.target.value;
-                                              setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, targetAccountId: val } : p));
-                                          }}
-                                          className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white"
-                                      >
-                                          {accounts.map(a => <option key={a.id} value={a.id}>{a.username}</option>)}
-                                      </select>
-                                      
-                                      <select 
-                                          value={post.imageSourceType} 
-                                          onChange={e => {
-                                              const val = e.target.value as any;
-                                              setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageSourceType: val } : p));
-                                          }}
-                                          className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white"
-                                      >
-                                          <option value="ai">🎨 AI 繪圖 (Abstract)</option>
-                                          <option value="stock">📷 擬真圖庫 (Realistic)</option>
-                                          <option value="none">❌ 純文字</option>
-                                      </select>
-                                  </div>
-                              </div>
-                              
-                              <div className="w-full md:w-64 flex flex-col gap-3">
-                                  <div className="flex-1 bg-black rounded flex items-center justify-center overflow-hidden border border-gray-700 min-h-[160px] relative">
-                                      {post.imageSourceType === 'none' ? (
-                                          <span className="text-gray-500 text-xs">無圖片</span>
-                                      ) : (
-                                          <img 
-                                              src={getPreviewUrl(post)} 
-                                              alt="Preview" 
-                                              className="w-full h-full object-cover absolute inset-0" 
-                                          />
-                                      )}
-                                  </div>
-                                  
-                                  {post.status === 'done' ? (
-                                      <div className="bg-green-900/50 text-green-400 text-center py-2 rounded text-sm font-bold border border-green-700">
-                                          ✅ 已發佈
-                                      </div>
-                                  ) : (
+          <div className="space-y-8 animate-fade-in">
+              {/* STEP 1: Discover Topics */}
+              {genStep === 1 && (
+                  <div className="bg-card p-6 rounded-xl border border-gray-700">
+                      <h3 className="text-xl font-bold text-white mb-2">Step 1: 挖掘靈感話題</h3>
+                      <p className="text-gray-400 text-sm mb-6">點擊下方按鈕，AI 將為您分析台灣熱門時事。</p>
+                      
+                      {trendingTopics.length === 0 ? (
+                          <div className="text-center py-8">
+                               {trendError && <p className="text-red-400 mb-4">{trendError}</p>}
+                               <button 
+                                  onClick={loadTrends} 
+                                  disabled={loadingTrends}
+                                  className="bg-secondary hover:bg-indigo-600 text-white px-8 py-4 rounded-full font-bold shadow-lg transition-transform transform hover:scale-105 disabled:opacity-50"
+                               >
+                                   {loadingTrends ? '🔍 分析數據中...' : '🔍 挖掘熱門話題 (扣 1 點)'}
+                               </button>
+                               <div className="mt-8 border-t border-gray-700 pt-6 max-w-md mx-auto">
+                                   <label className="block text-sm text-gray-400 mb-2">或直接手動輸入主題跳過：</label>
+                                   <div className="flex gap-2">
+                                       <input 
+                                          value={manualTopic}
+                                          onChange={e => setManualTopic(e.target.value)}
+                                          className="flex-1 bg-dark border border-gray-600 rounded p-2 text-white"
+                                          placeholder="例如：夏日海邊穿搭"
+                                       />
+                                       <button 
+                                          onClick={proceedToGenerateUI}
+                                          disabled={!manualTopic}
+                                          className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded"
+                                       >
+                                           下一步
+                                       </button>
+                                   </div>
+                               </div>
+                          </div>
+                      ) : (
+                          <div className="space-y-6">
+                              <div className="flex flex-wrap gap-3">
+                                  {trendingTopics.map((t, i) => (
                                       <button 
-                                          onClick={() => handlePublish(post)}
-                                          disabled={post.status === 'publishing'}
-                                          className={`w-full py-2 rounded text-sm font-bold text-white transition-colors ${post.status === 'failed' ? 'bg-red-600' : 'bg-primary hover:bg-blue-600'}`}
+                                        key={i}
+                                        onClick={() => selectTopic(t.title)}
+                                        className={`px-4 py-3 rounded-lg border text-left transition-all ${
+                                            selectedTopics.includes(t.title) 
+                                            ? 'bg-blue-900/50 border-primary ring-2 ring-primary text-white' 
+                                            : 'bg-dark border-gray-600 text-gray-300 hover:border-gray-400 hover:bg-gray-800'
+                                        }`}
                                       >
-                                          {post.status === 'publishing' ? '發佈中...' : post.status === 'failed' ? '重試發佈' : '🚀 發佈貼文'}
+                                          <div className="font-bold">{t.title}</div>
+                                          {t.description && <div className="text-xs text-gray-500 mt-1 line-clamp-1">{t.description}</div>}
                                       </button>
-                                  )}
-                                  {post.log && <p className={`text-[10px] text-center ${post.status === 'failed' ? 'text-red-400' : 'text-gray-500'}`}>{post.log}</p>}
+                                  ))}
+                              </div>
+
+                              <div className="flex justify-end pt-4 border-t border-gray-700">
+                                   <button 
+                                      onClick={proceedToGenerateUI}
+                                      disabled={selectedTopics.length === 0}
+                                      className="bg-primary hover:bg-blue-600 text-white px-8 py-3 rounded font-bold shadow-lg disabled:opacity-50"
+                                   >
+                                       下一步：設定生成參數 →
+                                   </button>
                               </div>
                           </div>
-                      ))}
+                      )}
+                  </div>
+              )}
+
+              {/* STEP 2: Generate Content */}
+              {genStep === 2 && (
+                  <div className="space-y-8 animate-fade-in">
+                      <div className="bg-card p-6 rounded-xl border border-gray-700">
+                           <div className="flex items-center justify-between mb-4">
+                               <h3 className="text-xl font-bold text-white">Step 2: 批量生成貼文</h3>
+                               <button onClick={resetGenFlow} className="text-sm text-gray-400 hover:text-white underline">← 重新選擇話題</button>
+                           </div>
+                           
+                           <div className="bg-blue-900/20 border border-blue-900 p-4 rounded mb-6">
+                               <span className="text-gray-400 text-sm">已選話題：</span>
+                               <span className="text-xl font-bold text-white ml-2">
+                                   {selectedTopics.length > 0 ? selectedTopics[0] : manualTopic}
+                               </span>
+                           </div>
+
+                           <div className="flex items-end gap-4 max-w-md">
+                               <div className="flex-1">
+                                   <label className="block text-sm text-gray-400 mb-1">生成篇數</label>
+                                   <select value={genCount} onChange={e => setGenCount(Number(e.target.value))} className="w-full bg-dark border border-gray-600 rounded p-2 text-white">
+                                       <option value="1">1 篇</option>
+                                       <option value="3">3 篇</option>
+                                       <option value="5">5 篇</option>
+                                   </select>
+                               </div>
+                               <button 
+                                    onClick={handleGenerateBatch}
+                                    disabled={isGenerating}
+                                    className="flex-1 bg-secondary hover:bg-indigo-600 text-white px-6 py-2 rounded font-bold h-[42px] disabled:opacity-50 transition-colors shadow-lg"
+                                >
+                                    {isGenerating ? 'AI 撰寫中...' : '✨ 批量生成 (扣 2 點)'}
+                                </button>
+                           </div>
+                      </div>
+
+                      {/* Results List */}
+                      {generatedPosts.length > 0 && (
+                          <div className="space-y-6">
+                              <h3 className="font-bold text-white text-lg">生成結果預覽</h3>
+                              {generatedPosts.map((post) => (
+                                  <div key={post.id} className="bg-dark p-6 rounded border border-gray-600 flex flex-col md:flex-row gap-6 shadow-xl">
+                                      <div className="flex-1 space-y-4">
+                                          <div>
+                                              <label className="block text-xs text-gray-400 mb-1">貼文內容</label>
+                                              <textarea 
+                                                  value={post.caption}
+                                                  onChange={e => {
+                                                      const val = e.target.value;
+                                                      setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, caption: val } : p));
+                                                  }}
+                                                  className="w-full h-32 bg-gray-800 border border-gray-700 rounded p-3 text-white text-sm resize-none focus:border-primary outline-none"
+                                              />
+                                          </div>
+                                          
+                                          <div className="flex gap-4">
+                                              <div className="flex-1">
+                                                  <label className="block text-xs text-gray-400 mb-1">發佈帳號</label>
+                                                  <select 
+                                                      value={post.targetAccountId} 
+                                                      onChange={e => {
+                                                          const val = e.target.value;
+                                                          setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, targetAccountId: val } : p));
+                                                      }}
+                                                      className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-2 text-xs text-white"
+                                                  >
+                                                      {accounts.map(a => <option key={a.id} value={a.id}>{a.username}</option>)}
+                                                  </select>
+                                              </div>
+                                              <div className="flex-1">
+                                                  <label className="block text-xs text-gray-400 mb-1">圖片模式</label>
+                                                  <select 
+                                                      value={post.imageSourceType} 
+                                                      onChange={e => {
+                                                          const val = e.target.value as any;
+                                                          setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageSourceType: val } : p));
+                                                      }}
+                                                      className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-2 text-xs text-white"
+                                                  >
+                                                      <option value="ai">🎨 AI 繪圖</option>
+                                                      <option value="stock">📷 擬真圖庫</option>
+                                                      <option value="none">❌ 純文字</option>
+                                                  </select>
+                                              </div>
+                                          </div>
+                                      </div>
+                                      
+                                      <div className="w-full md:w-64 flex flex-col gap-3">
+                                          <div className="flex-1 bg-black rounded flex items-center justify-center overflow-hidden border border-gray-700 min-h-[160px] relative group">
+                                              {post.imageSourceType === 'none' ? (
+                                                  <span className="text-gray-500 text-xs">無圖片</span>
+                                              ) : (
+                                                  <img 
+                                                      src={getPreviewUrl(post)} 
+                                                      alt="Preview" 
+                                                      className="w-full h-full object-cover absolute inset-0 transition-transform transform group-hover:scale-110" 
+                                                  />
+                                              )}
+                                          </div>
+                                          
+                                          {post.status === 'done' ? (
+                                              <div className="bg-green-900/50 text-green-400 text-center py-2 rounded text-sm font-bold border border-green-700">
+                                                  ✅ 已發佈
+                                              </div>
+                                          ) : (
+                                              <button 
+                                                  onClick={() => handlePublish(post)}
+                                                  disabled={post.status === 'publishing'}
+                                                  className={`w-full py-2 rounded text-sm font-bold text-white transition-colors shadow-md ${post.status === 'failed' ? 'bg-red-600' : 'bg-primary hover:bg-blue-600'}`}
+                                              >
+                                                  {post.status === 'publishing' ? '發佈中...' : post.status === 'failed' ? '重試發佈' : '🚀 發佈貼文'}
+                                              </button>
+                                          )}
+                                          {post.log && <p className={`text-[10px] text-center ${post.status === 'failed' ? 'text-red-400' : 'text-gray-500'}`}>{post.log}</p>}
+                                      </div>
+                                  </div>
+                              ))}
+                          </div>
+                      )}
                   </div>
               )}
           </div>
