@@ -26,12 +26,12 @@ module.exports = async function (req, res) {
   // --- Multi-Key Manager & Failover Logic ---
   class KeyManager {
       constructor() {
-          // Load keys from possible env vars. You can set API_KEY, API_KEY_2, API_KEY_3 in Vercel.
+          // Load keys from possible env vars.
           this.geminiKeys = [
               process.env.API_KEY,
               process.env.API_KEY_2,
               process.env.API_KEY_3
-          ].filter(k => k && k.length > 0); // Strict filter
+          ].filter(k => k && k.length > 0); 
           
           this.currentIndex = 0;
       }
@@ -55,22 +55,19 @@ module.exports = async function (req, res) {
 
   // Retry Wrapper
   async function executeWithRetry(operation) {
-      // Fail fast if no keys configured
       if (!keyManager.getCurrentKey()) {
           throw new Error("Server Configuration Error: API_KEY is missing in environment variables.");
       }
 
       let attempts = 0;
       let lastError = null;
-
-      // Max attempts = number of keys available
       const maxAttempts = keyManager.geminiKeys.length || 1; 
 
       while (attempts < maxAttempts) {
           try {
               const apiKey = keyManager.getCurrentKey();
               
-              // Dynamic Import SDK with specific Key
+              // Dynamic Import SDK
               let GoogleGenAI;
               try {
                   const sdk = await import("@google/genai");
@@ -80,34 +77,30 @@ module.exports = async function (req, res) {
               }
 
               const ai = new GoogleGenAI({ apiKey: apiKey });
-              
               return await operation(ai);
 
           } catch (error) {
               lastError = error;
               const msg = error.message || '';
               
-              // Check for Quota or Permission errors to trigger failover
-              // 429: Too Many Requests, 403: Forbidden (Quota), 503: Service Unavailable
-              const isQuotaError = msg.includes('429') || msg.includes('403') || msg.includes('Quota') || msg.includes('exhausted');
+              // 429: Too Many Requests, 403: Forbidden, 503: Service Unavailable, 500: Internal
+              const isQuotaError = msg.includes('429') || msg.includes('403') || msg.includes('Quota') || msg.includes('exhausted') || msg.includes('503');
               
               if (isQuotaError) {
-                  console.warn(`[API] Key #${keyManager.currentIndex + 1} exhausted: ${msg}`);
+                  console.warn(`[API] Key #${keyManager.currentIndex + 1} exhausted/failed: ${msg}`);
                   if (keyManager.switchToNextKey()) {
                       attempts++;
-                      continue; // Retry loop with new key
+                      continue; 
                   } else {
                       throw new Error("All API keys exhausted. Please check billing or add more keys.");
                   }
               } else {
-                  // If it's not a quota error (e.g. Bad Request, Invalid Argument), throw immediately
                   throw error;
               }
           }
       }
       throw lastError;
   }
-
 
   try {
     const { action, payload } = req.body;
@@ -116,58 +109,61 @@ module.exports = async function (req, res) {
         return res.status(400).json({ error: "Missing 'action' in request body" });
     }
 
-    // --- Action Handler: fetchRss (Server-Side Proxy) ---
+    // --- Action: fetchRss ---
     if (action === 'fetchRss') {
         const { url } = payload;
-        if (!url) throw new Error("Missing URL for RSS fetch");
-
         try {
-            const rssRes = await fetch(url, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                }
-            });
-            
-            if (!rssRes.ok) {
-                throw new Error(`RSS Source returned status ${rssRes.status}: ${rssRes.statusText}`);
-            }
-
+            const rssRes = await fetch(url);
             const text = await rssRes.text();
             return res.status(200).json({ text });
         } catch (rssError) {
-            console.error("RSS Proxy Failed:", rssError);
-            throw new Error(`Failed to fetch RSS content: ${rssError.message}`);
+            throw new Error(`Failed to fetch RSS: ${rssError.message}`);
         }
     }
 
-    // --- Action Handler: generateContent ---
+    // --- Action: fetchOgImage (New for News Images) ---
+    else if (action === 'fetchOgImage') {
+        const { url } = payload;
+        try {
+            // Simple fetch and regex parse for og:image to avoid heavy deps like cheerio
+            const htmlRes = await fetch(url, {
+                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36' }
+            });
+            const html = await htmlRes.text();
+            
+            // Regex to find <meta property="og:image" content="...">
+            const match = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i);
+            const ogImage = match ? match[1] : null;
+            
+            return res.status(200).json({ imageUrl: ogImage });
+        } catch (e) {
+            console.warn("OG Fetch failed", e);
+            return res.status(200).json({ imageUrl: null }); // Fail gracefully
+        }
+    }
+
+    // --- Action: generateContent ---
     else if (action === 'generateContent') {
       const { model, contents, config } = payload;
-      
       const result = await executeWithRetry(async (ai) => {
-          const response = await ai.models.generateContent({ 
-            model, 
-            contents, 
-            config 
-          });
+          const response = await ai.models.generateContent({ model, contents, config });
           return { text: response.text };
       });
-      
       return res.status(200).json(result);
     }
     
-    // --- Action Handler: generateImages ---
+    // --- Action: generateImages ---
     else if (action === 'generateImages') {
       const { model, prompt, config } = payload;
       
       const result = await executeWithRetry(async (ai) => {
           if (model.includes('flash-image') || model.includes('nano')) {
-              const response = await ai.models.generateContent({
+             // Gemini 2.5 Flash / Nano
+             const response = await ai.models.generateContent({
                  model,
                  contents: { parts: [{ text: prompt }] },
                  config
              });
-             
              let b64 = null;
              for (const part of response.candidates?.[0]?.content?.parts || []) {
                 if (part.inlineData) {
@@ -177,7 +173,6 @@ module.exports = async function (req, res) {
              }
              if (!b64) throw new Error("No image generated by Flash model");
              return { base64: b64 };
-
           } else {
              // Imagen Models
              const response = await ai.models.generateImages({ model, prompt, config });
@@ -185,47 +180,31 @@ module.exports = async function (req, res) {
              return { base64: b64 };
           }
       });
-
       return res.status(200).json(result);
     }
     
-    // --- Action Handler: generateVideos ---
+    // --- Action: generateVideos ---
     else if (action === 'generateVideos') {
        const { model, prompt, config } = payload;
-       
        const result = await executeWithRetry(async (ai) => {
            let operation = await ai.models.generateVideos({ model, prompt, config });
-
            let attempts = 0;
-           const maxAttempts = 18; // Extended to ~54s
-           
+           const maxAttempts = 20;
            while (!operation.done && attempts < maxAttempts) { 
                await new Promise(r => setTimeout(r, 3000));
                operation = await ai.operations.getVideosOperation({ operation: operation });
                attempts++;
            }
-
-           if (!operation.done) {
-               throw new Error("Video generation timed out.");
-           }
-
+           if (!operation.done) throw new Error("Video generation timed out.");
            const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
            if (!videoUri) throw new Error("No video URI returned");
 
-           // Use current valid key for download
            const currentKey = keyManager.getCurrentKey();
-           const downloadUrl = `${videoUri}&key=${currentKey}`;
-           
-           // Fetch the video content server-side to return base64 to client
-           const videoRes = await fetch(downloadUrl);
-           
-           if (!videoRes.ok) throw new Error(`Failed to download video: ${videoRes.statusText}`);
-           
+           const videoRes = await fetch(`${videoUri}&key=${currentKey}`);
            const arrayBuffer = await videoRes.arrayBuffer();
            const base64Video = Buffer.from(arrayBuffer).toString('base64');
            return { videoBase64: base64Video };
        });
-
        return res.status(200).json(result);
     }
 
@@ -234,10 +213,9 @@ module.exports = async function (req, res) {
     }
 
   } catch (error) {
-    console.error('[API Critical Error]:', error);
+    console.error('[API Error]:', error);
     return res.status(500).json({ 
-        error: error.message || 'Internal Server Error',
-        details: process.env.NODE_ENV === 'development' ? error.toString() : undefined
+        error: error.message || 'Internal Server Error'
     });
   }
 };

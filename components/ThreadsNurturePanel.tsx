@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { BrandSettings, ThreadsAccount, UserProfile, TrendingTopic } from '../types';
-import { generateCommentReply, getTrendingTopics, generateThreadsBatch, generateImage } from '../services/geminiService';
+import { generateCommentReply, getTrendingTopics, generateThreadsBatch, generateImage, fetchNewsImageFromUrl } from '../services/geminiService';
 import { publishThreadsPost, fetchUserThreads, fetchMediaReplies } from '../services/threadsService';
 import { checkAndUseQuota } from '../services/authService';
 
@@ -23,13 +23,15 @@ interface GeneratedPost {
   
   // Image Sources
   imageUrl?: string; // AI generated URL or Final URL
-  newsImageUrl?: string; // From RSS
+  newsImageUrl?: string; // From RSS or OG Fetch
   uploadedImageBase64?: string; // From manual upload (Preview only without hosting)
   
   targetAccountId?: string;
   status: 'idle' | 'publishing' | 'done' | 'failed';
   log?: string;
   imageSourceType: ImageSourceType;
+  // Track if this post has successfully used paid generation to allow free retries
+  paidForGeneration?: boolean; 
 }
 
 interface CommentData {
@@ -48,7 +50,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   // Accounts
   const [accounts, setAccounts] = useState<ThreadsAccount[]>(settings.threadsAccounts || []);
   const [newAccountInput, setNewAccountInput] = useState({ 
-      userIdInput: '', // The Threads User ID user types in
+      userIdInput: '', 
       token: '', 
       username: '', 
       personaPrompt: '' 
@@ -57,9 +59,9 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   // Generator State Machine: 1 (Discover) -> 2 (Generate)
   const [genStep, setGenStep] = useState<1 | 2>(1);
   const [manualTopic, setManualTopic] = useState('');
-  const [selectedTopics, setSelectedTopics] = useState<string[]>([]); // Typically just 1 for batch focus
+  const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
   
-  const [genCount, setGenCount] = useState<1 | 2 | 3>(1); // Step 2: Batch count 1, 2, 3
+  const [genCount, setGenCount] = useState<1 | 2 | 3>(1);
   const [preSelectedImageMode, setPreSelectedImageMode] = useState<ImageSourceType>('none');
   
   const [generatedPosts, setGeneratedPosts] = useState<GeneratedPost[]>([]);
@@ -88,7 +90,6 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   const loadTrends = async () => {
       if (!user) return alert("請先登入");
 
-      // Step 1 Quota Check
       const COST = 1;
       const allowed = await checkAndUseQuota(user.user_id, COST);
       if (!allowed) return alert(`配額不足 (需要 ${COST} 點)`);
@@ -153,7 +154,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
 
   // --- Generator Handlers ---
   const selectTopic = (title: string) => {
-      setSelectedTopics([title]); // Single select for focus
+      setSelectedTopics([title]);
       setManualTopic(''); 
   };
 
@@ -162,19 +163,13 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       setGenStep(2);
   };
 
-  // Calculate Cost based on count and image mode
-  // Pricing Strategy:
-  // Base Text: 1 pt
-  // News Mode: +1 pt (Total 2)
-  // Stock Mode: +1 pt (Total 2) -- CHANGED per user request
-  // AI Mode: +3 pts (Total 4)
   const calculateCost = (count: number, mode: ImageSourceType) => {
       const baseCost = 1; 
       let extraCost = 0;
       
       if (mode === 'ai') extraCost = 3;      
       else if (mode === 'news') extraCost = 1;
-      else if (mode === 'stock') extraCost = 1; // User wants this to cost points
+      else if (mode === 'stock') extraCost = 1; 
       
       return (baseCost + extraCost) * count;
   };
@@ -184,22 +179,14 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       const topicSource = selectedTopics.length > 0 ? selectedTopics[0] : manualTopic;
       if (!topicSource) return alert("無效話題");
 
-      // Find original topic data to get image
       const sourceTopicData = trendingTopics.find(t => t.title === topicSource);
-      const newsImg = sourceTopicData?.imageUrl;
-      
-      // Validation: If News Image mode is selected but no news image exists
-      if (preSelectedImageMode === 'news' && !newsImg) {
-          if(!confirm("⚠️ 警告：此話題找不到相關新聞圖片。系統將自動降級為「純文字」模式 (僅扣 1 點/篇)。是否繼續？")) {
-              return;
-          }
-      }
+      const initialNewsImg = sourceTopicData?.imageUrl;
+      const newsUrl = sourceTopicData?.url; // For OG fetch
 
-      // Step 2 Quota Check
-      const effectiveMode = (preSelectedImageMode === 'news' && !newsImg) ? 'none' : preSelectedImageMode;
-      const totalCost = calculateCost(genCount, effectiveMode);
+      // No popup for missing news image, we will handle it via fallback logic
+      const totalCost = calculateCost(genCount, preSelectedImageMode);
       
-      if (!confirm(`確定生成 ${genCount} 篇貼文？\n\n模式：${effectiveMode === 'ai' ? 'AI繪圖' : effectiveMode === 'stock' ? '擬真圖庫' : effectiveMode === 'news' ? '新聞圖片' : '純文字'}\n總計消耗：${totalCost} 點配額`)) return;
+      if (!confirm(`確定生成 ${genCount} 篇貼文？\n\n模式：${preSelectedImageMode === 'ai' ? 'AI繪圖' : preSelectedImageMode === 'stock' ? '擬真圖庫' : preSelectedImageMode === 'news' ? '新聞圖片' : '純文字'}\n總計消耗：${totalCost} 點配額`)) return;
 
       const allowed = await checkAndUseQuota(user.user_id, totalCost);
       if (!allowed) return alert(`配額不足 (需 ${totalCost} 點)`);
@@ -215,26 +202,47 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
           const personas = activeAccounts.map(a => a.personaPrompt || '').filter(Boolean);
           const results = await generateThreadsBatch(topicSource, genCount, settings, personas);
 
-          // Prepare final posts
+          // Prepare final posts with Waterfall Logic for Images
           const newPosts: GeneratedPost[] = await Promise.all(results.map(async (r, i) => {
-              let finalMode = effectiveMode;
+              let finalMode = preSelectedImageMode;
               let finalImageUrl = undefined;
               let errorLog = undefined;
-              
-              if (finalMode === 'news') {
-                  finalImageUrl = newsImg;
-              }
-              
+              let paid = false;
+
+              // --- AI Mode ---
               if (finalMode === 'ai') {
-                  // If AI mode was pre-selected, generate image now (cost already paid)
+                  paid = true;
                   try {
                       finalImageUrl = await generateImage(r.imagePrompt);
                   } catch (e) {
                       console.warn("AI Image gen failed in batch", e);
-                      // CRITICAL FIX: Do NOT degrade to 'none' if user paid for 'ai'.
-                      // Keep mode as 'ai' but URL undefined so user can retry for free.
-                      finalMode = 'ai'; 
+                      // Fallback: don't change mode, just log error so user can retry for free
                       errorLog = '圖片生成失敗 (請點擊重試)';
+                  }
+              }
+              // --- News Mode (Advanced Fetch) ---
+              else if (finalMode === 'news') {
+                  // 1. RSS Image
+                  if (initialNewsImg) {
+                      finalImageUrl = initialNewsImg;
+                  } 
+                  // 2. OG Fetch (Deep)
+                  else if (newsUrl) {
+                      const ogImg = await fetchNewsImageFromUrl(newsUrl);
+                      if (ogImg) finalImageUrl = ogImg;
+                  }
+                  
+                  // 3. Last Resort: AI Fallback for News
+                  if (!finalImageUrl) {
+                      try {
+                         // Generate "Realistic News Style" image
+                         const newsPrompt = `News photo about ${topicSource}, realistic, journalism style, 4k`;
+                         finalImageUrl = await generateImage(newsPrompt);
+                      } catch (e) {
+                         // Really failed
+                         finalMode = 'none'; // Only downgrade if absolutely everything failed
+                         errorLog = '無法取得新聞圖片';
+                      }
                   }
               }
 
@@ -246,10 +254,11 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                   imageQuery: r.imageQuery,
                   
                   // Image Data
-                  newsImageUrl: newsImg,
-                  imageUrl: finalImageUrl,
+                  newsImageUrl: finalMode === 'news' ? finalImageUrl : undefined,
+                  imageUrl: finalMode === 'ai' || finalMode === 'news' ? finalImageUrl : undefined,
                   imageSourceType: finalMode,
                   log: errorLog,
+                  paidForGeneration: paid,
                   
                   status: 'idle',
                   targetAccountId: activeAccounts[i % activeAccounts.length]?.id
@@ -287,10 +296,10 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
 
   const getPreviewUrl = (post: GeneratedPost) => {
       if (post.imageSourceType === 'upload' && post.uploadedImageBase64) return post.uploadedImageBase64;
-      if (post.imageSourceType === 'news' && post.newsImageUrl) return post.newsImageUrl; // Prefer specific news url
-      if (post.imageUrl) return post.imageUrl; // AI generated or assigned
+      if (post.imageSourceType === 'news' && post.newsImageUrl) return post.newsImageUrl;
+      if (post.imageUrl) return post.imageUrl;
       
-      // Fallback for Stock (Simulated via Pollinations text-to-image with stock prompt)
+      // Fallback for Stock
       if (post.imageSourceType === 'stock') {
            const seed = post.id;
            const prompt = `${post.imageQuery}, photorealistic, real life photography, 4k`;
@@ -299,11 +308,10 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       return '';
   };
 
-  // Step 3: Change Image Mode Logic with Precise Pricing
+  // Step 3: Change Image Mode Logic (Prevent Double Charge)
   const handleImageModeChange = async (post: GeneratedPost, newMode: ImageSourceType) => {
       if (!user) return;
       
-      // Pricing Cost Table for Upgrade Calculation
       const getExtraCost = (m: ImageSourceType) => {
           if (m === 'ai') return 3;
           if (m === 'news') return 1;
@@ -313,33 +321,28 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
 
       const currentExtra = getExtraCost(post.imageSourceType);
       const newExtra = getExtraCost(newMode);
-      
-      // Calculate diff
-      // Note: If newMode == oldMode, cost is 0.
       let costDiff = Math.max(0, newExtra - currentExtra);
 
-      // Special Case: Retry Logic for AI
-      // If user is clicking 'AI' again on an already 'AI' post
-      if (newMode === 'ai' && post.imageSourceType === 'ai') {
-          if (!post.imageUrl) {
-              // Case 1: Previous generation failed (URL is empty). 
-              // User has already paid for AI mode (4pts).
-              // Free Retry.
-              costDiff = 0;
-          } else {
-              // Case 2: Previous generation success, but user wants variation.
-              // Charge for new generation.
+      // --- Smart Retry Logic ---
+      if (newMode === 'ai') {
+          // If we are ALREADY in AI mode (paid 4 pts) but failed to generate image (url empty),
+          // OR if we paid for it but swapped away and swapped back,
+          // We should allow retry for FREE (costDiff = 0).
+          // However, if we successfully generated an image and want ANOTHER one, we charge.
+          
+          if (post.imageSourceType === 'ai' && !post.imageUrl) {
+              // Free Retry for failed generation
+              costDiff = 0; 
+          } else if (post.imageSourceType === 'ai' && post.imageUrl) {
+              // Re-generation (Variation)
               if (!confirm("重新生成圖片將再次扣除 3 點。確定嗎？")) return;
               costDiff = 3;
           }
-      } else {
-          // Normal mode switching
-          if (newMode === post.imageSourceType && post.imageSourceType !== 'ai') return; // No-op for non-AI re-selection
-          
-          if (costDiff > 0) {
-              if (!confirm(`升級至「${newMode === 'ai' ? 'AI 繪圖' : newMode === 'stock' ? '擬真圖庫' : '新聞圖片'}」模式需要補差額 ${costDiff} 點。確定嗎？`)) {
-                  return;
-              }
+      }
+
+      if (costDiff > 0) {
+          if (!confirm(`升級至「${newMode === 'ai' ? 'AI 繪圖' : newMode === 'stock' ? '擬真圖庫' : '新聞圖片'}」模式需要補差額 ${costDiff} 點。確定嗎？`)) {
+              return;
           }
       }
 
@@ -352,31 +355,49 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
           onQuotaUpdate();
       }
 
-      // Update Local State immediately for mode
-      setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageSourceType: newMode, log: undefined } : p));
+      // Update State
+      setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { 
+          ...p, 
+          imageSourceType: newMode, 
+          log: undefined,
+          paidForGeneration: newMode === 'ai' ? true : p.paidForGeneration
+      } : p));
 
-      // Execute Logic (Generate AI Image if needed)
+      // Execute Logic
       if (newMode === 'ai') {
           setIsRegeneratingImage(post.id);
           try {
               const url = await generateImage(post.imagePrompt);
               setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageUrl: url } : p));
           } catch (e: any) {
-              let msg = e.message;
-              if (msg.includes('exhausted')) msg = "API 忙碌中，請稍後重試 (不扣點)";
-              alert(`AI 圖片生成失敗: ${msg}`);
-              
               // Keep mode as 'ai' but clear URL so retry remains free
               setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageUrl: undefined, log: '生成失敗 (點擊重試)' } : p));
           } finally {
               setIsRegeneratingImage(null);
           }
       } 
-      // Handle News Logic
       else if (newMode === 'news') {
+           // If switching to news manually, try to find the image again
            if (!post.newsImageUrl) {
-               alert("此話題無新聞圖片，已自動切換回純文字。");
-               setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageSourceType: 'none' } : p));
+               // Try deep fetch logic again for this specific post
+               const sourceTopic = trendingTopics.find(t => t.title === post.topic);
+               if (sourceTopic?.url) {
+                   const ogImg = await fetchNewsImageFromUrl(sourceTopic.url);
+                   if (ogImg) {
+                       setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, newsImageUrl: ogImg } : p));
+                       return;
+                   }
+               }
+               
+               // Fallback AI
+               try {
+                  const newsPrompt = `News photo about ${post.topic}, realistic, journalism style`;
+                  const aiNewsImg = await generateImage(newsPrompt);
+                  setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, newsImageUrl: aiNewsImg } : p));
+               } catch(e) {
+                  alert("此話題無新聞圖片，也無法生成替代圖。");
+                  setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageSourceType: 'none' } : p));
+               }
            }
       }
   };
@@ -385,7 +406,6 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       const acc = accounts.find(a => a.id === post.targetAccountId);
       if (!acc) return alert("找不到指定發佈的帳號");
 
-      // Validation for Upload type
       if (post.imageSourceType === 'upload') {
           if (!confirm("⚠️ 注意：手動上傳的圖片目前僅支援「預覽」。\n\nThreads API 需要公開的圖片網址才能發佈。若您繼續，系統將嘗試發送，但可能會因為圖片非公開網址而失敗。\n\n是否仍要嘗試？")) {
               return;
@@ -760,7 +780,6 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                               </div>
                                           </div>
                                           
-                                          {/* Manual Upload UI */}
                                           {post.imageSourceType === 'upload' && (
                                               <div className="border border-dashed border-gray-600 p-4 rounded bg-gray-800/50">
                                                   <input 

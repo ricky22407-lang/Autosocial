@@ -13,9 +13,6 @@ const Type = {
 };
 
 // System Prompts
-// 核心更新：將「硬性規則」改為「認知框架」與「行為準則」。
-// 這是為了避免 AI 產出千篇一律的「笑死」或機械式斷句。
-// 我們賦予 AI 一個「台灣 Threads 原生居民」的靈魂，而非僅僅是格式規範。
 const SYSTEM_INSTRUCTION_THREADS = `
 [System Instruction: Threads Platform Vibe & Cognitive Framework]
 Target Audience: Taiwan (Traditional Chinese users).
@@ -144,12 +141,25 @@ const shuffleArray = <T,>(array: T[]): T[] => {
     return arr;
 };
 
-// #region RSS Fetching (Via Backend Proxy)
+// #region RSS Fetching
 const fetchRssContent = async (targetUrl: string): Promise<string> => {
-    // Call our own backend to fetch the RSS content, avoiding browser CORS issues
     const data = await callBackend('fetchRss', { url: targetUrl });
     if (!data.text) throw new Error("Backend returned empty RSS content");
     return data.text;
+};
+
+// NEW: Fetch OG Image via Backend Proxy
+export const fetchNewsImageFromUrl = async (url: string): Promise<string | null> => {
+    if (!url) return null;
+    try {
+        const data = await callBackend('fetchOgImage', { url });
+        if (data.imageUrl && isValidNewsImage(data.imageUrl)) {
+            return data.imageUrl;
+        }
+    } catch (e) {
+        console.warn("Backend OG fetch failed", e);
+    }
+    return null;
 };
 
 const fetchRealtimeRss = async (keyword: string): Promise<TrendingTopic[]> => {
@@ -160,9 +170,7 @@ const fetchRealtimeRss = async (keyword: string): Promise<TrendingTopic[]> => {
     else rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(keyword)}+when:1d&hl=zh-TW&gl=TW&ceid=TW:zh-Hant`;
 
     try {
-        // Use server-side proxy
         const xmlString = await fetchRssContent(rssUrl);
-        
         const parser = new DOMParser();
         const xml = parser.parseFromString(xmlString, "text/xml");
         const items = xml.querySelectorAll("item");
@@ -198,9 +206,7 @@ const fetchRealtimeRss = async (keyword: string): Promise<TrendingTopic[]> => {
         }
         return results;
     } catch (e) {
-        console.warn("RSS fetch flow failed (Backend Proxy)", e);
-        // We still return empty here so the caller can decide fallback, 
-        // but now it's much more stable due to backend proxy.
+        console.warn("RSS fetch flow failed", e);
         return [];
     }
 };
@@ -217,7 +223,6 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
   if (topics.length === 0) {
       console.warn("RSS returned 0 items. Attempting Gemini fallback generation via backend.");
       try {
-        // Fallback: Use Gemini 2.5 Flash via Backend
         const response = await callBackend('generateContent', {
             model: 'gemini-2.5-flash',
             contents: `列出目前台灣關於「${industry}」的 5 個熱門社群話題。
@@ -277,7 +282,6 @@ export const generatePostDraft = async (
     }
   `;
 
-  // Use Backend for Gemini 3 Pro
   const response = await callBackend('generateContent', {
     model: "gemini-3-pro-preview",
     contents: prompt,
@@ -300,6 +304,7 @@ export const generatePostDraft = async (
 
 export const generateImage = async (prompt: string): Promise<string> => {
     try {
+        // Attempt 1: Google Gemini (High Quality)
         const response = await callBackend('generateImages', {
             model: 'gemini-2.5-flash-image',
             prompt: prompt,
@@ -310,8 +315,17 @@ export const generateImage = async (prompt: string): Promise<string> => {
              return `data:image/png;base64,${response.base64}`;
         }
         throw new Error("No image data found in response");
+
     } catch (e: any) {
-        throw new Error(`圖片生成失敗: ${e.message}`);
+        // Attempt 2: Pollinations AI (Fallback - Free & Reliable)
+        // This solves the 'All API keys exhausted' issue elegantly by providing a backup.
+        console.warn("Gemini Image Gen failed, switching to Pollinations Fallback:", e.message);
+        
+        const seed = Math.floor(Math.random() * 100000);
+        const encodedPrompt = encodeURIComponent(prompt + ", photorealistic, high quality");
+        // Pollinations URL returns image bytes directly, we need to load it or just return URL.
+        // Returning URL is safer for frontend display.
+        return `https://image.pollinations.ai/prompt/${encodedPrompt}?n=${seed}&model=flux`;
     }
 };
 
@@ -330,7 +344,10 @@ export const generateVideo = async (prompt: string): Promise<string> => {
 
     } catch (e: any) {
         console.warn("Veo failed, fallback to Image:", e);
+        // Fallback to Image if Video fails
         const img = await generateImage(prompt);
+        // We throw an error with the image as fallback data if we could, but here we just error
+        // Or we could return the image url but caller expects video.
         throw new Error(`影片生成失敗，已降級為圖片: ${e.message}`);
     }
 };
@@ -357,7 +374,6 @@ export const generateSeoArticle = async (
       { "fullText": "Markdown...", "imageKeyword": "English keyword..." }
     `;
 
-    // Grounding (Google Search) with Gemini 2.5 Flash via Backend
     let searchContext = "";
     try {
          const searchResp = await callBackend('generateContent', {
