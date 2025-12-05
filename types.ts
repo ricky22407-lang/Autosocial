@@ -97,7 +97,7 @@ export interface ThreadsAutoPilotConfig {
   imageMode: 'ai_url' | 'stock_url' | 'none';
   targetAccountIds?: string[]; // New: Specific accounts to nurture
   lastRunAt?: number;
-  autoLikeEnabled?: boolean; // New: Randomly like posts
+  // Removed deprecated autoLikeEnabled
 }
 
 export interface BrandSettings {

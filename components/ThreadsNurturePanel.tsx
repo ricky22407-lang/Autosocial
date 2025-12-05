@@ -1,8 +1,9 @@
 
+
 // #region Imports & Interfaces
 import React, { useState, useEffect } from 'react';
 import { BrandSettings, ThreadsAccount, UserProfile, TrendingTopic } from '../types';
-import { generateCommentReply } from '../services/geminiService';
+import { generateCommentReply, getTrendingTopics, generateThreadsBatch } from '../services/geminiService';
 import { publishThreadsPost, refreshThreadsToken, fetchUserThreads, fetchMediaReplies } from '../services/threadsService';
 import { checkAndUseQuota } from '../services/authService';
 
@@ -45,15 +46,17 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   const [accounts, setAccounts] = useState<ThreadsAccount[]>(settings.threadsAccounts || []);
   const [newAccount, setNewAccount] = useState({ id: '', username: '', token: '', personaPrompt: '' });
   
+  // Generator State
   const [manualTopic, setManualTopic] = useState('');
   const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
-  const [imageMode, setImageMode] = useState<ImageMode>('ai_url');
+  const [genCount, setGenCount] = useState(3);
   
   const [generatedPosts, setGeneratedPosts] = useState<GeneratedPost[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   
   const [trendingTopics, setTrendingTopics] = useState<TrendingTopic[]>([]);
   const [loadingTrends, setLoadingTrends] = useState(false);
+  const [trendError, setTrendError] = useState('');
 
   // Interaction Center (Replies)
   const [comments, setComments] = useState<CommentData[]>([]);
@@ -75,15 +78,45 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   const currentCount = accounts.length;
   const isLimitReached = currentCount >= accountLimit;
 
+  // Sync settings when accounts change
   useEffect(() => {
     onSaveSettings({ ...settings, threadsAccounts: accounts });
   }, [accounts]);
 
+  // Load trends when switching to generator
+  useEffect(() => {
+      if (activeTab === 'generator' && trendingTopics.length === 0) {
+          loadTrends();
+      }
+  }, [activeTab]);
+
+  const loadTrends = async () => {
+      setLoadingTrends(true);
+      setTrendError('');
+      try {
+          const industry = settings.industry || '台灣熱門時事';
+          const trends = await getTrendingTopics(industry);
+          setTrendingTopics(trends);
+      } catch (e: any) {
+          setTrendError(e.message);
+      } finally {
+          setLoadingTrends(false);
+      }
+  };
+
   const handleAddAccount = () => {
     if (isLimitReached) return alert(`限額已滿。`);
     if (newAccount.id && newAccount.token) {
-      setAccounts([...accounts, { ...newAccount, username: newAccount.username || `User_${newAccount.id}`, userId: newAccount.id, isActive: true, personaPrompt: newAccount.personaPrompt } as any]);
+      setAccounts([...accounts, { 
+          ...newAccount, 
+          username: newAccount.username || `User_${newAccount.id}`, 
+          userId: newAccount.id, 
+          isActive: true, 
+          personaPrompt: newAccount.personaPrompt 
+      } as any]);
       setNewAccount({ id: '', username: '', token: '', personaPrompt: '' });
+    } else {
+        alert("請輸入 Threads ID 與 Token");
     }
   };
   
@@ -95,14 +128,6 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       const updated = [...accounts]; 
       updated[index].personaPrompt = newPersona; 
       setAccounts(updated); 
-  };
-  
-  const handleRefreshToken = async (index: number) => { 
-      const acc = accounts[index]; 
-      if(!acc.token) return; 
-      const res = await refreshThreadsToken(acc.token); 
-      if(res.success) alert("Token 刷新成功"); 
-      else alert(`刷新失敗: ${res.error}`);
   };
 
   // --- Interaction / Reply Logic ---
@@ -140,19 +165,13 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
           }
           
           if (allComments.length === 0) {
-              // Mock data for demo if API returns empty
-              allComments.push({
-                  id: 'mock_c1', text: '這篇文章太實用了！請問之後會有教學嗎？', username: 'fan_01', timestamp: new Date().toISOString(), threadId: 't1', accountIndex: 0
-              });
-              allComments.push({
-                  id: 'mock_c2', text: '笑死 😂 這個很可以', username: 'user_888', timestamp: new Date().toISOString(), threadId: 't1', accountIndex: 0
-              });
+             // If empty, notify user
           }
 
           setComments(allComments);
       } catch (e) {
           console.error(e);
-          alert("掃描失敗");
+          alert("掃描失敗，請檢查 Token 是否過期");
       } finally {
           setIsLoadingComments(false);
       }
@@ -194,26 +213,97 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       setIsReplying(false);
   };
 
-  // ... (Batch Generation Handlers) ...
+  // --- Generator Handlers ---
+  const toggleTopic = (title: string) => {
+      if (selectedTopics.includes(title)) {
+          setSelectedTopics(selectedTopics.filter(t => t !== title));
+      } else {
+          if (selectedTopics.length >= 3) return alert("最多選擇 3 個主題");
+          setSelectedTopics([...selectedTopics, title]);
+      }
+  };
+
   const handleGenerateBatch = async () => {
-      if (selectedTopics.length === 0 && !manualTopic) return alert('請選擇主題');
+      if (!user) return;
+      if (selectedTopics.length === 0 && !manualTopic) return alert('請選擇或輸入主題');
       if (isGenerating) return;
+
+      const cost = 2; // Fixed cost for batch gen
+      const allowed = await checkAndUseQuota(user.user_id, cost);
+      if (!allowed) return alert(`配額不足 (需 ${cost} 點)`);
+      onQuotaUpdate();
+
       setIsGenerating(true);
       setGeneratedPosts([]);
+
       try {
-         const topics = selectedTopics.length ? selectedTopics : [manualTopic];
-         const demoPosts: GeneratedPost[] = topics.map((t, i) => ({
-             id: i.toString(),
-             topic: t,
-             caption: `關於 ${t} 的模擬貼文內容...`,
-             imagePrompt: 'demo prompt',
-             imageQuery: t,
+         const finalTopic = selectedTopics.length > 0 ? selectedTopics.join(', ') : manualTopic;
+         const personas = accounts.map(a => a.personaPrompt || '').filter(p => p);
+         
+         const results = await generateThreadsBatch(finalTopic, genCount, settings, personas);
+         
+         const posts: GeneratedPost[] = results.map((r, i) => ({
+             id: Date.now() + i + '',
+             topic: finalTopic,
+             caption: r.caption,
+             imagePrompt: r.imagePrompt,
+             imageQuery: r.imageQuery,
              status: 'idle',
-             targetAccountId: accounts[0]?.id
+             targetAccountId: accounts[i % accounts.length]?.id, // Round robin assign
+             imageSourceType: 'ai'
          }));
-         setGeneratedPosts(demoPosts);
-         setActiveTab('generator');
-      } catch(e) { alert(e); } finally { setIsGenerating(false); }
+
+         setGeneratedPosts(posts);
+      } catch(e: any) { 
+          alert(`生成失敗: ${e.message}`);
+      } finally { 
+          setIsGenerating(false); 
+      }
+  };
+
+  const generatePreviewImage = (post: GeneratedPost) => {
+      // Helper to generate a preview URL based on source type
+      const seed = Date.now();
+      if (post.imageSourceType === 'ai') {
+          return `https://image.pollinations.ai/prompt/${encodeURIComponent(post.imagePrompt)}?n=${seed}&model=flux`;
+      } else if (post.imageSourceType === 'stock') {
+          return `https://image.pollinations.ai/prompt/${encodeURIComponent(post.imageQuery + ', photorealistic, real photography')}?n=${seed}&model=flux`;
+      }
+      return '';
+  };
+
+  const handlePostUpdate = (id: string, field: keyof GeneratedPost, value: any) => {
+      setGeneratedPosts(prev => prev.map(p => {
+          if (p.id !== id) return p;
+          const updated = { ...p, [field]: value };
+          // If toggling source, update URL immediately for preview
+          if (field === 'imageSourceType') {
+              updated.imageUrl = generatePreviewImage(updated);
+          }
+          return updated;
+      }));
+  };
+
+  const handlePublishPost = async (post: GeneratedPost) => {
+      if (post.status === 'publishing' || post.status === 'done') return;
+      
+      const account = accounts.find(a => a.id === post.targetAccountId);
+      if (!account) return alert("未指定帳號");
+
+      handlePostUpdate(post.id, 'status', 'publishing');
+      
+      // Determine Image URL: Use preview URL if not set manual source
+      const finalImageUrl = post.imageUrl || generatePreviewImage(post);
+
+      const res = await publishThreadsPost(account, post.caption, finalImageUrl);
+      
+      if (res.success) {
+          handlePostUpdate(post.id, 'status', 'done');
+          handlePostUpdate(post.id, 'log', '發佈成功');
+      } else {
+          handlePostUpdate(post.id, 'status', 'failed');
+          handlePostUpdate(post.id, 'log', res.error);
+      }
   };
 
   return (
@@ -231,30 +321,58 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
 
       {activeTab === 'accounts' && (
           <div className="space-y-6">
-              {/* Account List */}
+              {/* Add Account Card */}
               <div className="bg-card p-6 rounded-xl border border-gray-700">
-                  <div className="flex justify-between mb-4">
-                     <h3 className="font-bold text-white">帳號列表</h3>
-                     <button onClick={handleAddAccount} className="bg-primary px-3 py-1 rounded text-white text-sm">+ 新增</button>
+                  <h3 className="font-bold text-white mb-4">新增帳號</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                          <label className="block text-xs text-gray-400 mb-1">Threads User ID</label>
+                          <input value={newAccount.id} onChange={e => setNewAccount({...newAccount, id: e.target.value})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white" placeholder="必填" />
+                      </div>
+                      <div>
+                          <label className="block text-xs text-gray-400 mb-1">Access Token</label>
+                          <input value={newAccount.token} onChange={e => setNewAccount({...newAccount, token: e.target.value})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white" placeholder="必填 (長期 Token)" />
+                      </div>
+                      <div>
+                          <label className="block text-xs text-gray-400 mb-1">顯示名稱 (選填)</label>
+                          <input value={newAccount.username} onChange={e => setNewAccount({...newAccount, username: e.target.value})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white" placeholder="方便辨識用" />
+                      </div>
+                      <div>
+                          <label className="block text-xs text-gray-400 mb-1">人設 Prompt (選填)</label>
+                          <input value={newAccount.personaPrompt} onChange={e => setNewAccount({...newAccount, personaPrompt: e.target.value})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white" placeholder="例如：厭世工程師、熱情小編" />
+                      </div>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {accounts.map((acc, i) => (
-                          <div key={i} className="bg-dark p-3 rounded border border-gray-600 relative">
-                              <div className="font-bold text-white">{acc.username}</div>
-                              <div className="text-xs text-gray-500 truncate mb-2">ID: {acc.userId}</div>
-                              <div className="text-xs text-gray-400 mb-2">
-                                  人設: <input className="bg-gray-800 border-none rounded px-1 w-20" value={acc.personaPrompt || ''} onChange={e => handleUpdatePersona(i, e.target.value)} placeholder="Default" />
-                              </div>
-                              <button onClick={() => handleRemoveAccount(i)} className="text-red-400 text-xs absolute top-3 right-3">移除</button>
+                  <div className="mt-4 flex justify-end">
+                      <button onClick={handleAddAccount} className="bg-primary hover:bg-blue-600 text-white px-6 py-2 rounded font-bold">
+                          + 新增帳號
+                      </button>
+                  </div>
+              </div>
+
+              {/* Account List */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {accounts.map((acc, i) => (
+                      <div key={i} className="bg-dark p-4 rounded border border-gray-600 relative">
+                          <div className="flex items-center gap-2 mb-2">
+                             <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center text-xs font-bold">{acc.username.charAt(0)}</div>
+                             <div>
+                                 <div className="font-bold text-white text-sm">{acc.username}</div>
+                                 <div className="text-xs text-gray-500">ID: {acc.userId}</div>
+                             </div>
                           </div>
-                      ))}
-                  </div>
-                  {/* Inputs for new account - simple version */}
-                  <div className="mt-4 pt-4 border-t border-gray-700 flex gap-2 flex-wrap">
-                      <input value={newAccount.id} onChange={e => setNewAccount({...newAccount, id: e.target.value})} placeholder="Threads User ID" className="bg-dark border border-gray-600 rounded p-2 text-white text-xs" />
-                      <input value={newAccount.token} onChange={e => setNewAccount({...newAccount, token: e.target.value})} placeholder="Access Token" className="bg-dark border border-gray-600 rounded p-2 text-white text-xs flex-1" />
-                      <input value={newAccount.personaPrompt} onChange={e => setNewAccount({...newAccount, personaPrompt: e.target.value})} placeholder="人設 (e.g. 厭世)" className="bg-dark border border-gray-600 rounded p-2 text-white text-xs" />
-                  </div>
+                          
+                          <div className="mt-2 text-xs">
+                              <label className="text-gray-400">人設:</label>
+                              <input 
+                                  className="w-full bg-gray-800 border-none rounded px-2 py-1 mt-1 text-gray-200" 
+                                  value={acc.personaPrompt || ''} 
+                                  onChange={e => handleUpdatePersona(i, e.target.value)} 
+                                  placeholder="Default" 
+                              />
+                          </div>
+                          <button onClick={() => handleRemoveAccount(i)} className="text-red-400 text-xs absolute top-4 right-4 hover:underline">移除</button>
+                      </div>
+                  ))}
               </div>
           </div>
       )}
@@ -350,11 +468,123 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       )}
 
       {activeTab === 'generator' && (
-          <div className="text-center py-20 bg-card rounded border border-gray-700">
-              <h3 className="text-white font-bold mb-2">批量生成器</h3>
-              <button onClick={() => setManualTopic('測試主題')} className="hidden">Mock Set</button>
-              <button onClick={handleGenerateBatch} className="bg-secondary px-6 py-2 rounded text-white font-bold">進入生成流程</button>
-              {/* Generator Logic (Hidden/Simplified for now) */}
+          <div className="space-y-8">
+              {/* Setup Section */}
+              <div className="bg-card p-6 rounded-xl border border-gray-700">
+                  <h3 className="font-bold text-white mb-4">步驟 1: 選擇話題</h3>
+                  
+                  {loadingTrends ? <div className="text-sm text-gray-400 animate-pulse">正在載入熱門話題...</div> : (
+                      <div className="flex flex-wrap gap-2 mb-4">
+                          {trendingTopics.map((t, i) => (
+                              <button 
+                                key={i}
+                                onClick={() => toggleTopic(t.title)}
+                                className={`px-3 py-1 rounded-full text-sm border ${selectedTopics.includes(t.title) ? 'bg-primary border-primary text-white' : 'bg-transparent border-gray-600 text-gray-400 hover:border-gray-400'}`}
+                              >
+                                  {t.title}
+                              </button>
+                          ))}
+                      </div>
+                  )}
+                  {trendError && <p className="text-red-400 text-xs mb-2">無法載入話題: {trendError}</p>}
+
+                  <div className="flex gap-4 items-end">
+                      <div className="flex-1">
+                          <label className="block text-xs text-gray-400 mb-1">或輸入自訂主題</label>
+                          <input 
+                              value={manualTopic}
+                              onChange={e => setManualTopic(e.target.value)}
+                              className="w-full bg-dark border border-gray-600 rounded p-2 text-white"
+                              placeholder="例如：辦公室下午茶推薦"
+                          />
+                      </div>
+                      <div className="w-24">
+                          <label className="block text-xs text-gray-400 mb-1">生成數量</label>
+                          <select value={genCount} onChange={e => setGenCount(Number(e.target.value))} className="w-full bg-dark border border-gray-600 rounded p-2 text-white">
+                              <option value="1">1 篇</option>
+                              <option value="3">3 篇</option>
+                              <option value="5">5 篇</option>
+                          </select>
+                      </div>
+                      <button 
+                        onClick={handleGenerateBatch}
+                        disabled={isGenerating || (selectedTopics.length===0 && !manualTopic)}
+                        className="bg-secondary hover:bg-indigo-600 text-white px-6 py-2 rounded font-bold h-[42px] disabled:opacity-50"
+                      >
+                          {isGenerating ? '生成中...' : '✨ 批量生成'}
+                      </button>
+                  </div>
+              </div>
+
+              {/* Results Section */}
+              {generatedPosts.length > 0 && (
+                  <div className="space-y-4">
+                      <h3 className="font-bold text-white">步驟 2: 編輯與發佈</h3>
+                      {generatedPosts.map((post) => (
+                          <div key={post.id} className="bg-dark p-4 rounded border border-gray-600 flex flex-col md:flex-row gap-6">
+                              {/* Left: Content */}
+                              <div className="flex-1 space-y-3">
+                                  <textarea 
+                                      value={post.caption}
+                                      onChange={e => handlePostUpdate(post.id, 'caption', e.target.value)}
+                                      className="w-full h-32 bg-gray-800 border border-gray-700 rounded p-3 text-white text-sm resize-none focus:border-primary outline-none"
+                                  />
+                                  <div className="flex gap-4">
+                                      <select 
+                                          value={post.targetAccountId} 
+                                          onChange={e => handlePostUpdate(post.id, 'targetAccountId', e.target.value)}
+                                          className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white"
+                                      >
+                                          <option value="">選擇發佈帳號...</option>
+                                          {accounts.map(a => <option key={a.id} value={a.id}>{a.username}</option>)}
+                                      </select>
+                                      
+                                      <select 
+                                          value={post.imageSourceType} 
+                                          onChange={e => handlePostUpdate(post.id, 'imageSourceType', e.target.value as any)}
+                                          className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white"
+                                      >
+                                          <option value="ai">🎨 AI 繪圖 (Abstract)</option>
+                                          <option value="stock">📷 擬真圖庫 (Realistic)</option>
+                                          <option value="none">❌ 純文字</option>
+                                      </select>
+                                  </div>
+                              </div>
+                              
+                              {/* Right: Preview & Action */}
+                              <div className="w-full md:w-64 flex flex-col gap-3">
+                                  <div className="flex-1 bg-black rounded flex items-center justify-center overflow-hidden border border-gray-700 min-h-[160px]">
+                                      {post.imageSourceType === 'none' ? (
+                                          <span className="text-gray-500 text-xs">無圖片</span>
+                                      ) : (
+                                          <img 
+                                              src={post.imageUrl || generatePreviewImage(post)} 
+                                              alt="Preview" 
+                                              className="w-full h-full object-cover" 
+                                              onError={(e) => (e.currentTarget.style.display = 'none')}
+                                          />
+                                      )}
+                                  </div>
+                                  
+                                  {post.status === 'done' ? (
+                                      <div className="bg-green-900/50 text-green-400 text-center py-2 rounded text-sm font-bold border border-green-700">
+                                          ✅ 已發佈
+                                      </div>
+                                  ) : (
+                                      <button 
+                                          onClick={() => handlePublishPost(post)}
+                                          disabled={post.status === 'publishing'}
+                                          className={`w-full py-2 rounded text-sm font-bold text-white transition-colors ${post.status === 'failed' ? 'bg-red-600' : 'bg-primary hover:bg-blue-600'}`}
+                                      >
+                                          {post.status === 'publishing' ? '發佈中...' : post.status === 'failed' ? '重試發佈' : '🚀 發佈貼文'}
+                                      </button>
+                                  )}
+                                  {post.log && <p className="text-[10px] text-gray-500 text-center">{post.log}</p>}
+                              </div>
+                          </div>
+                      ))}
+                  </div>
+              )}
           </div>
       )}
     </div>

@@ -1,4 +1,5 @@
 
+
 import { BrandSettings, TrendingTopic, CachedTrendData } from "../types";
 import { db } from "./firebase"; // Using compat export
 
@@ -357,8 +358,6 @@ export const generateSeoArticle = async (
     `;
 
     // Grounding (Google Search) with Gemini 2.5 Flash via Backend
-    // In this SaaS architecture, we can push the grounding logic to backend too
-    // But to minimize rewrite, we can just call generateContent with tool config
     let searchContext = "";
     try {
          const searchResp = await callBackend('generateContent', {
