@@ -1,5 +1,7 @@
 
 
+
+
 import React, { useState, useEffect } from 'react';
 import { AppView, BrandSettings, Post, UserProfile } from './types';
 
@@ -14,6 +16,7 @@ import Login from './components/Login';
 import AdminPanel from './components/AdminPanel';
 import SeoArticleGenerator from './components/SeoArticleGenerator';
 import ReferralPanel from './components/ReferralPanel'; // New Import
+import ErrorReportModal from './components/ErrorReportModal'; // New Import
 // #endregion
 
 // #region Services & Auth Import
@@ -122,6 +125,9 @@ const App: React.FC = () => {
   const [editingPost, setEditingPost] = useState<Post | null>(null);
   const [showRedeemModal, setShowRedeemModal] = useState(false);
   const [showPwdModal, setShowPwdModal] = useState(false);
+  
+  // Bug Report State
+  const [showReportModal, setShowReportModal] = useState(false);
   // #endregion
 
   // #region Auth & Initialization
@@ -233,7 +239,7 @@ const App: React.FC = () => {
   const hasThreadsAccess = isProPlus || userProfile?.unlockedFeatures?.includes('THREADS');
 
   return (
-    <div className="min-h-screen bg-dark text-gray-200 flex flex-col md:flex-row">
+    <div className="min-h-screen bg-dark text-gray-200 flex flex-col md:flex-row relative">
       {/* #region Sidebar Navigation */}
       <aside className="w-full md:w-64 bg-card border-r border-gray-700 flex flex-col">
         <div className="p-6 border-b border-gray-700">
@@ -356,7 +362,7 @@ const App: React.FC = () => {
       {/* #endregion */}
 
       {/* #region Main Content View Switch */}
-      <main className="flex-1 p-4 md:p-8 overflow-y-auto h-screen">
+      <main className="flex-1 p-4 md:p-8 overflow-y-auto h-screen relative">
         {view === AppView.CREATE && (
           <PostCreator 
             settings={settings} 
@@ -415,7 +421,24 @@ const App: React.FC = () => {
       </main>
       {/* #endregion */}
 
+      {/* #region Floating Error Report Button */}
+      <button 
+        onClick={() => setShowReportModal(true)}
+        className="fixed bottom-6 right-6 w-12 h-12 bg-red-600 hover:bg-red-500 text-white rounded-full shadow-lg flex items-center justify-center transition-transform hover:scale-110 z-40 border-2 border-white/20"
+        title="回報問題"
+      >
+        🐛
+      </button>
+      {/* #endregion */}
+
       {/* #region Global Modals */}
+      {showReportModal && (
+          <ErrorReportModal 
+            user={userProfile} 
+            currentView={view} 
+            onClose={() => setShowReportModal(false)} 
+          />
+      )}
       {showRedeemModal && (
           <RedeemModal onClose={() => setShowRedeemModal(false)} onRedeem={handleRedeemKey} />
       )}

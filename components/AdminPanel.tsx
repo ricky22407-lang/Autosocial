@@ -1,19 +1,21 @@
 
 
+
+
 import React, { useState, useEffect } from 'react';
 import { 
   getAllUsers, generateAdminKey, updateUserRole, 
   getDashboardStats, getSystemLogs, getSystemConfig, updateSystemConfig, 
-  toggleUserSuspension, manualUpdateQuota
+  toggleUserSuspension, manualUpdateQuota, getUserReports
 } from '../services/authService';
-import { UserProfile, UserRole, DashboardStats, LogEntry, SystemConfig } from '../types';
+import { UserProfile, UserRole, DashboardStats, LogEntry, SystemConfig, UserReport } from '../types';
 
 interface Props {
   currentUser: UserProfile;
 }
 
 const AdminPanel: React.FC<Props> = ({ currentUser }) => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'users' | 'system'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'users' | 'reports' | 'system'>('dashboard');
   
   // Dashboard State
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -22,6 +24,9 @@ const AdminPanel: React.FC<Props> = ({ currentUser }) => {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   
+  // Reports State
+  const [reports, setReports] = useState<UserReport[]>([]);
+
   // Quota Edit State
   const [editingQuotaId, setEditingQuotaId] = useState<string | null>(null);
   const [editUsed, setEditUsed] = useState<number>(0);
@@ -41,6 +46,7 @@ const AdminPanel: React.FC<Props> = ({ currentUser }) => {
     setUsers(await getAllUsers());
     setLogs(getSystemLogs());
     setConfig(getSystemConfig());
+    setReports(await getUserReports());
   };
 
   const handleRoleChange = async (uid: string, newRole: UserRole) => {
@@ -105,10 +111,11 @@ const AdminPanel: React.FC<Props> = ({ currentUser }) => {
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-gray-700">
-        <button onClick={() => setActiveTab('dashboard')} className={`px-6 py-3 font-bold ${activeTab === 'dashboard' ? 'text-primary border-b-2 border-primary' : 'text-gray-400'}`}>📊 儀表板</button>
-        <button onClick={() => setActiveTab('users')} className={`px-6 py-3 font-bold ${activeTab === 'users' ? 'text-primary border-b-2 border-primary' : 'text-gray-400'}`}>👥 會員管理</button>
-        <button onClick={() => setActiveTab('system')} className={`px-6 py-3 font-bold ${activeTab === 'system' ? 'text-primary border-b-2 border-primary' : 'text-gray-400'}`}>🛠 系統設定</button>
+      <div className="flex border-b border-gray-700 overflow-x-auto">
+        <button onClick={() => setActiveTab('dashboard')} className={`px-6 py-3 font-bold whitespace-nowrap ${activeTab === 'dashboard' ? 'text-primary border-b-2 border-primary' : 'text-gray-400'}`}>📊 儀表板</button>
+        <button onClick={() => setActiveTab('users')} className={`px-6 py-3 font-bold whitespace-nowrap ${activeTab === 'users' ? 'text-primary border-b-2 border-primary' : 'text-gray-400'}`}>👥 會員管理</button>
+        <button onClick={() => setActiveTab('reports')} className={`px-6 py-3 font-bold whitespace-nowrap ${activeTab === 'reports' ? 'text-primary border-b-2 border-primary' : 'text-gray-400'}`}>🚨 問題回報</button>
+        <button onClick={() => setActiveTab('system')} className={`px-6 py-3 font-bold whitespace-nowrap ${activeTab === 'system' ? 'text-primary border-b-2 border-primary' : 'text-gray-400'}`}>🛠 系統設定</button>
       </div>
 
       {/* VIEW: DASHBOARD */}
@@ -128,8 +135,8 @@ const AdminPanel: React.FC<Props> = ({ currentUser }) => {
                     <p className="text-3xl font-bold text-blue-400 mt-2">{stats.totalApiCallsToday}</p>
                 </div>
                 <div className="bg-card p-6 rounded-xl border border-gray-700">
-                    <p className="text-gray-400 text-sm">系統錯誤 (24h)</p>
-                    <p className="text-3xl font-bold text-red-400 mt-2">{stats.errorCountToday}</p>
+                    <p className="text-gray-400 text-sm">待處理回報</p>
+                    <p className="text-3xl font-bold text-red-400 mt-2">{reports.filter(r => r.status === 'OPEN').length}</p>
                 </div>
             </div>
 
@@ -191,6 +198,45 @@ const AdminPanel: React.FC<Props> = ({ currentUser }) => {
                 </div>
             </div>
         </div>
+      )}
+
+      {/* VIEW: REPORTS */}
+      {activeTab === 'reports' && (
+          <div className="bg-card p-6 rounded-xl border border-gray-700">
+              <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-xl font-bold text-white">🚨 用戶問題回報 ({reports.length})</h3>
+                  <button onClick={loadAllData} className="text-sm text-primary hover:underline">刷新</button>
+              </div>
+
+              {reports.length === 0 ? (
+                  <div className="text-center py-10 text-gray-500 border border-dashed border-gray-700 rounded">
+                      目前無待處理的回報單。
+                  </div>
+              ) : (
+                  <div className="space-y-4">
+                      {reports.map((report) => (
+                          <div key={report.id} className="bg-dark p-4 rounded border border-gray-600">
+                              <div className="flex justify-between items-start mb-2">
+                                  <div>
+                                      <span className="font-bold text-white">{report.userEmail}</span>
+                                      <span className="text-xs text-gray-500 ml-2">{new Date(report.timestamp).toLocaleString()}</span>
+                                  </div>
+                                  <span className="text-xs bg-red-900 text-red-200 px-2 py-1 rounded">
+                                      {report.status}
+                                  </span>
+                              </div>
+                              <div className="bg-gray-800 p-3 rounded text-sm text-gray-200 mb-2">
+                                  {report.description}
+                              </div>
+                              <div className="text-xs text-gray-500 font-mono break-all bg-black/20 p-2 rounded">
+                                  <div>View: {report.currentView}</div>
+                                  <div>UA: {report.userAgent}</div>
+                              </div>
+                          </div>
+                      ))}
+                  </div>
+              )}
+          </div>
       )}
 
       {/* VIEW: USERS */}

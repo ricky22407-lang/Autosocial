@@ -249,6 +249,17 @@ export interface LogEntry {
   details: string;
 }
 
+export interface UserReport {
+  id: string;
+  userId: string;
+  userEmail: string;
+  description: string;
+  userAgent: string;
+  currentView: string;
+  timestamp: number;
+  status: 'OPEN' | 'RESOLVED';
+}
+
 export interface DashboardStats {
   totalUsers: number;
   activeUsersToday: number;

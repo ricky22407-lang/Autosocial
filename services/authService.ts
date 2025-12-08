@@ -1,6 +1,8 @@
 
 
-import { UserProfile, UserRole, AdminKey, SystemConfig, LogEntry, DashboardStats, BrandSettings } from '../types';
+
+
+import { UserProfile, UserRole, AdminKey, SystemConfig, LogEntry, DashboardStats, BrandSettings, UserReport } from '../types';
 import { auth, db, isMock, firebase } from './firebase';
 
 /* 
@@ -487,6 +489,28 @@ export const redeemReferralCode = async (currentUserId: string, code: string) =>
         
         saveDb(DB_USERS, users);
         return { success: true, reward };
+    }
+};
+
+// --- Error Reporting & Support ---
+
+export const submitUserReport = async (report: Omit<UserReport, 'id'>) => {
+    if (!isMock) {
+        await db.collection('user_reports').add(report);
+    } else {
+        const reports = getDb('autosocial_reports') || [];
+        reports.push({ id: Date.now().toString(), ...report });
+        saveDb('autosocial_reports', reports);
+        console.log("Mock Report Saved", report);
+    }
+};
+
+export const getUserReports = async (): Promise<UserReport[]> => {
+    if (!isMock) {
+        const snapshot = await db.collection('user_reports').orderBy('timestamp', 'desc').get();
+        return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserReport));
+    } else {
+        return getDb('autosocial_reports') || [];
     }
 };
 

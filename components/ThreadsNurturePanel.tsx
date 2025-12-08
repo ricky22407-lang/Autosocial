@@ -43,6 +43,46 @@ interface CommentData {
     accountIndex: number;
 }
 
+// --- Helper Components ---
+
+// New: Loading Overlay with Tips
+const LoadingOverlay: React.FC<{ message: string, detail?: string }> = ({ message, detail }) => {
+    const [tipIndex, setTipIndex] = useState(0);
+    const tips = [
+        "💡 Threads 小技巧：演算法喜歡「引發討論」的內容，試著在文末用問句結尾。",
+        "💡 經營心法：Threads 網友喜歡「真實感」與「廢文感」，過於完美的文案反而沒人看。",
+        "💡 省錢祕技：善用「擬真圖庫」模式，只要 2 點就能生成超像網友隨手拍的照片！",
+        "💡 流量密碼：看到熱門時事要趕快跟風，AutoSocial 的「挖掘靈感」能幫你搶快。",
+        "💡 安全建議：雖然我們有自動養號，但建議不要在短時間內連續發佈超過 5 篇貼文。"
+    ];
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setTipIndex(prev => (prev + 1) % tips.length);
+        }, 4000);
+        return () => clearInterval(interval);
+    }, []);
+
+    return (
+        <div className="fixed inset-0 bg-dark/95 z-50 flex flex-col items-center justify-center p-8 backdrop-blur-sm animate-fade-in">
+            <div className="w-20 h-20 mb-6 relative">
+                <div className="absolute inset-0 border-4 border-gray-700 rounded-full"></div>
+                <div className="absolute inset-0 border-4 border-pink-500 rounded-full border-t-transparent animate-spin"></div>
+            </div>
+            <h2 className="text-2xl font-bold text-white mb-2">{message}</h2>
+            <p className="text-gray-400 mb-8 animate-pulse">{detail || "AI 正在高速運算中，請稍候..."}</p>
+            
+            <div className="bg-card p-6 rounded-xl border border-gray-700 max-w-md w-full text-center shadow-2xl relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-purple-500 to-pink-500"></div>
+                <p className="text-yellow-400 text-sm font-bold mb-2 uppercase tracking-wider">AutoSocial Pro Tips</p>
+                <p className="text-gray-200 text-base transition-all duration-500 min-h-[50px] flex items-center justify-center font-medium">
+                    {tips[tipIndex]}
+                </p>
+            </div>
+        </div>
+    );
+};
+
 // Helper: Frontend-only Stock Photo Generator (Flux with Realism Prompt)
 const generateStockUrl = (query: string, seed: string) => {
     // Force "Candid/Realism" style to differentiate from "AI Art"
@@ -513,6 +553,11 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       setIsReplying(false);
   };
 
+  // --- Render Conditional Overlays ---
+  if (loadingTrends) return <LoadingOverlay message="正在搜尋熱門話題" detail="AI 正在分析全網新聞與社群趨勢..." />;
+  if (isGenerating) return <LoadingOverlay message="AI 正在量產 Threads 貼文" detail={`正在模擬 ${genCount} 篇不同語氣的真實貼文，並準備圖片中...`} />;
+  if (isLoadingComments) return <LoadingOverlay message="正在掃描互動" detail="機器人正在讀取您的帳號留言..." />;
+
   return (
     <div className="max-w-6xl mx-auto p-4 animate-fade-in pb-20">
       <div className="flex justify-between items-center mb-6">
@@ -626,7 +671,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                   disabled={loadingTrends}
                                   className="bg-secondary hover:bg-indigo-600 text-white px-8 py-4 rounded-full font-bold shadow-lg transition-transform transform hover:scale-105 disabled:opacity-50"
                                >
-                                   {loadingTrends ? '🔍 分析數據中...' : '🔍 挖掘熱門話題 (扣 1 點)'}
+                                   🔍 挖掘熱門話題 (扣 1 點)
                                </button>
                                <div className="mt-8 border-t border-gray-700 pt-6 max-w-md mx-auto">
                                    <label className="block text-sm text-gray-400 mb-2">或直接手動輸入主題跳過：</label>
@@ -724,7 +769,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                         disabled={isGenerating}
                                         className="w-full bg-secondary hover:bg-indigo-600 text-white px-6 py-2 rounded font-bold h-[42px] disabled:opacity-50 transition-colors shadow-lg"
                                     >
-                                        {isGenerating ? 'AI 撰寫中...' : `✨ 生成 (共扣 ${calculateCost(genCount, preSelectedImageMode)} 點)`}
+                                        ✨ 生成 (共扣 {calculateCost(genCount, preSelectedImageMode)} 點)
                                     </button>
                                </div>
                            </div>
@@ -871,7 +916,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                           disabled={isLoadingComments}
                           className="bg-primary hover:bg-blue-600 text-white px-6 py-2 rounded font-bold disabled:opacity-50"
                       >
-                          {isLoadingComments ? '掃描中...' : '🔄 掃描留言'}
+                          🔄 掃描留言
                       </button>
                   </div>
 
