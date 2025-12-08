@@ -15,16 +15,26 @@
 
 ---
 
-## 2. Gemini API Key 設定 (最重要的步驟 🔑)
+## 2. Gemini API Key 與備援設定 (最重要的步驟 🔑)
 
-Q: **Gemini API Key 要從哪裡輸入？**
+為了確保服務穩定，強烈建議設定多組 API Key，系統會自動輪替使用。
 
-**A: 必須設定在「環境變數 (Environment Variables)」中。**
+**設定位置：Vercel Project Settings -> Environment Variables**
 
-*   ❌ **絕對禁止** 將 API Key 直接寫死在程式碼中 (例如 `const key = "AIza..."`)，這會導致 Key 被盜用。
-*   ✅ **正確做法**：
-    *   **前端部署 (Vercel/Netlify)**: 在平台的 "Settings" -> "Environment Variables" 中設定 `VITE_API_KEY`。
-    *   **後端部署 (Render/Cloud Run)**: 同樣在平台的環境變數設定區塊輸入 `API_KEY`。
+### 必填欄位
+*   `VITE_API_KEY` (或 `API_KEY`): **主要 Gemini Key**。
+
+### 進階備援設定 (強烈建議)
+系統已內建自動輪替機制。當主要 Key 的配額用完時，會自動切換到下一組，無需重新部署。
+
+*   `API_KEY_2`: **第二組 Gemini Key** (備用)
+*   `API_KEY_3`: **第三組 Gemini Key** (備用)
+*   `OPENAI_API_KEY`: **OpenAI Key** (終極備援)。
+    *   *功能*：當所有 Gemini Key 都失效，且 Pollinations 也無法滿足需求時，系統會嘗試調用 OpenAI (如 DALL-E 3) 來生成圖片，確保付費客戶一定拿得到高品質圖片。
+
+**注意：**
+*   ❌ **絕對禁止** 將 API Key 直接寫死在程式碼中。
+*   ✅ **正確做法**：在 Vercel 環境變數中設定。
 
 ---
 
@@ -32,13 +42,11 @@ Q: **Gemini API Key 要從哪裡輸入？**
 
 如果你在 Vercel 設定了變數，但網站還是顯示「缺少 API Key」或 `MISSING`，請檢查以下幾點：
 
-1.  **變數名稱是否正確？** 前端必須使用 `VITE_API_KEY` (要有 `VITE_` 前綴)。
+1.  **變數名稱是否正確？** 前端必須使用 `VITE_API_KEY` (要有 `VITE_` 前綴)，後端 Serverless Function 則可讀取 `API_KEY`。建議兩者都設定，值相同即可。
 2.  **是否有重新部署 (Redeploy)？** (最常見的原因 ⚠️)
     *   Vercel 的環境變數是在「打包 (Build)」時寫入的。
     *   如果你在設定變數之前就已經部署過，**新的變數不會自動生效**。
     *   **解決方法**：去 Vercel -> Deployments -> 點選最新的部署右邊的三個點 -> 選擇 **Redeploy**。
-
-3.  **是否有空白鍵？** 複製貼上時，有時候會不小心多複製到前後的空白，系統已加入自動去除空白的功能，但建議檢查一下 Vercel 後台的值。
 
 ---
 
@@ -48,12 +56,11 @@ Q: **Gemini API Key 要從哪裡輸入？**
 
 **你觸發了 Google Gemini API 免費版 (Free Tier) 的限制。**
 
-*   **Gemini 2.5 Flash**: 免費版限制約每分鐘 15 次請求 (15 RPM)。如果你在短時間內頻繁測試，很容易用完。
-*   **Veo 3.1 影片**: 免費版預覽額度非常有限，通常一天只能生成幾次。
-
-**解決方案：**
-1.  **不用擔心**：系統已內建自動降級保護機制。當配額用完時，會自動回傳一張「替代圖片」或「範例影片」，讓你的網站 Demo 流程可以繼續走下去，不會當機。
-2.  **升級 Google Cloud Billing**：若要正式營運，建議在 Google Cloud Console 綁定信用卡啟用 Pay-as-you-go 方案，即可大幅提升額度 (Rate Limit)。
+*   **Gemini 2.5 Flash**: 免費版限制約每分鐘 15 次請求 (15 RPM)。
+*   **解決方案**：
+    1.  設定上述的 `API_KEY_2` 等備用 Key，系統會自動切換。
+    2.  設定 `OPENAI_API_KEY` 作為最後一道防線。
+    3.  若要正式營運，建議在 Google Cloud Console 綁定信用卡啟用 Pay-as-you-go 方案。
 
 ---
 
@@ -107,7 +114,7 @@ Q: **用戶註冊後，會員資料會集中在哪裡？**
 
 ## 7. 快速部署步驟 (Frontend + Firebase)
 
-這是最快讓網站上線的方式：
+这是最快让网站上线的方式：
 
 1.  **建立 Firebase 專案**：
     *   去 [Firebase Console](https://console.firebase.google.com/) 建立專案。
@@ -120,7 +127,9 @@ Q: **用戶註冊後，會員資料會集中在哪裡？**
     *   在 Vercel 匯入專案。
     *   **設定環境變數 (Environment Variables)**：
         *   將 Firebase 的設定填入 (使用 `VITE_FIREBASE_API_KEY` 等名稱)。
-        *   填入 `VITE_API_KEY` (你的 Gemini API Key)。
+        *   填入 `VITE_API_KEY` (主要 Gemini Key)。
+        *   **(選填)** 填入 `API_KEY_2`, `API_KEY_3` (Gemini 備援)。
+        *   **(選填)** 填入 `OPENAI_API_KEY` (OpenAI 備援)。
 
 3.  **部署 (Deploy)**：
     *   點擊 Deploy，等待幾分鐘，你的網站就上線了！

@@ -26,13 +26,18 @@ module.exports = async function (req, res) {
   // --- Multi-Key Manager & Failover Logic ---
   class KeyManager {
       constructor() {
-          // Load keys from possible env vars.
+          // Load Gemini keys from possible env vars
           this.geminiKeys = [
               process.env.API_KEY,
               process.env.API_KEY_2,
-              process.env.API_KEY_3
-          ].filter(k => k && k.length > 0); 
+              process.env.API_KEY_3,
+              process.env.API_KEY_4,
+              process.env.API_KEY_5
+          ].filter(k => k && k.length > 0 && k !== 'undefined'); 
           
+          // Load OpenAI Key for Ultimate Fallback
+          this.openAIKey = process.env.OPENAI_API_KEY;
+
           this.currentIndex = 0;
       }
 
@@ -40,11 +45,15 @@ module.exports = async function (req, res) {
           if (this.geminiKeys.length === 0) return null;
           return this.geminiKeys[this.currentIndex];
       }
+      
+      getOpenAIKey() {
+          return this.openAIKey;
+      }
 
       switchToNextKey() {
           if (this.currentIndex < this.geminiKeys.length - 1) {
               this.currentIndex++;
-              console.warn(`[KeyManager] ⚠️ Switching to Backup Key #${this.currentIndex + 1}`);
+              console.warn(`[KeyManager] ⚠️ Gemini API Limit Hit. Switching to Backup Key #${this.currentIndex + 1}`);
               return true;
           }
           return false;
@@ -54,13 +63,39 @@ module.exports = async function (req, res) {
   const keyManager = new KeyManager();
   const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+  // Helper: OpenAI DALL-E 3 Generation (Fallback)
+  async function generateOpenAIImage(prompt) {
+      const apiKey = keyManager.getOpenAIKey();
+      if (!apiKey) throw new Error("No OpenAI API Key provided for fallback.");
+
+      console.log("[Fallback] Switching to OpenAI DALL-E 3...");
+      const response = await fetch("https://api.openai.com/v1/images/generations", {
+          method: "POST",
+          headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+              model: "dall-e-3",
+              prompt: prompt,
+              n: 1,
+              size: "1024x1024",
+              response_format: "b64_json"
+          })
+      });
+
+      const data = await response.json();
+      if (data.error) throw new Error(`OpenAI Error: ${data.error.message}`);
+      return data.data[0].b64_json;
+  }
+
   // Retry Wrapper with Exponential Backoff
   async function executeWithRetry(operation, retryCount = 0) {
       if (!keyManager.getCurrentKey()) {
           throw new Error("Server Configuration Error: API_KEY is missing in environment variables.");
       }
 
-      const maxRetries = 3; // Total retries per key/model attempt
+      const maxRetries = 2; // Retries per key
 
       try {
           const apiKey = keyManager.getCurrentKey();
@@ -86,24 +121,21 @@ module.exports = async function (req, res) {
           
           if (isQuotaError) {
               if (retryCount < maxRetries) {
-                  // Exponential Backoff: 1s, 2s, 4s
+                  // Exponential Backoff: 1s, 2s
                   const waitTime = Math.pow(2, retryCount) * 1000;
                   console.warn(`[API] Quota Error (Attempt ${retryCount + 1}). Waiting ${waitTime}ms to retry...`);
                   await delay(waitTime);
-                  
-                  // Try again recursively
                   return executeWithRetry(operation, retryCount + 1);
               } else {
                   // If all retries on this key failed, try switching key
                   if (keyManager.switchToNextKey()) {
-                      console.warn(`[API] Key exhausted. Switching to next key and resetting retries.`);
+                      // Reset retries for the new key
                       return executeWithRetry(operation, 0);
                   } else {
-                      throw new Error("All API keys exhausted. Please check billing or add more keys.");
+                      throw new Error("All Gemini API keys exhausted.");
                   }
               }
           } else {
-              // Non-retriable error (e.g., Bad Request 400)
               throw error;
           }
       }
@@ -149,7 +181,6 @@ module.exports = async function (req, res) {
     else if (action === 'generateContent') {
       const { model, contents, config } = payload;
       
-      // Automatic Model Downgrade Logic
       const runGeneration = async (currentModel) => {
           return await executeWithRetry(async (ai) => {
               const response = await ai.models.generateContent({ 
@@ -165,14 +196,15 @@ module.exports = async function (req, res) {
           const result = await runGeneration(model);
           return res.status(200).json(result);
       } catch (e) {
-          // If Gemini 3 Pro fails even after retries, try degrading to Flash (more quota)
+          // Gemini Fallback Logic
           if (model.includes('gemini-3-pro') || model.includes('gemini-1.5-pro')) {
-              console.warn(`[API] ${model} failed. Downgrading to gemini-2.5-flash for fallback.`);
+              console.warn(`[API] ${model} failed. Downgrading to gemini-2.5-flash.`);
               try {
                   const fallbackResult = await runGeneration('gemini-2.5-flash');
                   return res.status(200).json(fallbackResult);
               } catch (fallbackError) {
-                  // If fallback also fails, throw original error
+                  // If we had OpenAI Text Fallback, it would go here, but schema mapping is complex.
+                  // For now, we throw to let frontend handle text error.
                   throw e;
               }
           }
@@ -184,29 +216,43 @@ module.exports = async function (req, res) {
     else if (action === 'generateImages') {
       const { model, prompt, config } = payload;
       
-      const result = await executeWithRetry(async (ai) => {
-          if (model.includes('flash-image') || model.includes('nano')) {
-             const response = await ai.models.generateContent({
-                 model,
-                 contents: { parts: [{ text: prompt }] },
-                 config
-             });
-             let b64 = null;
-             for (const part of response.candidates?.[0]?.content?.parts || []) {
-                if (part.inlineData) {
-                    b64 = part.inlineData.data;
-                    break;
-                }
-             }
-             if (!b64) throw new Error("No image generated by Flash model");
-             return { base64: b64 };
-          } else {
-             const response = await ai.models.generateImages({ model, prompt, config });
-             const b64 = response.generatedImages?.[0]?.image?.imageBytes;
-             return { base64: b64 };
+      try {
+          const result = await executeWithRetry(async (ai) => {
+              if (model.includes('flash-image') || model.includes('nano')) {
+                 const response = await ai.models.generateContent({
+                     model,
+                     contents: { parts: [{ text: prompt }] },
+                     config
+                 });
+                 let b64 = null;
+                 for (const part of response.candidates?.[0]?.content?.parts || []) {
+                    if (part.inlineData) {
+                        b64 = part.inlineData.data;
+                        break;
+                    }
+                 }
+                 if (!b64) throw new Error("No image generated by Flash model");
+                 return { base64: b64 };
+              } else {
+                 const response = await ai.models.generateImages({ model, prompt, config });
+                 const b64 = response.generatedImages?.[0]?.image?.imageBytes;
+                 return { base64: b64 };
+              }
+          });
+          return res.status(200).json(result);
+
+      } catch (geminiError) {
+          console.warn("[Gemini Image] All keys failed. Trying OpenAI DALL-E 3 fallback...");
+          // OpenAI Fallback
+          try {
+              const openAIBase64 = await generateOpenAIImage(prompt);
+              return res.status(200).json({ base64: openAIBase64 });
+          } catch (openAIError) {
+              console.error("[Fallback] OpenAI also failed:", openAIError.message);
+              // Throw original error to trigger frontend Pollinations fallback
+              throw new Error("All API keys exhausted (Gemini & OpenAI).");
           }
-      });
-      return res.status(200).json(result);
+      }
     }
     
     // --- Action: generateVideos ---
@@ -240,7 +286,6 @@ module.exports = async function (req, res) {
 
   } catch (error) {
     console.error('[API Error]:', error);
-    // Propagate actual error to frontend so user knows to retry
     return res.status(500).json({ 
         error: error.message || 'Internal Server Error'
     });
