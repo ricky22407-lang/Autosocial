@@ -1,5 +1,3 @@
-
-
 import React, { useState } from 'react';
 import { login, register, sendPasswordReset } from '../services/authService';
 
@@ -47,6 +45,14 @@ const Login: React.FC<Props> = ({ onLoginSuccess }) => {
         <h2 className="text-3xl font-bold text-center text-white mb-2">
           {mode === 'REGISTER' ? '註冊會員' : mode === 'FORGOT' ? '重設密碼' : '登入 AutoSocial'}
         </h2>
+        
+        {/* 新增中文副標題 */}
+        {mode === 'LOGIN' && (
+            <p className="text-lg text-center text-blue-400 font-bold mb-2 tracking-wider">
+                首創全自動經營社群平台
+            </p>
+        )}
+
         <p className="text-gray-400 text-center mb-8 text-sm">
           {mode === 'REGISTER' ? '建立您的社群自動化帳戶' : mode === 'FORGOT' ? '輸入 Email 以接收重設連結' : '歡迎回來，請登入繼續使用'}
         </p>
