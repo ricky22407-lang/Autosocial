@@ -272,18 +272,17 @@ export const generatePostDraft = async (
     - 結構: 開頭吸睛 -> 內容價值 -> 結尾 CTA
     - CTA: ${ctaInstruction} (請將 CTA 文案獨立放在 JSON 的 ctaText 欄位)
     - Hashtags: ${settings.fixedHashtags} ${options.tempHashtags} (放在文末)
+    - IMPORTANT: imagePrompt must be in ENGLISH, detailed, and describe a scene (Midjourney style).
 
     Output JSON Format:
     {
       "caption": "...",
       "ctaText": "...",
-      "imagePrompt": "繁體中文圖片生成提示詞...",
-      "videoPrompt": "繁體中文影片生成提示詞..."
+      "imagePrompt": "Detailed English image prompt...",
+      "videoPrompt": "Detailed English video prompt..."
     }
   `;
 
-  // 直接呼叫後端，不使用 Try-Catch 進行 Mock 回退
-  // 商業化原則：失敗就是失敗，不產生假資料
   const response = await callBackend('generateContent', {
     model: "gemini-3-pro-preview",
     contents: prompt,
@@ -305,11 +304,14 @@ export const generatePostDraft = async (
 };
 
 export const generateImage = async (prompt: string): Promise<string> => {
+    // Enhance the prompt automatically for better quality
+    const enhancedPrompt = `${prompt}, hyperrealistic, highly detailed, cinematic lighting, 8k resolution, photorealistic, photography style`;
+
     try {
-        // Attempt 1: Google Gemini (High Quality)
+        // Attempt 1: Backend Waterfall (Pro -> Flash -> DALL-E)
         const response = await callBackend('generateImages', {
-            model: 'gemini-2.5-flash-image',
-            prompt: prompt,
+            model: 'gemini-3-pro-image-preview', // Preference only, backend manages waterfall
+            prompt: enhancedPrompt,
             config: { imageConfig: { aspectRatio: "1:1" } }
         });
         
@@ -319,14 +321,13 @@ export const generateImage = async (prompt: string): Promise<string> => {
         throw new Error("No image data found in response");
 
     } catch (e: any) {
-        // Attempt 2: Pollinations AI (Fallback - Free & Reliable)
-        // This is NOT a mock. It uses a real open-source AI model (Flux) to generate a unique image.
-        // This is a valid commercial fallback to ensure the user gets *an* image.
-        console.warn("Gemini Image Gen failed, switching to Pollinations Fallback:", e.message);
+        // Attempt 2: Pollinations AI (Ultimate Fallback)
+        console.warn("Backend Image Gen failed, switching to Pollinations Fallback:", e.message);
         
         const seed = Math.floor(Math.random() * 100000);
-        const encodedPrompt = encodeURIComponent(prompt + ", photorealistic, high quality");
-        return `https://image.pollinations.ai/prompt/${encodedPrompt}?n=${seed}&model=flux`;
+        const encodedPrompt = encodeURIComponent(enhancedPrompt);
+        // Using 'flux' model for better quality, add 'nologo' if supported or implied by 'enhance'
+        return `https://image.pollinations.ai/prompt/${encodedPrompt}?n=${seed}&model=flux&enhance=true`;
     }
 };
 
@@ -447,13 +448,20 @@ export const generateThreadsBatch = async (
       ${personaConstraint}
       
       Task: Generate ${count} distinct, unique Threads posts about: "${topic}".
-      IMPORTANT: If count > 1, each post must have a different tone (e.g., one short/angry, one long/analytical).
+      IMPORTANT: If count > 1, each post must have a different tone.
       
-      Output JSON Array: [{ "caption": "...", "imagePrompt": "...", "imageQuery": "..." }]
+      [IMAGE PROMPT RULES - CRITICAL]
+      For 'imagePrompt', DO NOT use Chinese. 
+      You MUST write a DETAILED ENGLISH prompt suitable for Midjourney/Imagen/DALL-E.
+      Include:
+      1. Subject (what is happening)
+      2. Environment (background, lighting)
+      3. Style (e.g. "Cinematic shot", "Grainy photography", "Shot on iPhone 15", "Studio lighting")
+      4. Aspect ratio implied (square)
+      
+      Output JSON Array: [{ "caption": "...", "imagePrompt": "Detailed English Prompt...", "imageQuery": "Short keyword" }]
     `;
 
-    // 商業化版本：移除 try-catch 的 mock fallback
-    // 如果失敗，直接讓前端顯示錯誤訊息
     const response = await callBackend('generateContent', {
         model: "gemini-2.5-flash",
         contents: prompt,
