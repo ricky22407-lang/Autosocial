@@ -305,33 +305,53 @@ export const generatePostDraft = async (
   return JSON.parse(cleanJsonText(response.text || '{}'));
 };
 
+const ensureEnglishPrompt = async (prompt: string): Promise<string> => {
+    // If prompt contains Chinese characters, translate it.
+    if (/[\u4e00-\u9fa5]/.test(prompt)) {
+        try {
+            console.log("Detecting Chinese in prompt, translating to English...");
+            const response = await callBackend('generateContent', {
+                model: 'gemini-2.5-flash',
+                contents: `Translate the following image prompt to detailed English for an AI image generator. Only return the English text.\n\nPrompt: ${prompt}`
+            });
+            return response.text.trim();
+        } catch (e) {
+            console.warn("Translation failed, using original prompt");
+            return prompt;
+        }
+    }
+    return prompt;
+};
+
 export const generateImage = async (prompt: string): Promise<string> => {
-    // Enhance the prompt automatically for better quality
-    const enhancedPrompt = `${prompt}, hyperrealistic, highly detailed, cinematic lighting, 8k resolution, photorealistic, photography style`;
+    // 1. Ensure Prompt is English (Imagen models require English)
+    const englishPrompt = await ensureEnglishPrompt(prompt);
+    
+    // 2. Enhance Prompt
+    const enhancedPrompt = `${englishPrompt}, hyperrealistic, highly detailed, cinematic lighting, 8k resolution, photorealistic, photography style`;
 
     try {
-        console.log("🎨 [ImageGen] Attempting to generate image via Backend (Priority: Gemini Pro -> Flash -> OpenAI)...");
-        // Attempt 1: Backend Waterfall (Pro -> Flash -> DALL-E)
+        console.log("🎨 [ImageGen] Attempting to generate image via Backend (Waterfall: Imagen 3.0 -> Flash -> OpenAI)...");
+        // We pass 'imagen-3.0-generate-002' as the preferred model.
+        // The backend handles the waterfall.
         const response = await callBackend('generateImages', {
-            model: 'gemini-3-pro-image-preview', // Preference only, backend manages waterfall
-            prompt: enhancedPrompt,
-            config: { imageConfig: { aspectRatio: "1:1" } }
+            model: 'imagen-3.0-generate-002', 
+            prompt: enhancedPrompt
         });
         
         if (response.base64) {
-             console.log("✅ [ImageGen] Success via Backend Gemini!");
+             console.log("✅ [ImageGen] Success via Backend!");
              return `data:image/png;base64,${response.base64}`;
         }
         throw new Error("No image data found in response");
 
     } catch (e: any) {
-        // Attempt 2: Pollinations AI (Ultimate Fallback)
+        // Attempt 2: Pollinations AI (Ultimate Client-side Fallback)
         console.error("❌ [ImageGen] Backend Failed. Switching to Frontend Fallback (Pollinations). Reason:", e.message);
         console.warn("Falling back to free Pollinations API to ensure user gets an image.");
         
         const seed = Math.floor(Math.random() * 100000);
         const encodedPrompt = encodeURIComponent(enhancedPrompt);
-        // Using 'flux' model for better quality, add 'nologo' if supported or implied by 'enhance'
         return `https://image.pollinations.ai/prompt/${encodedPrompt}?n=${seed}&model=flux&enhance=true`;
     }
 };

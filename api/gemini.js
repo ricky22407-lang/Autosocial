@@ -114,10 +114,12 @@ module.exports = async function (req, res) {
 
       } catch (error) {
           const msg = error.message || '';
+          console.warn(`[API Error] ${msg}`);
           
           // Identify Quota/Overload Errors
           // 429: Too Many Requests, 503: Service Unavailable
-          const isQuotaError = msg.includes('429') || msg.includes('Quota') || msg.includes('exhausted') || msg.includes('503');
+          // Also catch "exhausted" which is common in Gemini
+          const isQuotaError = msg.includes('429') || msg.includes('Quota') || msg.includes('exhausted') || msg.includes('503') || msg.includes('403');
           
           if (isQuotaError) {
               if (retryCount < maxRetries) {
@@ -215,12 +217,10 @@ module.exports = async function (req, res) {
     else if (action === 'generateImages') {
       const { prompt } = payload;
       
-      // IMPORTANT: Gemini Nano/Banana models (2.5-flash-image, 3-pro-image-preview) 
-      // MUST use `generateContent` in the Node SDK.
-      
-      const generateViaGemini = async (ai, modelName) => {
-          console.log(`[Image Gen] Attempting with ${modelName}...`);
-          
+      // Helper: Generate via generateContent (For Nano/Banana/Flash-Image models)
+      // This uses .generateContent(), not .generateImages()
+      const generateViaContent = async (ai, modelName) => {
+          console.log(`[Image Gen] Attempting with ${modelName} (generateContent)...`);
           const response = await ai.models.generateContent({
               model: modelName,
               contents: { parts: [{ text: prompt }] },
@@ -228,7 +228,6 @@ module.exports = async function (req, res) {
           });
           
           let b64 = null;
-          // Extract image from parts (usually inlineData)
           if (response.candidates?.[0]?.content?.parts) {
             for (const part of response.candidates[0].content.parts) {
                 if (part.inlineData && part.inlineData.data) {
@@ -237,45 +236,60 @@ module.exports = async function (req, res) {
                 }
             }
           }
-          
           if (!b64) throw new Error(`No image data received from ${modelName}`);
           return { base64: b64 };
       };
 
-      // === WATERFALL STRATEGY ===
-      
-      // PRIORITY 1: Gemini 3 Pro (High Quality)
-      try {
-          console.log("[Image Gen] Attempt 1: Gemini 3 Pro (Prioritized)");
-          const result = await executeWithRetry(async (ai) => {
-              return await generateViaGemini(ai, 'gemini-3-pro-image-preview');
+      // Helper: Generate via generateImages (For Imagen models)
+      // This strictly follows the user provided documentation for Imagen 4.0/3.0
+      const generateViaImagen = async (ai, modelName) => {
+          console.log(`[Image Gen] Attempting with ${modelName} (generateImages)...`);
+          const response = await ai.models.generateImages({
+              model: modelName,
+              prompt: prompt,
+              config: { 
+                  numberOfImages: 1,
+                  // Imagen requires explicit Aspect Ratio or defaults to 1:1
+                  aspectRatio: "1:1"
+              }
           });
-          console.log("[Image Gen] Success with Gemini 3 Pro");
-          return res.status(200).json(result);
-      } catch (errorPro) {
-          console.warn(`[Image Gen] Gemini 3 Pro failed (${errorPro.message}). Trying Gemini 2.5 Flash...`);
+
+          // response.generatedImages is the array
+          const imgBytes = response.generatedImages?.[0]?.image?.imageBytes;
           
-          // PRIORITY 2: Gemini 2.5 Flash (Fast, Efficient)
+          if (!imgBytes) throw new Error(`No image bytes received from ${modelName}`);
+          return { base64: imgBytes };
+      };
+
+      // === WATERFALL STRATEGY ===
+      // PRIORITY 1: Imagen 3.0 (Stable & Common)
+      // Note: User mentioned Imagen 4.0, but we default to 3.0 for stability, unless 4.0 is preferred.
+      // Let's try 3.0 first.
+      try {
+          const result = await executeWithRetry(async (ai) => {
+              // Try Imagen 3.0 (generate-002 is the latest stable version usually)
+              return await generateViaImagen(ai, 'imagen-3.0-generate-002');
+          });
+          return res.status(200).json(result);
+      } catch (errorImagen3) {
+          console.warn(`[Image Gen] Imagen 3.0 failed (${errorImagen3.message}). Trying Gemini 2.5 Flash Image...`);
+          
+          // PRIORITY 2: Gemini 2.5 Flash Image (Content Gen Model)
           try {
-             console.log("[Image Gen] Attempt 2: Gemini 2.5 Flash Image");
              const result = await executeWithRetry(async (ai) => {
-                 return await generateViaGemini(ai, 'gemini-2.5-flash-image');
+                 return await generateViaContent(ai, 'gemini-2.5-flash-image');
              });
-             console.log("[Image Gen] Success with Gemini 2.5 Flash");
              return res.status(200).json(result);
-             
           } catch (errorFlash) {
              console.warn(`[Image Gen] Gemini Flash failed (${errorFlash.message}). Checking OpenAI...`);
              
              // PRIORITY 3: OpenAI DALL-E 3 (Ultimate Fallback)
              if (keyManager.getOpenAIKey()) {
                  try {
-                     console.log("[Image Gen] Attempt 3: OpenAI DALL-E 3");
                      const openAIBase64 = await generateOpenAIImage(prompt);
                      return res.status(200).json({ base64: openAIBase64 });
                  } catch (openAIError) {
                      console.error("[Image Gen] All Backends Failed (including OpenAI).");
-                     // Throw specific error to let frontend handle it (e.g. switch to Pollinations)
                      return res.status(500).json({ error: "Backend Image Generation Failed (Gemini & OpenAI exhausted)." });
                  }
              } else {
