@@ -155,6 +155,11 @@ const App: React.FC = () => {
         if(!merged.autoReply) merged.autoReply = defaultSettings.autoReply;
         if(!merged.autoPilot) merged.autoPilot = defaultSettings.autoPilot;
         if(!merged.threadsAccounts) merged.threadsAccounts = []; 
+        
+        // FIX: Ensure arrays to prevent SettingsForm crash
+        if (!Array.isArray(merged.competitors)) merged.competitors = [];
+        if (!Array.isArray(merged.referenceFiles)) merged.referenceFiles = [];
+        
         setSettings(merged);
     }
     if (savedPosts) setPosts(JSON.parse(savedPosts));
@@ -408,6 +413,13 @@ const App: React.FC = () => {
 
         {view === AppView.SEO_ARTICLES && (
             hasSeoAccess ? <SeoArticleGenerator user={userProfile} onQuotaUpdate={refreshProfile} /> : <div className="p-8 text-center text-gray-500">Access Denied</div>
+        )}
+
+        {view === AppView.SETTINGS && (
+             <SettingsForm 
+               onSave={handleSaveSettings} 
+               initialSettings={settings} 
+             />
         )}
 
         {view === AppView.ADMIN && isAdmin && (

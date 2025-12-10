@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect } from 'react';
 import { BrandSettings, ReferenceFile } from '../types';
 import { validateFacebookToken, refreshLongLivedToken } from '../services/facebookService';
@@ -14,8 +13,10 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
   const [formData, setFormData] = useState<BrandSettings>(initialSettings);
   const [tokenStatus, setTokenStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle');
   const [refreshMsg, setRefreshMsg] = useState('');
+  
   // Separate state for raw string input to avoid cursor jumping issues
-  const [competitorsRaw, setCompetitorsRaw] = useState(initialSettings.competitors.join(', '));
+  // Fix: Add safety check (|| []) to prevent crash if competitors is null/undefined
+  const [competitorsRaw, setCompetitorsRaw] = useState((initialSettings.competitors || []).join(', '));
   const [isSaving, setIsSaving] = useState(false);
 
   // Auto-save logic to localStorage to prevent data loss on refresh
@@ -97,7 +98,8 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
       const newFile: ReferenceFile = { name: file.name, content: text };
       setFormData(prev => ({
         ...prev,
-        referenceFiles: [...prev.referenceFiles, newFile]
+        // Ensure referenceFiles is an array
+        referenceFiles: [...(prev.referenceFiles || []), newFile]
       }));
     }
   };
@@ -122,7 +124,7 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
   const removeFile = (index: number) => {
     setFormData(prev => ({
       ...prev,
-      referenceFiles: prev.referenceFiles.filter((_, i) => i !== index)
+      referenceFiles: (prev.referenceFiles || []).filter((_, i) => i !== index)
     }));
   };
 
@@ -156,7 +158,7 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
             <label className="block text-sm text-gray-400 mb-1">產業類別</label>
             <input 
               name="industry" 
-              value={formData.industry} 
+              value={formData.industry || ''} 
               onChange={handleChange}
               className="w-full bg-dark border border-gray-600 rounded p-2 text-white focus:border-primary outline-none"
               placeholder="例如：科技業、零售業"
@@ -166,7 +168,7 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
             <label className="block text-sm text-gray-400 mb-1">服務項目</label>
             <input 
               name="services" 
-              value={formData.services} 
+              value={formData.services || ''} 
               onChange={handleChange}
               className="w-full bg-dark border border-gray-600 rounded p-2 text-white focus:border-primary outline-none"
             />
@@ -175,7 +177,7 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
             <label className="block text-sm text-gray-400 mb-1">品牌語氣</label>
             <select 
               name="brandTone" 
-              value={formData.brandTone} 
+              value={formData.brandTone || 'Professional'} 
               onChange={handleChange}
               className="w-full bg-dark border border-gray-600 rounded p-2 text-white focus:border-primary outline-none"
             >
@@ -208,7 +210,7 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
             <label className="block text-sm text-gray-400 mb-1">社群小編人設 (Persona)</label>
             <textarea 
               name="persona" 
-              value={formData.persona} 
+              value={formData.persona || ''} 
               onChange={handleChange}
               rows={3}
               className="w-full bg-dark border border-gray-600 rounded p-2 text-white focus:border-primary outline-none"
@@ -230,7 +232,7 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
             <label className="block text-sm text-gray-400 mb-1">Facebook 粉絲專頁 ID</label>
             <input 
               name="facebookPageId" 
-              value={formData.facebookPageId} 
+              value={formData.facebookPageId || ''} 
               onChange={handleChange}
               className="w-full bg-dark border border-gray-600 rounded p-2 text-white focus:border-primary outline-none"
             />
@@ -241,7 +243,7 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
               <input 
                 name="facebookToken" 
                 type="password"
-                value={formData.facebookToken} 
+                value={formData.facebookToken || ''} 
                 onChange={handleChange}
                 placeholder="請輸入長期 Token"
                 className="flex-1 bg-dark border border-gray-600 rounded p-2 text-white focus:border-primary outline-none"
@@ -286,7 +288,7 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
              <label className="block text-sm text-gray-400 mb-1">參考資料上傳 (純文字/MD)</label>
              <input type="file" onChange={handleFileUpload} className="text-sm text-gray-400"/>
              <ul className="mt-2 space-y-1">
-               {formData.referenceFiles.map((file, i) => (
+               {(formData.referenceFiles || []).map((file, i) => (
                  <li key={i} className="flex items-center justify-between bg-dark p-2 rounded text-xs">
                    <span className="truncate max-w-[200px]">{file.name}</span>
                    <button onClick={() => removeFile(i)} className="text-red-400 hover:text-red-300">×</button>
