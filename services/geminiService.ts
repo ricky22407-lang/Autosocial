@@ -1,4 +1,5 @@
 
+
 import { BrandSettings, TrendingTopic, CachedTrendData } from "../types";
 import { db } from "./firebase"; // Using compat export
 
@@ -75,6 +76,7 @@ const isValidNewsImage = (url: string): boolean => {
 // --- Backend API Caller ---
 const callBackend = async (action: string, payload: any) => {
     try {
+        console.log(`[Backend Call] Action: ${action}`, payload.model ? `Model: ${payload.model}` : '');
         const res = await fetch('/api/gemini', {
             method: 'POST',
             headers: {
@@ -308,6 +310,7 @@ export const generateImage = async (prompt: string): Promise<string> => {
     const enhancedPrompt = `${prompt}, hyperrealistic, highly detailed, cinematic lighting, 8k resolution, photorealistic, photography style`;
 
     try {
+        console.log("🎨 [ImageGen] Attempting to generate image via Backend (Priority: Gemini Pro -> Flash -> OpenAI)...");
         // Attempt 1: Backend Waterfall (Pro -> Flash -> DALL-E)
         const response = await callBackend('generateImages', {
             model: 'gemini-3-pro-image-preview', // Preference only, backend manages waterfall
@@ -316,13 +319,14 @@ export const generateImage = async (prompt: string): Promise<string> => {
         });
         
         if (response.base64) {
+             console.log("✅ [ImageGen] Success via Backend Gemini!");
              return `data:image/png;base64,${response.base64}`;
         }
         throw new Error("No image data found in response");
 
     } catch (e: any) {
         // Attempt 2: Pollinations AI (Ultimate Fallback)
-        console.warn("Backend Image Gen failed, switching to Pollinations Fallback:", e.message);
+        console.error("❌ [ImageGen] Backend Failed. Switching to Frontend Fallback (Pollinations).", e.message);
         
         const seed = Math.floor(Math.random() * 100000);
         const encodedPrompt = encodeURIComponent(enhancedPrompt);

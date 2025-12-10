@@ -1,4 +1,7 @@
 
+
+
+
 module.exports = async function (req, res) {
   // CORS Headers
   res.setHeader('Access-Control-Allow-Credentials', true);
@@ -217,7 +220,7 @@ module.exports = async function (req, res) {
       
       // STEP 1: Gemini 3 Pro (Best Quality, High Latency)
       try {
-          console.log("[Image Gen] Attempt 1: Gemini 3 Pro");
+          console.log("[Image Gen] Attempt 1: Gemini 3 Pro (Prioritized)");
           const result = await executeWithRetry(async (ai) => {
              const response = await ai.models.generateImages({
                  model: 'gemini-3-pro-image-preview',
@@ -230,7 +233,7 @@ module.exports = async function (req, res) {
           });
           return res.status(200).json(result);
       } catch (errorPro) {
-          console.warn(`[Image Gen] Pro failed (${errorPro.message}). Trying Flash...`);
+          console.warn(`[Image Gen] Gemini 3 Pro failed (${errorPro.message}). Trying Gemini 2.5 Flash...`);
           
           // STEP 2: Gemini 2.5 Flash (Fastest, Good Quality, Resilient to Timeout)
           try {
@@ -255,7 +258,7 @@ module.exports = async function (req, res) {
              return res.status(200).json(result);
              
           } catch (errorFlash) {
-             console.warn(`[Image Gen] Flash failed (${errorFlash.message}). Trying DALL-E 3...`);
+             console.warn(`[Image Gen] Gemini Flash failed (${errorFlash.message}). Trying DALL-E 3...`);
              
              // STEP 3: OpenAI DALL-E 3 (Expensive but Reliable Fallback)
              try {

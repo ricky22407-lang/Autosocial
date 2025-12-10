@@ -113,6 +113,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   
   const [genCount, setGenCount] = useState<1 | 2 | 3>(1);
   const [preSelectedImageMode, setPreSelectedImageMode] = useState<ImageSourceType>('none');
+  const [selectedGenAccountId, setSelectedGenAccountId] = useState<string>(''); // New: Selected Account ID
   
   const [generatedPosts, setGeneratedPosts] = useState<GeneratedPost[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -135,6 +136,10 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   // --- Effects & Init ---
   useEffect(() => {
     onSaveSettings({ ...settings, threadsAccounts: accounts });
+    // Default select first account if available and not set
+    if (accounts.length > 0 && !selectedGenAccountId) {
+        setSelectedGenAccountId(accounts[0].id);
+    }
   }, [accounts]);
 
   const loadTrends = async () => {
@@ -204,8 +209,20 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
 
   // --- Generator Handlers ---
   const selectTopic = (title: string) => {
-      setSelectedTopics([title]);
-      setManualTopic(''); 
+      // Toggle logic
+      if (selectedTopics.includes(title)) {
+          setSelectedTopics([]);
+      } else {
+          setSelectedTopics([title]);
+          setManualTopic(''); 
+      }
+  };
+
+  const handleManualTopicChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      setManualTopic(e.target.value);
+      if (e.target.value) {
+          setSelectedTopics([]); // Clear selection if typing manually
+      }
   };
 
   const proceedToGenerateUI = () => {
@@ -229,14 +246,17 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       const topicSource = selectedTopics.length > 0 ? selectedTopics[0] : manualTopic;
       if (!topicSource) return alert("無效話題");
 
+      // Validate Account Selection
+      const targetAccount = accounts.find(a => a.id === selectedGenAccountId);
+      if (!targetAccount) return alert("請先選擇要發文的帳號");
+
       const sourceTopicData = trendingTopics.find(t => t.title === topicSource);
       const initialNewsImg = sourceTopicData?.imageUrl;
       const newsUrl = sourceTopicData?.url; // For OG fetch
 
-      // No popup for missing news image, we will handle it via fallback logic
       const totalCost = calculateCost(genCount, preSelectedImageMode);
       
-      if (!confirm(`確定生成 ${genCount} 篇貼文？\n\n模式：${preSelectedImageMode === 'ai' ? 'AI繪圖' : preSelectedImageMode === 'stock' ? '擬真圖庫' : preSelectedImageMode === 'news' ? '新聞圖片' : '純文字'}\n總計消耗：${totalCost} 點配額`)) return;
+      if (!confirm(`確定為帳號「${targetAccount.username}」生成 ${genCount} 篇貼文？\n\n模式：${preSelectedImageMode === 'ai' ? 'AI繪圖' : preSelectedImageMode === 'stock' ? '擬真圖庫' : preSelectedImageMode === 'news' ? '新聞圖片' : '純文字'}\n總計消耗：${totalCost} 點配額`)) return;
 
       const allowed = await checkAndUseQuota(user.user_id, totalCost);
       if (!allowed) return alert(`配額不足 (需 ${totalCost} 點)`);
@@ -246,13 +266,11 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       setGeneratedPosts([]);
 
       try {
-          const activeAccounts = accounts.filter(a => a.isActive);
-          if (activeAccounts.length === 0) throw new Error("無活躍帳號，請先啟用或新增帳號");
-          
-          const personas = activeAccounts.map(a => a.personaPrompt || '').filter(Boolean);
-          const results = await generateThreadsBatch(topicSource, genCount, settings, personas);
+          // Use specific persona for this batch
+          const personaList = [targetAccount.personaPrompt || settings.persona || "Authentic Taiwanese user"];
+          const results = await generateThreadsBatch(topicSource, genCount, settings, personaList);
 
-          // Prepare final posts with Waterfall Logic for Images
+          // Prepare final posts
           const newPosts: GeneratedPost[] = await Promise.all(results.map(async (r, i) => {
               let finalMode = preSelectedImageMode;
               let finalImageUrl = undefined;
@@ -260,44 +278,35 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
               let paid = false;
               const uniqueSeed = Date.now().toString() + i;
 
-              // --- AI Mode (Backend, High Quality) ---
+              // --- AI Mode ---
               if (finalMode === 'ai') {
                   paid = true;
                   try {
                       finalImageUrl = await generateImage(r.imagePrompt);
                   } catch (e) {
                       console.warn("AI Image gen failed in batch", e);
-                      // Fallback: don't change mode, just log error so user can retry for free
                       errorLog = '圖片生成失敗 (請點擊重試)';
                   }
               }
-              // --- Stock Mode (Frontend, Fast, Realistic Style) ---
+              // --- Stock Mode ---
               else if (finalMode === 'stock') {
-                  // Direct generation, no backend overhead.
-                  // Use 'imageQuery' (shorter) if available for better stock results
                   finalImageUrl = generateStockUrl(r.imageQuery || r.imagePrompt, uniqueSeed);
               }
-              // --- News Mode (Advanced Fetch) ---
+              // --- News Mode ---
               else if (finalMode === 'news') {
-                  // 1. RSS Image
                   if (initialNewsImg) {
                       finalImageUrl = initialNewsImg;
-                  } 
-                  // 2. OG Fetch (Deep)
-                  else if (newsUrl) {
+                  } else if (newsUrl) {
                       const ogImg = await fetchNewsImageFromUrl(newsUrl);
                       if (ogImg) finalImageUrl = ogImg;
                   }
                   
-                  // 3. Last Resort: AI Fallback for News
                   if (!finalImageUrl) {
                       try {
-                         // Generate "Realistic News Style" image
                          const newsPrompt = `News photo about ${topicSource}, realistic, journalism style, 4k`;
                          finalImageUrl = await generateImage(newsPrompt);
                       } catch (e) {
-                         // Really failed
-                         finalMode = 'none'; // Only downgrade if absolutely everything failed
+                         finalMode = 'none';
                          errorLog = '無法取得新聞圖片';
                       }
                   }
@@ -310,7 +319,6 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                   imagePrompt: r.imagePrompt,
                   imageQuery: r.imageQuery,
                   
-                  // Image Data
                   newsImageUrl: finalMode === 'news' ? finalImageUrl : undefined,
                   imageUrl: (finalMode === 'ai' || finalMode === 'stock' || finalMode === 'news') ? finalImageUrl : undefined,
                   imageSourceType: finalMode,
@@ -318,7 +326,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                   paidForGeneration: paid,
                   
                   status: 'idle',
-                  targetAccountId: activeAccounts[i % activeAccounts.length]?.id
+                  targetAccountId: targetAccount.id // Lock to selected account
               };
           }));
 
@@ -373,18 +381,10 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       const newExtra = getExtraCost(newMode);
       let costDiff = Math.max(0, newExtra - currentExtra);
 
-      // --- Smart Retry Logic ---
       if (newMode === 'ai') {
-          // If we are ALREADY in AI mode (paid 4 pts) but failed to generate image (url empty),
-          // OR if we paid for it but swapped away and swapped back,
-          // We should allow retry for FREE (costDiff = 0).
-          // However, if we successfully generated an image and want ANOTHER one, we charge.
-          
           if (post.imageSourceType === 'ai' && !post.imageUrl) {
-              // Free Retry for failed generation
               costDiff = 0; 
           } else if (post.imageSourceType === 'ai' && post.imageUrl) {
-              // Re-generation (Variation)
               if (!confirm("重新生成圖片將再次扣除 3 點。確定嗎？")) return;
               costDiff = 3;
           }
@@ -405,7 +405,6 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
           onQuotaUpdate();
       }
 
-      // Update State
       setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { 
           ...p, 
           imageSourceType: newMode, 
@@ -413,28 +412,23 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
           paidForGeneration: newMode === 'ai' ? true : p.paidForGeneration
       } : p));
 
-      // Execute Logic
       if (newMode === 'ai') {
           setIsRegeneratingImage(post.id);
           try {
               const url = await generateImage(post.imagePrompt);
               setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageUrl: url } : p));
           } catch (e: any) {
-              // Keep mode as 'ai' but clear URL so retry remains free
               setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageUrl: undefined, log: '生成失敗 (點擊重試)' } : p));
           } finally {
               setIsRegeneratingImage(null);
           }
       } 
       else if (newMode === 'stock') {
-           // Fast Client-side Gen
            const url = generateStockUrl(post.imageQuery || post.imagePrompt, Date.now().toString());
            setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageUrl: url } : p));
       }
       else if (newMode === 'news') {
-           // If switching to news manually, try to find the image again
            if (!post.newsImageUrl) {
-               // Try deep fetch logic again for this specific post
                const sourceTopic = trendingTopics.find(t => t.title === post.topic);
                if (sourceTopic?.url) {
                    const ogImg = await fetchNewsImageFromUrl(sourceTopic.url);
@@ -444,7 +438,6 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                    }
                }
                
-               // Fallback AI
                try {
                   const newsPrompt = `News photo about ${post.topic}, realistic, journalism style`;
                   const aiNewsImg = await generateImage(newsPrompt);
@@ -557,6 +550,9 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   if (loadingTrends) return <LoadingOverlay message="正在搜尋熱門話題" detail="AI 正在分析全網新聞與社群趨勢..." />;
   if (isGenerating) return <LoadingOverlay message="AI 正在量產 Threads 貼文" detail={`正在模擬 ${genCount} 篇不同語氣的真實貼文，並準備圖片中...`} />;
   if (isLoadingComments) return <LoadingOverlay message="正在掃描互動" detail="機器人正在讀取您的帳號留言..." />;
+
+  // Find currently selected account object
+  const selectedAccountObj = accounts.find(a => a.id === selectedGenAccountId);
 
   return (
     <div className="max-w-6xl mx-auto p-4 animate-fade-in pb-20">
@@ -678,7 +674,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                    <div className="flex gap-2">
                                        <input 
                                           value={manualTopic}
-                                          onChange={e => setManualTopic(e.target.value)}
+                                          onChange={handleManualTopicChange}
                                           className="flex-1 bg-dark border border-gray-600 rounded p-2 text-white"
                                           placeholder="例如：夏日海邊穿搭"
                                        />
@@ -712,10 +708,22 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                   ))}
                               </div>
 
+                              <div className="mt-8 border-t border-gray-700 pt-6">
+                                   <label className="block text-sm text-gray-400 mb-2">或手動輸入主題 (將自動取消選取的趨勢)：</label>
+                                   <div className="flex gap-2">
+                                       <input 
+                                          value={manualTopic}
+                                          onChange={handleManualTopicChange}
+                                          className="flex-1 bg-dark border border-gray-600 rounded p-2 text-white"
+                                          placeholder="例如：夏日海邊穿搭"
+                                       />
+                                   </div>
+                              </div>
+
                               <div className="flex justify-end pt-4 border-t border-gray-700">
                                    <button 
                                       onClick={proceedToGenerateUI}
-                                      disabled={selectedTopics.length === 0}
+                                      disabled={selectedTopics.length === 0 && !manualTopic}
                                       className="bg-primary hover:bg-blue-600 text-white px-8 py-3 rounded font-bold shadow-lg disabled:opacity-50"
                                    >
                                        下一步：設定生成參數 →
@@ -742,38 +750,57 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                </span>
                            </div>
 
-                           <div className="flex flex-col md:flex-row items-end gap-4">
-                               <div className="flex-1 w-full">
-                                   <label className="block text-sm text-gray-400 mb-1">生成篇數 (每次建議 1-3 篇)</label>
-                                   <select value={genCount} onChange={e => setGenCount(Number(e.target.value) as 1|2|3)} className="w-full bg-dark border border-gray-600 rounded p-2 text-white">
-                                       <option value="1">1 篇</option>
-                                       <option value="2">2 篇</option>
-                                       <option value="3">3 篇</option>
+                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                               {/* Account Selection (NEW) */}
+                               <div>
+                                   <label className="block text-sm text-gray-400 mb-1">選擇目標帳號 (將使用該帳號人設)</label>
+                                   <select 
+                                       value={selectedGenAccountId} 
+                                       onChange={e => setSelectedGenAccountId(e.target.value)}
+                                       className="w-full bg-dark border border-gray-600 rounded p-3 text-white focus:border-primary"
+                                   >
+                                       {accounts.length === 0 && <option value="">無可用帳號</option>}
+                                       {accounts.map(a => <option key={a.id} value={a.id}>{a.username}</option>)}
                                    </select>
+                                   {selectedAccountObj && (
+                                       <div className="mt-2 text-xs text-yellow-400 bg-yellow-900/20 p-2 rounded border border-yellow-800">
+                                           🤖 <strong>當前人設:</strong> {selectedAccountObj.personaPrompt || "未設定 (將使用預設真實網友風格)"}
+                                       </div>
+                                   )}
                                </div>
 
-                               <div className="flex-1 w-full">
-                                   <label className="block text-sm text-gray-400 mb-1">圖片模式 (預設)</label>
-                                   <select value={preSelectedImageMode} onChange={e => setPreSelectedImageMode(e.target.value as ImageSourceType)} className="w-full bg-dark border border-gray-600 rounded p-2 text-white">
-                                       <option value="none">❌ 純文字 (共 1 點)</option>
-                                       <option value="news">📰 新聞原圖 (共 2 點)</option>
-                                       <option value="ai">🎨 AI 繪圖 (共 4 點)</option>
-                                       <option value="stock">📷 擬真圖庫 (共 2 點)</option>
-                                       <option value="upload">📤 手動上傳 (共 1 點)</option>
-                                   </select>
-                               </div>
+                               <div className="flex flex-col gap-4">
+                                   <div>
+                                       <label className="block text-sm text-gray-400 mb-1">生成篇數 (每次建議 1-3 篇)</label>
+                                       <select value={genCount} onChange={e => setGenCount(Number(e.target.value) as 1|2|3)} className="w-full bg-dark border border-gray-600 rounded p-3 text-white">
+                                           <option value="1">1 篇</option>
+                                           <option value="2">2 篇</option>
+                                           <option value="3">3 篇</option>
+                                       </select>
+                                   </div>
 
-                               <div className="flex-1 w-full">
-                                   <button 
-                                        onClick={handleGenerateBatch}
-                                        disabled={isGenerating}
-                                        className="w-full bg-secondary hover:bg-indigo-600 text-white px-6 py-2 rounded font-bold h-[42px] disabled:opacity-50 transition-colors shadow-lg"
-                                    >
-                                        ✨ 生成 (共扣 {calculateCost(genCount, preSelectedImageMode)} 點)
-                                    </button>
+                                   <div>
+                                       <label className="block text-sm text-gray-400 mb-1">圖片模式 (預設)</label>
+                                       <select value={preSelectedImageMode} onChange={e => setPreSelectedImageMode(e.target.value as ImageSourceType)} className="w-full bg-dark border border-gray-600 rounded p-3 text-white">
+                                           <option value="none">❌ 純文字 (共 1 點)</option>
+                                           <option value="news">📰 新聞原圖 (共 2 點)</option>
+                                           <option value="ai">🎨 AI 繪圖 (共 4 點)</option>
+                                           <option value="stock">📷 擬真圖庫 (共 2 點)</option>
+                                           <option value="upload">📤 手動上傳 (共 1 點)</option>
+                                       </select>
+                                   </div>
                                </div>
                            </div>
-                           <div className="text-xs text-gray-500 mt-3 p-3 bg-gray-900/50 rounded border border-gray-700">
+
+                           <button 
+                                onClick={handleGenerateBatch}
+                                disabled={isGenerating || !selectedGenAccountId}
+                                className="w-full bg-secondary hover:bg-indigo-600 text-white px-6 py-3 rounded font-bold text-lg disabled:opacity-50 transition-colors shadow-lg"
+                            >
+                                {isGenerating ? '生成中...' : `✨ 開始生成 (共扣 ${calculateCost(genCount, preSelectedImageMode)} 點)`}
+                            </button>
+                           
+                           <div className="text-xs text-gray-500 mt-4 p-3 bg-gray-900/50 rounded border border-gray-700">
                                <p className="font-bold text-gray-400 mb-1">💰 點數價目表 (Per Post)</p>
                                <ul className="flex flex-wrap gap-4">
                                    <li>📝 純文字: <span className="text-green-400">1 點</span></li>
@@ -812,17 +839,10 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                           
                                           <div className="flex gap-4">
                                               <div className="flex-1">
-                                                  <label className="block text-xs text-gray-400 mb-1">發佈帳號</label>
-                                                  <select 
-                                                      value={post.targetAccountId} 
-                                                      onChange={e => {
-                                                          const val = e.target.value;
-                                                          setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, targetAccountId: val } : p));
-                                                      }}
-                                                      className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-2 text-xs text-white"
-                                                  >
-                                                      {accounts.map(a => <option key={a.id} value={a.id}>{a.username}</option>)}
-                                                  </select>
+                                                  <label className="block text-xs text-gray-400 mb-1">發佈帳號 (已鎖定)</label>
+                                                  <div className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-2 text-xs text-gray-400 cursor-not-allowed">
+                                                       {accounts.find(a => a.id === post.targetAccountId)?.username || "Unknown"}
+                                                  </div>
                                               </div>
                                               <div className="flex-1">
                                                   <label className="block text-xs text-gray-400 mb-1">圖片模式 (升級需補差額)</label>

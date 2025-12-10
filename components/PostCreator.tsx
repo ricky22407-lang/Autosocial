@@ -380,7 +380,13 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
         return;
     }
 
-    if (!confirm(`確定生成圖片嗎？這將消耗 ${cost} 點配額。`)) return;
+    // 判斷是否為重新生成，如果是，提示用戶
+    const isRegeneration = !!mediaUrl;
+    const msg = isRegeneration 
+        ? `確定重新生成圖片嗎？這將再次消耗 ${cost} 點配額。` 
+        : `確定生成圖片嗎？這將消耗 ${cost} 點配額。`;
+    
+    if (!confirm(msg)) return;
 
     const allowed = await checkAndUseQuota(user.user_id, cost);
     if (!allowed) {
@@ -389,18 +395,24 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     }
     onQuotaUpdate();
 
+    // 關鍵修正：立即清除舊圖片，提供明確的視覺回饋
+    setMediaUrl(undefined);
     setIsGeneratingMedia(true);
+
     try {
       const config = getSystemConfig();
       if (config.dryRunMode) {
           await new Promise(r => setTimeout(r, 2000));
           setMediaUrl("https://placehold.co/1024x1024?text=Dry+Run+Image");
-          setIsGeneratingMedia(false);
           return;
       }
-      const isRegeneration = !!mediaUrl;
-      const variationSuffix = isRegeneration ? ` (Create a different variation, RandomSeed: ${Date.now()})` : '';
+
+      // 強制加入隨機種子，確保 API (或 Fallback) 知道這是一個新的請求
+      const seed = Math.floor(Math.random() * 999999);
+      const variationSuffix = ` --seed ${seed} --random ${Date.now()}`; 
       const promptToSend = draft.imagePrompt + variationSuffix;
+      
+      console.log(`[PostCreator] Requesting Image with forced randomness: ${seed}`);
       const url = await generateImage(promptToSend);
       setMediaUrl(url);
 
@@ -409,6 +421,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
       let msg = e.message;
       if (msg.includes('429')) msg = "API 配額額滿 (429 Too Many Requests)。系統正在切換 Key，請重試。";
       alert(`素材生成失敗: ${msg}`);
+      // 不要恢復舊圖片，讓用戶知道這次失敗了，需要重試
     } finally {
       setIsGeneratingMedia(false);
     }
@@ -533,7 +546,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   // Enhanced Wait UI
   if (isLoadingTopics) return <LoadingOverlay message="AI 正在搜尋熱門話題" detail="正在分析新聞來源與社群趨勢..." />;
   if (isGeneratingDraft) return <LoadingOverlay message="AI 正在撰寫文案" detail={`針對主題「${topic}」進行創意發想中...`} />;
-  if (isGeneratingMedia) return <LoadingOverlay message="AI 正在繪製圖片" detail="正在調用高效能繪圖模型，這可能需要幾秒鐘..." />;
+  if (isGeneratingMedia) return <LoadingOverlay message="AI 正在繪製圖片" detail="正在調用高效能繪圖模型 (優先呼叫 Gemini Pro)，請稍候..." />;
   if (isPublishing) return <LoadingOverlay message="正在發佈貼文" detail={syncInstagram ? "正在同步發送至 Facebook 與 Instagram..." : "正在發送至 Facebook..."} />;
 
   if (step === 1) {
@@ -686,7 +699,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                         
                         {mediaUrl && (
                             <button type="button" onClick={handleGenerateMedia} className="w-full mt-2 border border-yellow-600 hover:bg-yellow-900/30 py-2 rounded text-yellow-500 text-sm font-bold transition-colors">
-                                🔄 不滿意？重新生成
+                                🔄 不滿意？重新生成 (立即更新種子)
                             </button>
                         )}
                     </>
@@ -721,7 +734,10 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                             )}
                         </>
                     ) : (
-                        <span className="text-gray-400">素材預覽區</span>
+                        <div className="text-gray-400 flex flex-col items-center">
+                            {isGeneratingMedia ? <div className="loader border-gray-400 mb-2"></div> : null}
+                            <span>{isGeneratingMedia ? 'AI 繪圖中...' : '素材預覽區'}</span>
+                        </div>
                     )}
                 </div>
                 {ctaPlacement === 'comment' && draft.firstComment && (

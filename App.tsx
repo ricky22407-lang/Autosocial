@@ -2,6 +2,8 @@
 
 
 
+
+
 import React, { useState, useEffect } from 'react';
 import { AppView, BrandSettings, Post, UserProfile } from './types';
 
@@ -243,7 +245,13 @@ const App: React.FC = () => {
       {/* #region Sidebar Navigation */}
       <aside className="w-full md:w-64 bg-card border-r border-gray-700 flex flex-col">
         <div className="p-6 border-b border-gray-700">
-          <h1 className="text-2xl font-bold text-blue-400">AutoSocial AI</h1>
+          <h1 
+            className="text-2xl font-bold text-blue-400 cursor-pointer hover:text-blue-300 transition-colors"
+            onClick={() => setView(AppView.CREATE)}
+            title="回到首頁"
+          >
+            AutoSocial AI
+          </h1>
           <div className="mt-2 text-xs text-gray-400">
             {userProfile ? (
                 <>
