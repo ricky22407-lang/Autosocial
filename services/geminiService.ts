@@ -404,8 +404,8 @@ export const generateImage = async (prompt: string): Promise<string> => {
     // 1. Ensure Prompt is English (Imagen models require English)
     const englishPrompt = await ensureEnglishPrompt(prompt);
     
-    // 2. Enhance Prompt
-    const enhancedPrompt = `${englishPrompt}, hyperrealistic, highly detailed, cinematic lighting, 8k resolution, photorealistic, photography style`;
+    // 2. Enhance Prompt - Removed "8k" and "detailed" as per request for efficiency/relevance
+    const enhancedPrompt = `${englishPrompt}, photorealistic, cinematic lighting, photography style`;
 
     try {
         console.log("🎨 [ImageGen] Attempting to generate image via Backend (Waterfall: Imagen 3.0 -> Flash -> OpenAI)...");

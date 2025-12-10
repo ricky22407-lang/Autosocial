@@ -1,4 +1,5 @@
 
+
 import { BrandSettings, AutoPilotConfig } from '../types';
 import { getTrendingTopics, generatePostDraft, generateImage, generateVideo, generateThreadsBatch } from './geminiService';
 import { publishPostToFacebook } from './facebookService';
@@ -17,7 +18,7 @@ const generateImageUrlLocal = (prompt: string, query: string, mode: 'ai_url' | '
         // Updated to match ThreadsNurturePanel Photorealistic logic
         // Replaces LoremFlickr with Pollinations + Realistic Prompt
         // Note: Removing 'model=flux-realism' as it might cause 404s.
-        const stockPrompt = `${query}, photorealistic, 4k, highly detailed, real photography, cinematic lighting, Canon EOS R5, f/1.8, depth of field, natural colors`;
+        const stockPrompt = `${query}, photorealistic, cinematic lighting, real photography, no 3d render, no illustration, hyperrealistic`;
         const encodedPrompt = encodeURIComponent(stockPrompt);
         return `https://image.pollinations.ai/prompt/${encodedPrompt}?n=${seed}&model=flux`;
     }

@@ -106,7 +106,7 @@ export interface BrandSettings {
   services: string;
   website: string;
   productInfo: string;
-  productContext?: string; // New: Deeply analyzed product knowledge base
+  productContext?: string; // New: Deeply analyzed product knowledge base (TXT analysis result)
   brandTone: string;
   persona: string;
   logoUrl?: string; // New: Base64 or URL for Watermark
