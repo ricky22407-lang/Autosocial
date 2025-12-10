@@ -1,5 +1,6 @@
 
-import { BrandSettings, TrendingTopic, CachedTrendData } from "../types";
+
+import { BrandSettings, TrendingTopic, CachedTrendData, CtaItem } from "../types";
 import { db } from "./firebase"; // Using compat export
 
 // Local Type Definition to replace SDK Import and maintain type safety
@@ -253,33 +254,109 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
   return topics;
 };
 
+// Analysis Service
+export const analyzeBrandTone = async (posts: string[]): Promise<{ tone: string, persona: string }> => {
+    if (!posts || posts.length === 0) throw new Error("無貼文可分析");
+    
+    const combinedPosts = posts.join('\n\n---\n\n');
+    const prompt = `
+      以下是某個 Facebook 粉絲專頁的近期貼文。請分析這些內容，並提取出該品牌的「語氣設定 (Tone)」與「小編人設 (Persona)」。
+      
+      請著重分析：
+      1. 是否使用表情符號？風格為何？
+      2. 斷句習慣 (例如：喜歡短句、是否常換行)。
+      3. 口頭禪或常用語助詞。
+      4. 對粉絲的稱呼。
+      
+      貼文內容：
+      ${combinedPosts.substring(0, 8000)}
+
+      請回傳 JSON: { "tone": "描述...", "persona": "描述..." }
+    `;
+
+    const response = await callBackend('generateContent', {
+        model: "gemini-2.5-flash",
+        contents: prompt,
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                    tone: { type: Type.STRING },
+                    persona: { type: Type.STRING }
+                }
+            }
+        }
+    });
+
+    return JSON.parse(cleanJsonText(response.text || '{}'));
+};
+
+export const analyzeProductFile = async (text: string): Promise<string> => {
+    const prompt = `
+      任務：分析以下產品/服務文件，並提取出行銷用的「核心知識庫」。
+      請條列出：
+      1. 產品核心價值 (USP)
+      2. 解決的痛點
+      3. 主要規格/特色
+      4. 適合的受眾
+      
+      請用條列式摘要，這份資料將作為未來寫文案的最高指導原則。
+      
+      文件內容：
+      ${text.substring(0, 15000)}
+    `;
+
+    const response = await callBackend('generateContent', {
+        model: "gemini-2.5-flash",
+        contents: prompt
+    });
+
+    return response.text || "";
+};
+
 export const generatePostDraft = async (
     topic: string, 
     settings: BrandSettings, 
-    options: { length: string, ctaLinks: string[], tempHashtags: string },
+    options: { length: string, ctaList: CtaItem[], tempHashtags: string },
     topicContext?: TrendingTopic
 ) => {
-  const ctaInstruction = options.ctaLinks.length > 0 
-      ? `包含以下連結的行動呼籲 (CTA)：\n${options.ctaLinks.join('\n')}` 
-      : '無特定連結';
+  // Construct CTA Prompt
+  let ctaPrompt = "無特定 CTA";
+  if (options.ctaList && options.ctaList.length > 0) {
+      ctaPrompt = "必須包含以下行動呼籲 (CTA) 資訊，請將其整理成吸引人的語句 (不要只放連結)：\n";
+      options.ctaList.forEach(cta => {
+          ctaPrompt += `- ${cta.text}: ${cta.url}\n`;
+      });
+  }
+
   const contextPrompt = topicContext ? `\n參考新聞: ${topicContext.title} (${topicContext.url})` : '';
+  const productContext = settings.productContext ? `\n[核心產品知識庫 - 必須融入貼文]:\n${settings.productContext}\n` : '';
 
   const prompt = `
     品牌: ${settings.industry}
-    語氣: ${settings.brandTone}
+    語氣設定: ${settings.brandTone}
     小編人設: ${settings.persona}
-    任務: 針對主題「${topic}」${contextPrompt} 寫一篇 FB 貼文。
-    要求:
-    - 字數: ${options.length}
-    - 結構: 開頭吸睛 -> 內容價值 -> 結尾 CTA
-    - CTA: ${ctaInstruction} (請將 CTA 文案獨立放在 JSON 的 ctaText 欄位)
-    - Hashtags: ${settings.fixedHashtags} ${options.tempHashtags} (放在文末)
-    - IMPORTANT: imagePrompt must be in ENGLISH, detailed, and describe a scene (Midjourney style).
+    ${productContext}
+    
+    任務: 針對主題「${topic}」${contextPrompt} 寫一篇 Facebook 貼文。
+    
+    [嚴格格式要求 - Structure Rules]
+    1. **強制分段**：Facebook 貼文需要高可讀性。請在每個邏輯段落之間使用「雙換行」留白。
+    2. **禁止 Markdown**：Facebook 不支援 Bold/Italic。請勿使用 **粗體** 或 *斜體* 符號。
+    3. **表情符號**：請依照品牌語氣適量使用 Emoji。
+    
+    [內容要求]
+    1. 字數: ${options.length}
+    2. 結構: 開頭吸睛 -> 內容價值 (融入產品知識) -> 結尾 CTA
+    3. CTA 處理: ${ctaPrompt} (請將完整的 CTA 文案包含連結，獨立放在 JSON 的 ctaText 欄位)
+    4. Hashtags: ${settings.fixedHashtags} ${options.tempHashtags} (放在文末)
+    5. Image Prompt: IMPORTANT - Must be in ENGLISH, detailed, describing a scene (Midjourney style).
 
     Output JSON Format:
     {
       "caption": "...",
-      "ctaText": "...",
+      "ctaText": "...", 
       "imagePrompt": "Detailed English image prompt...",
       "videoPrompt": "Detailed English video prompt..."
     }

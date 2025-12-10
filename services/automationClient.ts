@@ -57,7 +57,7 @@ export const AutomationClient = {
     // 3. Generate Content
     const draft = await generatePostDraft(topic, settings, {
         length: '150-300字',
-        ctaLinks: [],
+        ctaList: [],
         tempHashtags: ''
     });
 

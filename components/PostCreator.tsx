@@ -1,6 +1,7 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
-import { BrandSettings, Post, TrendingTopic, UserProfile } from '../types';
+import { BrandSettings, Post, TrendingTopic, UserProfile, CtaItem } from '../types';
 import { getTrendingTopics, generatePostDraft, generateImage } from '../services/geminiService';
 import { publishPostToFacebook } from '../services/facebookService';
 import { checkAndUseQuota, getSystemConfig } from '../services/authService';
@@ -66,7 +67,10 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   const [isDemoMode, setIsDemoMode] = useState(false);
 
   const [captionLength, setCaptionLength] = useState<string>('150-300字');
-  const [ctaLinks, setCtaLinks] = useState<string[]>(['']);
+  
+  // Updated CTA State: List of Objects
+  const [ctaList, setCtaList] = useState<CtaItem[]>([{ text: '👉 點擊了解', url: '' }]);
+  
   const [ctaPlacement, setCtaPlacement] = useState<'caption' | 'comment'>('caption');
   const [tempHashtags, setTempHashtags] = useState<string>('');
 
@@ -101,7 +105,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     setTopic('');
     setSelectedTopicData(null); 
     setCaptionLength('150-300字');
-    setCtaLinks(['']);
+    setCtaList([{ text: '👉 點擊了解', url: '' }]);
     setCtaPlacement('caption');
     setTempHashtags('');
     setDraft({ caption: '', firstComment: '', imagePrompt: '', videoPrompt: '' });
@@ -143,7 +147,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                 setTopic(parsed.topic || '');
                 setSelectedTopicData(parsed.selectedTopicData || null);
                 setCaptionLength(parsed.captionLength || '150-300字');
-                setCtaLinks(parsed.ctaLinks || ['']);
+                setCtaList(parsed.ctaList || [{ text: '👉 點擊了解', url: '' }]);
                 setCtaPlacement(parsed.ctaPlacement || 'caption');
                 setTempHashtags(parsed.tempHashtags || '');
                 setDraft(parsed.draft || { caption: '', firstComment: '', imagePrompt: '', videoPrompt: '' });
@@ -173,7 +177,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
           topic,
           selectedTopicData,
           captionLength,
-          ctaLinks,
+          ctaList,
           ctaPlacement,
           tempHashtags,
           draft,
@@ -185,7 +189,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
           isDemoMode
       };
       localStorage.setItem(DRAFT_KEY, JSON.stringify(stateToSave));
-  }, [step, topic, selectedTopicData, captionLength, ctaLinks, ctaPlacement, tempHashtags, draft, mediaUrl, mediaSource, selectedMediaType, scheduleDate, syncInstagram, editPost, isDemoMode]);
+  }, [step, topic, selectedTopicData, captionLength, ctaList, ctaPlacement, tempHashtags, draft, mediaUrl, mediaSource, selectedMediaType, scheduleDate, syncInstagram, editPost, isDemoMode]);
 
   useEffect(() => {
     if (isInputHighlight) {
@@ -242,17 +246,17 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
       setIsInputHighlight(true);
   };
 
-  const handleCtaLinkChange = (index: number, value: string) => {
-    const newLinks = [...ctaLinks];
-    newLinks[index] = value;
-    setCtaLinks(newLinks);
+  const handleCtaChange = (index: number, field: 'text' | 'url', value: string) => {
+    const newList = [...ctaList];
+    newList[index] = { ...newList[index], [field]: value };
+    setCtaList(newList);
   };
-  const addCtaLink = () => { if (ctaLinks.length < 5) setCtaLinks([...ctaLinks, '']); };
-  const removeCtaLink = (index: number) => {
-    if (ctaLinks.length > 1) {
-      setCtaLinks(ctaLinks.filter((_, i) => i !== index));
+  const addCtaItem = () => { if (ctaList.length < 5) setCtaList([...ctaList, { text: '👉 了解更多', url: '' }]); };
+  const removeCtaItem = (index: number) => {
+    if (ctaList.length > 1) {
+      setCtaList(ctaList.filter((_, i) => i !== index));
     } else {
-      setCtaLinks(['']);
+      setCtaList([{ text: '👉 了解更多', url: '' }]);
     }
   };
 
@@ -302,7 +306,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     setStep(2);
     setIsGeneratingDraft(true);
     try {
-      const validLinks = ctaLinks.filter(l => l.trim() !== '');
+      const validCtaList = ctaList.filter(l => l.url.trim() !== '');
       const finalLength = isFreeTier ? '150-300字' : captionLength;
 
       const generated = await generatePostDraft(
@@ -310,7 +314,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
           settings, 
           {
             length: finalLength,
-            ctaLinks: validLinks,
+            ctaList: validCtaList,
             tempHashtags: '' 
           },
           selectedTopicData || undefined
@@ -324,7 +328,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
 
       let finalFirstComment = '';
 
-      if (generated.ctaText && validLinks.length > 0) {
+      if (generated.ctaText && validCtaList.length > 0) {
         if (ctaPlacement === 'caption' || isFreeTier) {
           finalCaption = `${finalCaption}\n\n${generated.ctaText}`;
         } else {
@@ -603,20 +607,32 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                   </div>
 
                   <div>
-                      <label className="block text-sm text-gray-400 mb-2">行動呼籲 (CTA) 連結</label>
-                      <div className="space-y-2">
-                          {ctaLinks.map((link, index) => (
-                             <div key={index} className="flex gap-2">
-                                <input value={link} onChange={e => handleCtaLinkChange(index, e.target.value)} placeholder="https://example.com" className="flex-1 bg-dark border border-gray-600 rounded p-2 text-white text-sm" />
-                                <button type="button" onClick={() => removeCtaLink(index)} className="text-red-400 px-2">×</button>
+                      <label className="block text-sm text-gray-400 mb-2">行動呼籲 (CTA) 設定</label>
+                      <div className="space-y-3">
+                          {ctaList.map((item, index) => (
+                             <div key={index} className="flex gap-2 items-center">
+                                <input 
+                                    value={item.text} 
+                                    onChange={e => handleCtaChange(index, 'text', e.target.value)}
+                                    placeholder="呼籲詞 (如：加Line)" 
+                                    className="w-1/3 bg-dark border border-gray-600 rounded p-2 text-white text-sm" 
+                                />
+                                <input 
+                                    value={item.url} 
+                                    onChange={e => handleCtaChange(index, 'url', e.target.value)}
+                                    placeholder="https://..." 
+                                    className="flex-1 bg-dark border border-gray-600 rounded p-2 text-white text-sm" 
+                                />
+                                <button type="button" onClick={() => removeCtaItem(index)} className="text-red-400 px-2">×</button>
                              </div>
                           ))}
-                          {ctaLinks.length < 5 && <button type="button" onClick={addCtaLink} className="text-sm text-blue-400">+ 新增連結</button>}
+                          {ctaList.length < 5 && <button type="button" onClick={addCtaItem} className="text-sm text-blue-400">+ 新增 CTA 連結</button>}
                       </div>
+                      
                       <div className="mt-4 flex gap-4 text-sm bg-dark/50 p-3 rounded border border-gray-800">
                           <label className="block text-gray-400 mr-2">CTA 位置:</label>
-                          <label className="flex items-center gap-1 text-gray-300 cursor-pointer"><input type="radio" checked={ctaPlacement === 'caption'} onChange={() => setCtaPlacement('caption')} /> 內文</label>
-                          <label className={`flex items-center gap-1 cursor-pointer ${isFreeTier ? 'text-gray-500 cursor-not-allowed' : 'text-gray-300'}`}><input type="radio" checked={ctaPlacement === 'comment'} onChange={() => setCtaPlacement('comment')} disabled={isFreeTier} /> 留言 {isFreeTier && '🔒'}</label>
+                          <label className="flex items-center gap-1 text-gray-300 cursor-pointer"><input type="radio" checked={ctaPlacement === 'caption'} onChange={() => setCtaPlacement('caption')} /> 內文文末</label>
+                          <label className={`flex items-center gap-1 cursor-pointer ${isFreeTier ? 'text-gray-500 cursor-not-allowed' : 'text-gray-300'}`}><input type="radio" checked={ctaPlacement === 'comment'} onChange={() => setCtaPlacement('comment')} disabled={isFreeTier} /> 第一則留言 {isFreeTier && '🔒'}</label>
                       </div>
                   </div>
 
@@ -743,7 +759,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                 {ctaPlacement === 'comment' && draft.firstComment && (
                     <div className="mt-4 pt-2 border-t border-gray-200">
                         <p className="text-xs font-bold text-gray-600 mb-1">留言</p>
-                        <div className="bg-gray-100 p-2 rounded text-sm">
+                        <div className="bg-gray-100 p-2 rounded text-sm whitespace-pre-wrap">
                             <span className="font-bold mr-1">AutoSocial</span>
                             {draft.firstComment}
                         </div>

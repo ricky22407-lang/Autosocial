@@ -106,6 +106,7 @@ export interface BrandSettings {
   services: string;
   website: string;
   productInfo: string;
+  productContext?: string; // New: Deeply analyzed product knowledge base
   brandTone: string;
   persona: string;
   logoUrl?: string; // New: Base64 or URL for Watermark
@@ -154,6 +155,11 @@ export interface AutoPilotConfig {
 // ==========================================
 // Domain: Content & Post
 // ==========================================
+
+export interface CtaItem {
+  text: string;
+  url: string;
+}
 
 export interface Post {
   id: string;

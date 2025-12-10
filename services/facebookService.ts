@@ -1,4 +1,5 @@
 
+
 import { AnalyticsData, TopPostData } from "../types";
 
 const FB_API_VERSION = 'v17.0'; 
@@ -168,7 +169,10 @@ export const publishPostToFacebook = async (
     if (firstComment && postId) {
       try {
         await graphApi(`${postId}/comments`, token, 'POST', { message: firstComment });
-      } catch (e) { console.warn("Failed to post first comment", e); }
+      } catch (e) { 
+          console.warn("Failed to post first comment", e); 
+          // If first comment fails, don't fail the whole post, but maybe warn?
+      }
     }
 
     // 3. Instagram Sync Logic
@@ -275,4 +279,18 @@ export const fetchPageTopPosts = async (pageId: string, token: string): Promise<
 
 export const refreshLongLivedToken = async (currentToken: string): Promise<{ success: boolean; newToken?: string; expiry?: number }> => {
     return { success: false };
+};
+
+export const fetchRecentPostCaptions = async (pageId: string, token: string, limit: number = 20): Promise<string[]> => {
+    try {
+        const res = await graphApi(`${pageId}/feed?fields=message&limit=${limit}`, token, 'GET');
+        const posts = res.data || [];
+        // Filter empty messages
+        return posts
+            .map((p: any) => p.message)
+            .filter((m: any) => m && typeof m === 'string' && m.length > 20);
+    } catch (e: any) {
+        console.error("Failed to fetch recent captions:", e);
+        throw new Error("無法讀取粉專貼文，請檢查權限");
+    }
 };

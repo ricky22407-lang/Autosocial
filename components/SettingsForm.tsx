@@ -1,7 +1,9 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { BrandSettings, ReferenceFile } from '../types';
-import { validateFacebookToken, refreshLongLivedToken } from '../services/facebookService';
+import { validateFacebookToken, refreshLongLivedToken, fetchRecentPostCaptions } from '../services/facebookService';
+import { analyzeBrandTone, analyzeProductFile } from '../services/geminiService';
 import { getCurrentUser, updateUserSettings } from '../services/authService';
 
 interface Props {
@@ -18,6 +20,8 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
   // Fix: Add safety check (|| []) to prevent crash if competitors is null/undefined
   const [competitorsRaw, setCompetitorsRaw] = useState((initialSettings.competitors || []).join(', '));
   const [isSaving, setIsSaving] = useState(false);
+  const [isAnalyzingTone, setIsAnalyzingTone] = useState(false);
+  const [isAnalyzingProduct, setIsAnalyzingProduct] = useState(false);
 
   // Auto-save logic to localStorage to prevent data loss on refresh
   useEffect(() => {
@@ -104,6 +108,23 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
     }
   };
 
+  const handleProductDocUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      
+      setIsAnalyzingProduct(true);
+      try {
+          const text = await file.text();
+          const analysis = await analyzeProductFile(text);
+          setFormData(prev => ({ ...prev, productContext: analysis }));
+          alert("產品文件分析完成！已將精華存入「核心知識庫」。");
+      } catch (e: any) {
+          alert(`分析失敗: ${e.message}`);
+      } finally {
+          setIsAnalyzingProduct(false);
+      }
+  };
+
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) return;
@@ -119,6 +140,32 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
           setFormData(prev => ({ ...prev, logoUrl: base64 }));
       };
       reader.readAsDataURL(file);
+  };
+
+  const handleAnalyzeTone = async () => {
+      if (!formData.facebookPageId || !formData.facebookToken) {
+          alert("請先設定 Facebook Page ID 與 Token");
+          return;
+      }
+      setIsAnalyzingTone(true);
+      try {
+          const posts = await fetchRecentPostCaptions(formData.facebookPageId, formData.facebookToken);
+          if (posts.length === 0) {
+              alert("讀取不到貼文，無法分析");
+              return;
+          }
+          const result = await analyzeBrandTone(posts);
+          setFormData(prev => ({
+              ...prev,
+              brandTone: result.tone,
+              persona: result.persona
+          }));
+          alert("分析完成！已自動更新「品牌語氣」與「人設」。");
+      } catch (e: any) {
+          alert(`分析失敗: ${e.message}`);
+      } finally {
+          setIsAnalyzingTone(false);
+      }
   };
 
   const removeFile = (index: number) => {
@@ -147,78 +194,10 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-6 bg-card rounded-xl shadow-lg border border-gray-700 animate-fade-in">
+    <div className="max-w-4xl mx-auto p-6 bg-card rounded-xl shadow-lg border border-gray-700 animate-fade-in pb-20">
       <h2 className="text-2xl font-bold mb-6 text-white">品牌與 API 設定</h2>
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Brand Identity */}
-        <div className="space-y-4">
-          <h3 className="text-lg font-semibold text-primary">品牌識別</h3>
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">產業類別</label>
-            <input 
-              name="industry" 
-              value={formData.industry || ''} 
-              onChange={handleChange}
-              className="w-full bg-dark border border-gray-600 rounded p-2 text-white focus:border-primary outline-none"
-              placeholder="例如：科技業、零售業"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">服務項目</label>
-            <input 
-              name="services" 
-              value={formData.services || ''} 
-              onChange={handleChange}
-              className="w-full bg-dark border border-gray-600 rounded p-2 text-white focus:border-primary outline-none"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">品牌語氣</label>
-            <select 
-              name="brandTone" 
-              value={formData.brandTone || 'Professional'} 
-              onChange={handleChange}
-              className="w-full bg-dark border border-gray-600 rounded p-2 text-white focus:border-primary outline-none"
-            >
-              <option value="Professional">專業穩重</option>
-              <option value="Friendly">親切友善</option>
-              <option value="Humorous">幽默風趣</option>
-              <option value="Luxurious">奢華質感</option>
-              <option value="Minimalist">極簡風格</option>
-            </select>
-          </div>
-          
-           {/* Logo Upload */}
-           <div>
-               <label className="block text-sm text-gray-400 mb-1">品牌 Logo (浮水印用)</label>
-               <div className="flex items-center gap-4">
-                   {formData.logoUrl && (
-                       <img src={formData.logoUrl} alt="Logo" className="w-12 h-12 object-contain bg-white rounded" />
-                   )}
-                   <label className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1 rounded cursor-pointer text-sm">
-                       上傳圖片 (Max 500KB)
-                       <input type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
-                   </label>
-                   {formData.logoUrl && (
-                       <button onClick={() => setFormData(p => ({...p, logoUrl: undefined}))} className="text-red-400 text-xs">移除</button>
-                   )}
-               </div>
-           </div>
-
-           <div>
-            <label className="block text-sm text-gray-400 mb-1">社群小編人設 (Persona)</label>
-            <textarea 
-              name="persona" 
-              value={formData.persona || ''} 
-              onChange={handleChange}
-              rows={3}
-              className="w-full bg-dark border border-gray-600 rounded p-2 text-white focus:border-primary outline-none"
-              placeholder="例如：像鄰家大姊姊一樣..."
-            />
-          </div>
-        </div>
-
         {/* Configuration */}
         <div className="space-y-4">
           <h3 className="text-lg font-semibold text-primary">系統與 API 設定</h3>
@@ -261,6 +240,96 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
             </div>
             {refreshMsg && <p className={`text-xs mt-1 ${refreshMsg.includes('❌') || tokenStatus === 'invalid' ? 'text-red-400' : 'text-green-400'}`}>{refreshMsg}</p>}
           </div>
+          
+           {/* Logo Upload */}
+           <div>
+               <label className="block text-sm text-gray-400 mb-1">品牌 Logo (浮水印用)</label>
+               <div className="flex items-center gap-4">
+                   {formData.logoUrl && (
+                       <img src={formData.logoUrl} alt="Logo" className="w-12 h-12 object-contain bg-white rounded" />
+                   )}
+                   <label className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1 rounded cursor-pointer text-sm">
+                       上傳圖片 (Max 500KB)
+                       <input type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
+                   </label>
+                   {formData.logoUrl && (
+                       <button onClick={() => setFormData(p => ({...p, logoUrl: undefined}))} className="text-red-400 text-xs">移除</button>
+                   )}
+               </div>
+           </div>
+        </div>
+
+        {/* Brand Identity */}
+        <div className="space-y-4">
+          <h3 className="text-lg font-semibold text-primary">品牌識別</h3>
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">產業類別</label>
+            <input 
+              name="industry" 
+              value={formData.industry || ''} 
+              onChange={handleChange}
+              className="w-full bg-dark border border-gray-600 rounded p-2 text-white focus:border-primary outline-none"
+              placeholder="例如：科技業、零售業"
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">服務項目</label>
+            <input 
+              name="services" 
+              value={formData.services || ''} 
+              onChange={handleChange}
+              className="w-full bg-dark border border-gray-600 rounded p-2 text-white focus:border-primary outline-none"
+            />
+          </div>
+
+          {/* AI Tone Analysis Section */}
+          <div className="p-4 bg-purple-900/10 border border-purple-500/30 rounded-lg space-y-3">
+             <div className="flex justify-between items-center">
+                 <label className="block text-sm text-purple-300 font-bold">品牌語氣 & 小編人設 (AI)</label>
+                 <button 
+                    onClick={handleAnalyzeTone}
+                    disabled={isAnalyzingTone}
+                    className="text-xs bg-purple-600 hover:bg-purple-500 text-white px-3 py-1 rounded disabled:opacity-50"
+                 >
+                     {isAnalyzingTone ? 'AI 分析中...' : '🧠 從粉專貼文自動分析'}
+                 </button>
+             </div>
+             <input 
+                name="brandTone" 
+                value={formData.brandTone || ''} 
+                onChange={handleChange}
+                placeholder="品牌語氣 (可手動或由 AI 分析)"
+                className="w-full bg-dark border border-gray-600 rounded p-2 text-white text-sm"
+             />
+             <textarea 
+                name="persona" 
+                value={formData.persona || ''} 
+                onChange={handleChange}
+                rows={3}
+                className="w-full bg-dark border border-gray-600 rounded p-2 text-white text-sm"
+                placeholder="小編人設 (可手動或由 AI 分析)"
+             />
+          </div>
+
+          {/* Product Knowledge Base */}
+          <div className="p-4 bg-green-900/10 border border-green-500/30 rounded-lg space-y-3">
+             <div className="flex justify-between items-center">
+                 <label className="block text-sm text-green-300 font-bold">產品核心知識庫 (AI)</label>
+                 <label className="text-xs bg-green-600 hover:bg-green-500 text-white px-3 py-1 rounded cursor-pointer">
+                     {isAnalyzingProduct ? '正在解析...' : '📄 上傳文件並解析'}
+                     <input type="file" onChange={handleProductDocUpload} className="hidden" accept=".txt,.md,.csv" disabled={isAnalyzingProduct} />
+                 </label>
+             </div>
+             <p className="text-xs text-gray-400">AI 將分析上傳的文件，提取產品核心價值與規格，作為未來寫文案的最高指導原則。</p>
+             <textarea 
+                name="productContext" 
+                value={formData.productContext || ''} 
+                onChange={handleChange}
+                rows={5}
+                className="w-full bg-dark border border-gray-600 rounded p-2 text-white text-sm"
+                placeholder="此處將顯示 AI 分析後的產品精華摘要..."
+             />
+          </div>
 
           <div>
             <label className="block text-sm text-gray-400 mb-1">固定 Hashtags</label>
@@ -282,19 +351,6 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
                 className="w-full bg-dark border border-gray-600 rounded p-2 text-white focus:border-primary outline-none"
                 placeholder="例如：apple.com, google.com (支援全形逗號)"
               />
-          </div>
-
-          <div>
-             <label className="block text-sm text-gray-400 mb-1">參考資料上傳 (純文字/MD)</label>
-             <input type="file" onChange={handleFileUpload} className="text-sm text-gray-400"/>
-             <ul className="mt-2 space-y-1">
-               {(formData.referenceFiles || []).map((file, i) => (
-                 <li key={i} className="flex items-center justify-between bg-dark p-2 rounded text-xs">
-                   <span className="truncate max-w-[200px]">{file.name}</span>
-                   <button onClick={() => removeFile(i)} className="text-red-400 hover:text-red-300">×</button>
-                 </li>
-               ))}
-             </ul>
           </div>
         </div>
       </div>
