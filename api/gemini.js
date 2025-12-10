@@ -1,7 +1,4 @@
 
-
-
-
 module.exports = async function (req, res) {
   // CORS Headers
   res.setHeader('Access-Control-Allow-Credentials', true);
@@ -98,7 +95,7 @@ module.exports = async function (req, res) {
           throw new Error("Server Configuration Error: API_KEY is missing in environment variables.");
       }
 
-      const maxRetries = 2; // Retries per key
+      const maxRetries = 1; // Lower retries to speed up fallback
 
       try {
           const apiKey = keyManager.getCurrentKey();
@@ -135,7 +132,8 @@ module.exports = async function (req, res) {
                       // Reset retries for the new key
                       return executeWithRetry(operation, 0);
                   } else {
-                      throw new Error("All Gemini API keys exhausted.");
+                      // Throw distinct error to trigger next model in waterfall
+                      throw new Error("KEY_EXHAUSTED");
                   }
               }
           } else {
@@ -199,7 +197,7 @@ module.exports = async function (req, res) {
           const result = await runGeneration(model);
           return res.status(200).json(result);
       } catch (e) {
-          // Gemini Fallback Logic
+          // Gemini Fallback Logic for text
           if (model.includes('gemini-3-pro') || model.includes('gemini-1.5-pro')) {
               console.warn(`[API] ${model} failed. Downgrading to gemini-2.5-flash.`);
               try {
@@ -215,59 +213,74 @@ module.exports = async function (req, res) {
     
     // --- Action: generateImages ---
     else if (action === 'generateImages') {
-      const { prompt, config } = payload;
-      // Note: We ignore the 'model' passed from frontend and implement the Waterfall here
+      const { prompt } = payload;
       
-      // STEP 1: Gemini 3 Pro (Best Quality, High Latency)
+      // IMPORTANT: Gemini Nano/Banana models (2.5-flash-image, 3-pro-image-preview) 
+      // MUST use `generateContent` in the Node SDK.
+      
+      const generateViaGemini = async (ai, modelName) => {
+          console.log(`[Image Gen] Attempting with ${modelName}...`);
+          
+          const response = await ai.models.generateContent({
+              model: modelName,
+              contents: { parts: [{ text: prompt }] },
+              config: { imageConfig: { aspectRatio: "1:1" } }
+          });
+          
+          let b64 = null;
+          // Extract image from parts (usually inlineData)
+          if (response.candidates?.[0]?.content?.parts) {
+            for (const part of response.candidates[0].content.parts) {
+                if (part.inlineData && part.inlineData.data) {
+                    b64 = part.inlineData.data;
+                    break;
+                }
+            }
+          }
+          
+          if (!b64) throw new Error(`No image data received from ${modelName}`);
+          return { base64: b64 };
+      };
+
+      // === WATERFALL STRATEGY ===
+      
+      // PRIORITY 1: Gemini 3 Pro (High Quality)
       try {
           console.log("[Image Gen] Attempt 1: Gemini 3 Pro (Prioritized)");
           const result = await executeWithRetry(async (ai) => {
-             const response = await ai.models.generateImages({
-                 model: 'gemini-3-pro-image-preview',
-                 prompt: prompt,
-                 config: config
-             });
-             const b64 = response.generatedImages?.[0]?.image?.imageBytes;
-             if(!b64) throw new Error("No image bytes returned");
-             return { base64: b64 };
+              return await generateViaGemini(ai, 'gemini-3-pro-image-preview');
           });
+          console.log("[Image Gen] Success with Gemini 3 Pro");
           return res.status(200).json(result);
       } catch (errorPro) {
           console.warn(`[Image Gen] Gemini 3 Pro failed (${errorPro.message}). Trying Gemini 2.5 Flash...`);
           
-          // STEP 2: Gemini 2.5 Flash (Fastest, Good Quality, Resilient to Timeout)
+          // PRIORITY 2: Gemini 2.5 Flash (Fast, Efficient)
           try {
              console.log("[Image Gen] Attempt 2: Gemini 2.5 Flash Image");
              const result = await executeWithRetry(async (ai) => {
-                 // Note: Flash Image uses generateContent, not generateImages
-                 const response = await ai.models.generateContent({
-                     model: 'gemini-2.5-flash-image',
-                     contents: { parts: [{ text: prompt }] },
-                     config: { imageConfig: { aspectRatio: "1:1" } }
-                 });
-                 let b64 = null;
-                 for (const part of response.candidates?.[0]?.content?.parts || []) {
-                    if (part.inlineData) {
-                        b64 = part.inlineData.data;
-                        break;
-                    }
-                 }
-                 if (!b64) throw new Error("No image data in Flash response");
-                 return { base64: b64 };
+                 return await generateViaGemini(ai, 'gemini-2.5-flash-image');
              });
+             console.log("[Image Gen] Success with Gemini 2.5 Flash");
              return res.status(200).json(result);
              
           } catch (errorFlash) {
-             console.warn(`[Image Gen] Gemini Flash failed (${errorFlash.message}). Trying DALL-E 3...`);
+             console.warn(`[Image Gen] Gemini Flash failed (${errorFlash.message}). Checking OpenAI...`);
              
-             // STEP 3: OpenAI DALL-E 3 (Expensive but Reliable Fallback)
-             try {
-                 const openAIBase64 = await generateOpenAIImage(prompt);
-                 return res.status(200).json({ base64: openAIBase64 });
-             } catch (openAIError) {
-                 console.error("[Image Gen] All Backends Failed:", openAIError.message);
-                 // Throwing error here will trigger frontend Pollinations fallback
-                 throw new Error("Backend Image Generation Failed (Gemini & OpenAI exhausted).");
+             // PRIORITY 3: OpenAI DALL-E 3 (Ultimate Fallback)
+             if (keyManager.getOpenAIKey()) {
+                 try {
+                     console.log("[Image Gen] Attempt 3: OpenAI DALL-E 3");
+                     const openAIBase64 = await generateOpenAIImage(prompt);
+                     return res.status(200).json({ base64: openAIBase64 });
+                 } catch (openAIError) {
+                     console.error("[Image Gen] All Backends Failed (including OpenAI).");
+                     // Throw specific error to let frontend handle it (e.g. switch to Pollinations)
+                     return res.status(500).json({ error: "Backend Image Generation Failed (Gemini & OpenAI exhausted)." });
+                 }
+             } else {
+                 console.error("[Image Gen] All Gemini models failed and no OpenAI Key configured.");
+                 return res.status(500).json({ error: "Backend Image Generation Failed (Gemini exhausted, no OpenAI key)." });
              }
           }
       }
@@ -304,6 +317,7 @@ module.exports = async function (req, res) {
 
   } catch (error) {
     console.error('[API Error]:', error);
+    // Ensure we return JSON error even for 500
     return res.status(500).json({ 
         error: error.message || 'Internal Server Error'
     });

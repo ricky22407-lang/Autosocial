@@ -86,10 +86,8 @@ const LoadingOverlay: React.FC<{ message: string, detail?: string }> = ({ messag
 // Helper: Frontend-only Stock Photo Generator (Flux with Realism Prompt)
 const generateStockUrl = (query: string, seed: string) => {
     // Force "Candid/Realism" style to differentiate from "AI Art"
-    // Using simple query + strict modifiers works better for "fake stock photos"
     const realismPrompt = `${query}, candid photography, shot on iPhone 15, natural lighting, grainy, unpolished, 4k, no 3d render, no illustration, hyperrealistic`;
     const encoded = encodeURIComponent(realismPrompt);
-    // Direct call to Pollinations (Free, Fast, Good for "Stock" tier)
     return `https://image.pollinations.ai/prompt/${encoded}?n=${seed}&model=flux`;
 };
 
@@ -113,7 +111,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   
   const [genCount, setGenCount] = useState<1 | 2 | 3>(1);
   const [preSelectedImageMode, setPreSelectedImageMode] = useState<ImageSourceType>('none');
-  const [selectedGenAccountId, setSelectedGenAccountId] = useState<string>(''); // New: Selected Account ID
+  const [selectedGenAccountId, setSelectedGenAccountId] = useState<string>(''); // Selected Account ID
   
   const [generatedPosts, setGeneratedPosts] = useState<GeneratedPost[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -211,10 +209,10 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   const selectTopic = (title: string) => {
       // Toggle logic
       if (selectedTopics.includes(title)) {
-          setSelectedTopics([]);
+          setSelectedTopics([]); // Deselect
       } else {
           setSelectedTopics([title]);
-          setManualTopic(''); 
+          setManualTopic(''); // Clear manual if trend selected
       }
   };
 
@@ -477,6 +475,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       setGenStep(1);
       setGeneratedPosts([]);
       setSelectedTopics([]);
+      setManualTopic('');
   };
 
   // --- Interaction Handlers ---
@@ -638,280 +637,222 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                   placeholder="未設定" 
                               />
                           </div>
-                          <button onClick={() => handleRemoveAccount(acc.id)} className="text-red-400 text-xs absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-dark px-2 py-1 rounded">移除</button>
+                          <button onClick={() => handleRemoveAccount(acc.id)} className="text-red-400 text-xs absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                              移除
+                          </button>
                       </div>
                   ))}
-                  {accounts.length === 0 && (
-                      <div className="col-span-full text-center py-8 text-gray-500 border border-dashed border-gray-700 rounded-lg">
-                          尚無帳號，請上方新增。
-                      </div>
-                  )}
               </div>
           </div>
       )}
 
-      {/* VIEW: GENERATOR (2-Step Flow) */}
+      {/* VIEW: GENERATOR */}
       {activeTab === 'generator' && (
-          <div className="space-y-8 animate-fade-in">
-              {/* STEP 1: Discover Topics */}
+          <div className="space-y-6">
               {genStep === 1 && (
                   <div className="bg-card p-6 rounded-xl border border-gray-700">
-                      <h3 className="text-xl font-bold text-white mb-2">Step 1: 挖掘靈感話題</h3>
-                      <p className="text-gray-400 text-sm mb-6">點擊下方按鈕，AI 將為您分析台灣熱門時事。</p>
-                      
-                      {trendingTopics.length === 0 ? (
-                          <div className="text-center py-8">
-                               {trendError && <p className="text-red-400 mb-4">{trendError}</p>}
-                               <button 
-                                  onClick={loadTrends} 
-                                  disabled={loadingTrends}
-                                  className="bg-secondary hover:bg-indigo-600 text-white px-8 py-4 rounded-full font-bold shadow-lg transition-transform transform hover:scale-105 disabled:opacity-50"
-                               >
-                                   🔍 挖掘熱門話題 (扣 1 點)
-                               </button>
-                               <div className="mt-8 border-t border-gray-700 pt-6 max-w-md mx-auto">
-                                   <label className="block text-sm text-gray-400 mb-2">或直接手動輸入主題跳過：</label>
-                                   <div className="flex gap-2">
-                                       <input 
-                                          value={manualTopic}
-                                          onChange={handleManualTopicChange}
-                                          className="flex-1 bg-dark border border-gray-600 rounded p-2 text-white"
-                                          placeholder="例如：夏日海邊穿搭"
-                                       />
-                                       <button 
-                                          onClick={proceedToGenerateUI}
-                                          disabled={!manualTopic}
-                                          className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded"
-                                       >
-                                           下一步
-                                       </button>
-                                   </div>
-                               </div>
-                          </div>
-                      ) : (
-                          <div className="space-y-6">
-                              <div className="flex flex-wrap gap-3">
-                                  {trendingTopics.map((t, i) => (
-                                      <button 
-                                        key={i}
-                                        onClick={() => selectTopic(t.title)}
-                                        className={`px-4 py-3 rounded-lg border text-left transition-all relative ${
-                                            selectedTopics.includes(t.title) 
-                                            ? 'bg-blue-900/50 border-primary ring-2 ring-primary text-white' 
-                                            : 'bg-dark border-gray-600 text-gray-300 hover:border-gray-400 hover:bg-gray-800'
-                                        }`}
-                                      >
-                                          <div className="font-bold">{t.title}</div>
-                                          {t.imageUrl && <span className="absolute top-2 right-2 text-[10px] bg-green-900 text-green-200 px-1 rounded">有圖</span>}
-                                          {t.description && <div className="text-xs text-gray-500 mt-1 line-clamp-1">{t.description}</div>}
-                                      </button>
-                                  ))}
-                              </div>
+                       <h3 className="text-xl font-bold text-white mb-4">步驟 1: 選擇話題</h3>
+                       <div className="flex gap-4 mb-4 overflow-x-auto">
+                            <div 
+                                onClick={() => loadTrends()} 
+                                className="flex-shrink-0 w-32 h-32 bg-indigo-900/30 border border-indigo-500 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-indigo-900/50"
+                            >
+                                <span className="text-2xl mb-2">🔎</span>
+                                <span className="text-sm font-bold text-indigo-200">挖掘靈感</span>
+                                <span className="text-xs text-indigo-400 mt-1">扣 1 點</span>
+                            </div>
+                            
+                            {trendingTopics.map((t, i) => (
+                                <div 
+                                    key={i} 
+                                    onClick={() => selectTopic(t.title)}
+                                    className={`flex-shrink-0 w-48 h-32 p-3 rounded-lg border cursor-pointer relative transition-all ${selectedTopics.includes(t.title) ? 'bg-primary/20 border-primary ring-2 ring-primary' : 'bg-dark border-gray-700 hover:border-gray-500'}`}
+                                >
+                                    <h4 className="font-bold text-white text-sm line-clamp-2 mb-1">{t.title}</h4>
+                                    <p className="text-xs text-gray-400 line-clamp-3">{t.description}</p>
+                                    {selectedTopics.includes(t.title) && <div className="absolute top-2 right-2 bg-primary text-white text-xs px-1 rounded">✓</div>}
+                                </div>
+                            ))}
+                       </div>
+                       
+                       <div className="mt-4">
+                           <label className="block text-sm text-gray-400 mb-1">或手動輸入話題:</label>
+                           <input 
+                                value={manualTopic} 
+                                onChange={handleManualTopicChange}
+                                className={`w-full bg-dark border border-gray-600 rounded p-3 text-white transition-all ${manualTopic ? 'border-primary ring-1 ring-primary' : ''}`}
+                                placeholder="例如：颱風假、#iPhone16" 
+                           />
+                       </div>
 
-                              <div className="mt-8 border-t border-gray-700 pt-6">
-                                   <label className="block text-sm text-gray-400 mb-2">或手動輸入主題 (將自動取消選取的趨勢)：</label>
-                                   <div className="flex gap-2">
-                                       <input 
-                                          value={manualTopic}
-                                          onChange={handleManualTopicChange}
-                                          className="flex-1 bg-dark border border-gray-600 rounded p-2 text-white"
-                                          placeholder="例如：夏日海邊穿搭"
-                                       />
-                                   </div>
-                              </div>
-
-                              <div className="flex justify-end pt-4 border-t border-gray-700">
-                                   <button 
-                                      onClick={proceedToGenerateUI}
-                                      disabled={selectedTopics.length === 0 && !manualTopic}
-                                      className="bg-primary hover:bg-blue-600 text-white px-8 py-3 rounded font-bold shadow-lg disabled:opacity-50"
-                                   >
-                                       下一步：設定生成參數 →
-                                   </button>
-                              </div>
-                          </div>
-                      )}
+                       {trendError && <p className="text-red-400 text-sm mt-2">{trendError}</p>}
+                       
+                       <div className="mt-6 flex justify-end">
+                           <button onClick={proceedToGenerateUI} className="bg-primary hover:bg-blue-600 text-white px-8 py-3 rounded font-bold shadow-lg">
+                               下一步：設定參數 →
+                           </button>
+                       </div>
                   </div>
               )}
 
-              {/* STEP 2: Generate Content */}
               {genStep === 2 && (
-                  <div className="space-y-8 animate-fade-in">
+                  <div className="space-y-6">
+                      {/* Generation Settings Panel */}
                       <div className="bg-card p-6 rounded-xl border border-gray-700">
-                           <div className="flex items-center justify-between mb-4">
-                               <h3 className="text-xl font-bold text-white">Step 2: 批量生產貼文</h3>
-                               <button onClick={resetGenFlow} className="text-sm text-gray-400 hover:text-white underline">← 重新選擇話題</button>
+                           <div className="flex justify-between items-center mb-6">
+                               <h3 className="text-xl font-bold text-white">步驟 2: 設定與生成</h3>
+                               <button onClick={resetGenFlow} className="text-gray-400 hover:text-white underline text-sm">← 重選話題</button>
                            </div>
                            
-                           <div className="bg-blue-900/20 border border-blue-900 p-4 rounded mb-6">
-                               <span className="text-gray-400 text-sm">已選話題：</span>
-                               <span className="text-xl font-bold text-white ml-2">
-                                   {selectedTopics.length > 0 ? selectedTopics[0] : manualTopic}
-                               </span>
+                           {/* --- NEW: Account Selection Moved to Top --- */}
+                           <div className="mb-6 bg-blue-900/20 p-4 rounded border border-blue-800">
+                               <label className="block text-sm text-blue-300 font-bold mb-2">1. 選擇發文帳號 (決定人設與語氣) *</label>
+                               <select 
+                                   value={selectedGenAccountId} 
+                                   onChange={(e) => setSelectedGenAccountId(e.target.value)}
+                                   className="w-full bg-dark border border-blue-500 rounded p-3 text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                               >
+                                   <option value="" disabled>請選擇帳號</option>
+                                   {accounts.map(acc => (
+                                       <option key={acc.id} value={acc.id}>
+                                           {acc.username} {acc.personaPrompt ? `(${acc.personaPrompt})` : ''}
+                                       </option>
+                                   ))}
+                               </select>
                            </div>
 
                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                               {/* Account Selection (NEW) */}
-                               <div>
-                                   <label className="block text-sm text-gray-400 mb-1">選擇目標帳號 (將使用該帳號人設)</label>
-                                   <select 
-                                       value={selectedGenAccountId} 
-                                       onChange={e => setSelectedGenAccountId(e.target.value)}
-                                       className="w-full bg-dark border border-gray-600 rounded p-3 text-white focus:border-primary"
-                                   >
-                                       {accounts.length === 0 && <option value="">無可用帳號</option>}
-                                       {accounts.map(a => <option key={a.id} value={a.id}>{a.username}</option>)}
-                                   </select>
-                                   {selectedAccountObj && (
-                                       <div className="mt-2 text-xs text-yellow-400 bg-yellow-900/20 p-2 rounded border border-yellow-800">
-                                           🤖 <strong>當前人設:</strong> {selectedAccountObj.personaPrompt || "未設定 (將使用預設真實網友風格)"}
-                                       </div>
-                                   )}
+                               <div className="bg-dark/50 p-4 rounded border border-gray-600">
+                                   <label className="block text-sm text-gray-400 mb-2">目標話題</label>
+                                   <div className="font-bold text-xl text-white break-words">
+                                       {selectedTopics.length > 0 ? selectedTopics[0] : manualTopic}
+                                   </div>
                                </div>
 
-                               <div className="flex flex-col gap-4">
+                               <div className="space-y-4">
                                    <div>
-                                       <label className="block text-sm text-gray-400 mb-1">生成篇數 (每次建議 1-3 篇)</label>
-                                       <select value={genCount} onChange={e => setGenCount(Number(e.target.value) as 1|2|3)} className="w-full bg-dark border border-gray-600 rounded p-3 text-white">
-                                           <option value="1">1 篇</option>
-                                           <option value="2">2 篇</option>
-                                           <option value="3">3 篇</option>
-                                       </select>
+                                       <label className="block text-sm text-gray-400 mb-1">生成數量</label>
+                                       <div className="flex gap-2">
+                                           {[1, 2, 3].map(n => (
+                                               <button 
+                                                   key={n} 
+                                                   onClick={() => setGenCount(n as 1|2|3)}
+                                                   className={`flex-1 py-2 rounded border ${genCount === n ? 'bg-white text-black border-white font-bold' : 'bg-transparent text-gray-400 border-gray-600'}`}
+                                               >
+                                                   {n} 篇
+                                               </button>
+                                           ))}
+                                       </div>
                                    </div>
-
+                                   
                                    <div>
-                                       <label className="block text-sm text-gray-400 mb-1">圖片模式 (預設)</label>
-                                       <select value={preSelectedImageMode} onChange={e => setPreSelectedImageMode(e.target.value as ImageSourceType)} className="w-full bg-dark border border-gray-600 rounded p-3 text-white">
-                                           <option value="none">❌ 純文字 (共 1 點)</option>
-                                           <option value="news">📰 新聞原圖 (共 2 點)</option>
-                                           <option value="ai">🎨 AI 繪圖 (共 4 點)</option>
-                                           <option value="stock">📷 擬真圖庫 (共 2 點)</option>
-                                           <option value="upload">📤 手動上傳 (共 1 點)</option>
+                                       <label className="block text-sm text-gray-400 mb-1">預設圖片模式</label>
+                                       <select 
+                                           value={preSelectedImageMode} 
+                                           onChange={(e) => setPreSelectedImageMode(e.target.value as ImageSourceType)}
+                                           className="w-full bg-dark border border-gray-600 rounded p-2 text-white"
+                                       >
+                                           <option value="none">📝 純文字 (0 點)</option>
+                                           <option value="stock">📷 擬真圖庫 (1 點)</option>
+                                           <option value="news">📰 新聞圖片 (1 點)</option>
+                                           <option value="ai">🎨 AI 繪圖 (3 點)</option>
                                        </select>
                                    </div>
                                </div>
                            </div>
 
                            <button 
-                                onClick={handleGenerateBatch}
-                                disabled={isGenerating || !selectedGenAccountId}
-                                className="w-full bg-secondary hover:bg-indigo-600 text-white px-6 py-3 rounded font-bold text-lg disabled:opacity-50 transition-colors shadow-lg"
-                            >
-                                {isGenerating ? '生成中...' : `✨ 開始生成 (共扣 ${calculateCost(genCount, preSelectedImageMode)} 點)`}
-                            </button>
-                           
-                           <div className="text-xs text-gray-500 mt-4 p-3 bg-gray-900/50 rounded border border-gray-700">
-                               <p className="font-bold text-gray-400 mb-1">💰 點數價目表 (Per Post)</p>
-                               <ul className="flex flex-wrap gap-4">
-                                   <li>📝 純文字: <span className="text-green-400">1 點</span></li>
-                                   <li>📰 新聞圖: <span className="text-yellow-400">2 點</span> (1文+1圖)</li>
-                                   <li>📷 擬真圖庫: <span className="text-yellow-400">2 點</span> (1文+1圖)</li>
-                                   <li>🎨 AI 繪圖: <span className="text-pink-400">4 點</span> (1文+1圖/高算力)</li>
-                               </ul>
-                           </div>
+                               onClick={handleGenerateBatch}
+                               disabled={!selectedGenAccountId}
+                               className="w-full bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white py-4 rounded-xl font-bold text-lg shadow-lg transform transition-all hover:scale-[1.01] disabled:opacity-50 disabled:cursor-not-allowed"
+                           >
+                               ✨ 立即生成 {genCount} 篇貼文
+                           </button>
                       </div>
 
                       {/* Results List */}
                       {generatedPosts.length > 0 && (
-                          <div className="space-y-6">
-                              <h3 className="font-bold text-white text-lg">生成結果預覽</h3>
+                          <div className="space-y-8 animate-fade-in">
+                              <h3 className="text-xl font-bold text-gray-300">生成結果</h3>
                               {generatedPosts.map((post) => (
-                                  <div key={post.id} className="bg-dark p-6 rounded border border-gray-600 flex flex-col md:flex-row gap-6 shadow-xl relative">
-                                      {/* Loading Overlay for Image Regen */}
-                                      {isRegeneratingImage === post.id && (
-                                          <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-10 rounded">
-                                              <span className="loader mr-2"></span> 圖片生成中...
-                                          </div>
-                                      )}
-
-                                      <div className="flex-1 space-y-4">
-                                          <div>
-                                              <label className="block text-xs text-gray-400 mb-1">貼文內容</label>
-                                              <textarea 
-                                                  value={post.caption}
-                                                  onChange={e => {
-                                                      const val = e.target.value;
-                                                      setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, caption: val } : p));
-                                                  }}
-                                                  className="w-full h-32 bg-gray-800 border border-gray-700 rounded p-3 text-white text-sm resize-none focus:border-primary outline-none"
-                                              />
+                                  <div key={post.id} className="bg-card rounded-xl border border-gray-700 overflow-hidden flex flex-col md:flex-row">
+                                      {/* Preview Area */}
+                                      <div className="w-full md:w-1/3 bg-black flex items-center justify-center relative min-h-[300px]">
+                                          {getPreviewUrl(post) ? (
+                                              <img src={getPreviewUrl(post)} alt="Post" className="w-full h-full object-cover" />
+                                          ) : (
+                                              <div className="text-gray-500 text-sm">無圖片</div>
+                                          )}
+                                          
+                                          {/* Image Overlay Controls */}
+                                          <div className="absolute bottom-2 left-2 right-2 flex gap-2 overflow-x-auto p-1 bg-black/50 rounded backdrop-blur-sm">
+                                              <button onClick={() => handleImageModeChange(post, 'stock')} className="text-xs bg-gray-700 text-white px-2 py-1 rounded whitespace-nowrap">📷 換圖庫</button>
+                                              <button onClick={() => handleImageModeChange(post, 'ai')} className="text-xs bg-purple-700 text-white px-2 py-1 rounded whitespace-nowrap">🎨 AI重繪</button>
+                                              <button onClick={() => handleImageModeChange(post, 'news')} className="text-xs bg-blue-700 text-white px-2 py-1 rounded whitespace-nowrap">📰 找新聞圖</button>
                                           </div>
                                           
-                                          <div className="flex gap-4">
-                                              <div className="flex-1">
-                                                  <label className="block text-xs text-gray-400 mb-1">發佈帳號 (已鎖定)</label>
-                                                  <div className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-2 text-xs text-gray-400 cursor-not-allowed">
-                                                       {accounts.find(a => a.id === post.targetAccountId)?.username || "Unknown"}
-                                                  </div>
-                                              </div>
-                                              <div className="flex-1">
-                                                  <label className="block text-xs text-gray-400 mb-1">圖片模式 (升級需補差額)</label>
-                                                  <select 
-                                                      value={post.imageSourceType} 
-                                                      onChange={e => handleImageModeChange(post, e.target.value as ImageSourceType)}
-                                                      className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-2 text-xs text-white"
-                                                  >
-                                                      <option value="none">❌ 純文字</option>
-                                                      <option value="news">📰 新聞原圖 (共2點)</option>
-                                                      <option value="ai">🎨 AI 繪圖 (共4點)</option>
-                                                      <option value="stock">📷 擬真圖庫 (共2點)</option>
-                                                      <option value="upload">📤 手動上傳</option>
-                                                  </select>
-                                              </div>
-                                          </div>
-                                          
+                                          {/* Manual Upload hidden input */}
                                           {post.imageSourceType === 'upload' && (
-                                              <div className="border border-dashed border-gray-600 p-4 rounded bg-gray-800/50">
-                                                  <input 
-                                                      type="file" 
-                                                      accept="image/png, image/jpeg, image/jpg, image/webp"
-                                                      onChange={(e) => handleFileUpload(post.id, e)}
-                                                      className="text-xs text-gray-300 w-full"
-                                                  />
-                                                  <p className="text-[10px] text-gray-500 mt-1">* 支援 JPG, PNG, WEBP (系統將嘗試中轉網址)</p>
+                                              <div className="absolute top-2 right-2">
+                                                  <label className="bg-gray-800 text-white text-xs px-2 py-1 rounded cursor-pointer border border-gray-600">
+                                                      📂 上傳
+                                                      <input type="file" className="hidden" onChange={(e) => handleFileUpload(post.id, e)} accept="image/*" />
+                                                  </label>
+                                              </div>
+                                          )}
+                                          
+                                          {isRegeneratingImage === post.id && (
+                                              <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
+                                                  <div className="loader"></div>
                                               </div>
                                           )}
                                       </div>
-                                      
-                                      <div className="w-full md:w-64 flex flex-col gap-3">
-                                          <div className="flex-1 bg-black rounded flex items-center justify-center overflow-hidden border border-gray-700 min-h-[160px] relative group cursor-pointer" onClick={() => post.imageSourceType === 'ai' && !post.imageUrl ? handleImageModeChange(post, 'ai') : null}>
-                                              {post.imageSourceType === 'none' ? (
-                                                  <span className="text-gray-500 text-xs">無圖片</span>
-                                              ) : (
-                                                  post.imageUrl || post.newsImageUrl || post.uploadedImageBase64 ? (
-                                                      <img 
-                                                          src={getPreviewUrl(post)} 
-                                                          alt="Preview" 
-                                                          className="w-full h-full object-cover absolute inset-0 transition-transform transform group-hover:scale-110" 
-                                                          onError={(e) => (e.currentTarget.src = 'https://placehold.co/400x400?text=Image+Error')}
-                                                      />
-                                                  ) : (
-                                                      <div className="flex flex-col items-center justify-center h-full text-gray-500 hover:text-white transition-colors">
-                                                           {post.imageSourceType === 'ai' ? (
-                                                               <>
-                                                                 <span className="text-2xl mb-1">⚠️</span>
-                                                                 <span className="text-xs text-center">生成失敗<br/>點此免費重試</span>
-                                                               </>
-                                                           ) : <span className="text-xs">等待圖片...</span>}
-                                                      </div>
-                                                  )
-                                              )}
+
+                                      {/* Content Editor */}
+                                      <div className="flex-1 p-6 flex flex-col">
+                                          <div className="flex justify-between mb-2">
+                                              <span className="text-xs text-gray-500 bg-gray-800 px-2 py-1 rounded">
+                                                  {accounts.find(a => a.id === post.targetAccountId)?.username || 'Unknown'}
+                                              </span>
+                                              <div className="flex gap-2">
+                                                  <label className="text-xs text-gray-400 flex items-center gap-1 cursor-pointer">
+                                                      <input 
+                                                          type="radio" 
+                                                          checked={post.imageSourceType === 'none'} 
+                                                          onChange={() => handleImageModeChange(post, 'none')}
+                                                      /> 純文字
+                                                  </label>
+                                                  <label className="text-xs text-gray-400 flex items-center gap-1 cursor-pointer">
+                                                      <input 
+                                                          type="radio" 
+                                                          checked={post.imageSourceType === 'upload'} 
+                                                          onChange={() => setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageSourceType: 'upload' } : p))}
+                                                      /> 手動上傳
+                                                  </label>
+                                              </div>
                                           </div>
                                           
-                                          {post.status === 'done' ? (
-                                              <div className="bg-green-900/50 text-green-400 text-center py-2 rounded text-sm font-bold border border-green-700">
-                                                  ✅ 已發佈
-                                              </div>
-                                          ) : (
-                                              <button 
-                                                  onClick={() => handlePublish(post)}
-                                                  disabled={post.status === 'publishing'}
-                                                  className={`w-full py-2 rounded text-sm font-bold text-white transition-colors shadow-md ${post.status === 'failed' ? 'bg-red-600' : 'bg-primary hover:bg-blue-600'}`}
-                                              >
-                                                  {post.status === 'publishing' ? '發佈中...' : post.status === 'failed' ? '重試發佈' : '🚀 發佈貼文'}
-                                              </button>
+                                          <textarea 
+                                              value={post.caption}
+                                              onChange={(e) => setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, caption: e.target.value } : p))}
+                                              className="w-full flex-1 bg-dark border border-gray-600 rounded p-3 text-white mb-4 resize-none focus:border-primary outline-none"
+                                          />
+                                          
+                                          {post.log && (
+                                              <div className="text-xs text-red-400 mb-2">{post.log}</div>
                                           )}
-                                          {post.log && <p className={`text-[10px] text-center ${post.status === 'failed' ? 'text-red-400' : 'text-gray-500'}`}>{post.log}</p>}
+
+                                          <button 
+                                              onClick={() => handlePublish(post)}
+                                              disabled={post.status === 'publishing' || post.status === 'done'}
+                                              className={`w-full py-3 rounded font-bold transition-all ${
+                                                  post.status === 'done' ? 'bg-green-700 text-white cursor-default' :
+                                                  post.status === 'publishing' ? 'bg-gray-600 text-gray-300' :
+                                                  'bg-white text-black hover:bg-gray-200'
+                                              }`}
+                                          >
+                                              {post.status === 'done' ? '✅ 已發佈' : post.status === 'publishing' ? '發送中...' : '🚀 發佈到 Threads'}
+                                          </button>
                                       </div>
                                   </div>
                               ))}
@@ -928,58 +869,63 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
               <div className="bg-card p-6 rounded-xl border border-gray-700">
                   <div className="flex justify-between items-center mb-6">
                       <div>
-                          <h3 className="text-xl font-bold text-white">💬 留言互動 (Reply Bot)</h3>
-                          <p className="text-sm text-gray-400">掃描並 AI 回覆網友留言</p>
+                          <h3 className="text-xl font-bold text-white">最新留言</h3>
+                          <p className="text-sm text-gray-400">系統將掃描所有活躍帳號的最新 3 篇貼文留言</p>
                       </div>
-                      <button 
-                          onClick={handleScan} 
-                          disabled={isLoadingComments}
-                          className="bg-primary hover:bg-blue-600 text-white px-6 py-2 rounded font-bold disabled:opacity-50"
-                      >
+                      <button onClick={handleScan} className="bg-pink-600 hover:bg-pink-500 text-white px-4 py-2 rounded font-bold">
                           🔄 掃描留言
                       </button>
                   </div>
 
-                  {comments.length === 0 && !isLoadingComments ? (
-                      <div className="text-center py-10 text-gray-500 bg-dark/30 rounded border border-dashed border-gray-700">
-                          無未讀留言。
+                  {comments.length === 0 ? (
+                      <div className="text-center py-10 text-gray-500 border border-dashed border-gray-700 rounded">
+                          尚無新留言或未掃描
                       </div>
                   ) : (
                       <div className="space-y-4">
-                          {comments.map((comment) => (
+                          {comments.map(comment => (
                               <div key={comment.id} className="bg-dark p-4 rounded border border-gray-600">
-                                  <div className="flex items-center gap-2 mb-2 text-sm">
+                                  <div className="flex justify-between mb-2">
                                       <span className="font-bold text-white">@{comment.username}</span>
-                                      <span className="text-gray-500">{new Date(comment.timestamp).toLocaleString()}</span>
+                                      <span className="text-xs text-gray-500 bg-gray-800 px-2 py-1 rounded">
+                                          To: {accounts[comment.accountIndex]?.username}
+                                      </span>
                                   </div>
-                                  <p className="text-gray-200 mb-3">{comment.text}</p>
+                                  <p className="text-gray-300 mb-4">{comment.text}</p>
                                   
                                   {selectedCommentId === comment.id ? (
                                       <div className="bg-gray-800 p-3 rounded">
                                           {generatedReplies.length > 0 ? (
-                                              <div className="flex gap-2 mb-2 overflow-x-auto pb-2">
-                                                  {generatedReplies.map((r, i) => (
-                                                      <button key={i} onClick={() => setDraftReply(r)} className="whitespace-nowrap px-3 py-1 bg-gray-700 rounded text-xs text-white hover:bg-gray-600">
-                                                          {r.substring(0, 15)}...
-                                                      </button>
+                                              <div className="space-y-2">
+                                                  {generatedReplies.map((reply, idx) => (
+                                                      <div key={idx} className="flex gap-2">
+                                                          <div className="flex-1 text-sm bg-black/30 p-2 rounded text-gray-200">{reply}</div>
+                                                          <button onClick={() => handleSendReply(comment, reply)} className="bg-primary text-white px-3 rounded text-sm hover:bg-blue-600">
+                                                              發送
+                                                          </button>
+                                                      </div>
                                                   ))}
+                                                  <div className="border-t border-gray-700 my-2 pt-2">
+                                                      <input 
+                                                          value={draftReply}
+                                                          onChange={e => setDraftReply(e.target.value)}
+                                                          placeholder="或手動輸入回覆..."
+                                                          className="w-full bg-black/30 text-white p-2 rounded text-sm mb-2"
+                                                      />
+                                                      <button onClick={() => handleSendReply(comment, draftReply)} disabled={!draftReply} className="w-full bg-gray-600 hover:bg-gray-500 text-white py-1 rounded text-sm">
+                                                          發送手動回覆
+                                                      </button>
+                                                  </div>
                                               </div>
-                                          ) : <div className="text-xs text-gray-500 mb-2">AI 思考中...</div>}
-                                          
-                                          <textarea 
-                                              value={draftReply}
-                                              onChange={e => setDraftReply(e.target.value)}
-                                              className="w-full bg-dark border border-gray-600 rounded p-2 text-white text-sm mb-2"
-                                              rows={2}
-                                          />
-                                          <div className="flex justify-end gap-2">
-                                              <button onClick={() => setSelectedCommentId(null)} className="text-gray-400 text-sm">取消</button>
-                                              <button onClick={() => handleSendReply(comment, draftReply)} disabled={isReplying} className="bg-blue-600 text-white px-4 py-1 rounded text-sm font-bold">發送</button>
-                                          </div>
+                                          ) : (
+                                              <div className="text-center text-sm text-gray-400 py-2">
+                                                  AI 正在思考回覆...
+                                              </div>
+                                          )}
                                       </div>
                                   ) : (
-                                      <button onClick={() => handleGenReply(comment)} className="text-blue-400 text-sm border border-blue-900 bg-blue-900/20 px-3 py-1 rounded">
-                                          ✨ AI 擬答
+                                      <button onClick={() => handleGenReply(comment)} className="text-sm text-primary hover:text-white underline">
+                                          ✨ 生成 AI 回覆建議
                                       </button>
                                   )}
                               </div>

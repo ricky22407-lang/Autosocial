@@ -1,9 +1,4 @@
 
-
-
-
-
-
 import React, { useState, useEffect } from 'react';
 import { AppView, BrandSettings, Post, UserProfile } from './types';
 
@@ -220,13 +215,6 @@ const App: React.FC = () => {
   // #endregion
 
   // #region Render Logic & Permissions
-  if (loadingAuth) return <div className="h-screen flex items-center justify-center bg-dark text-white">載入中...</div>;
-
-  if (view === AppView.LOGIN) {
-    return <Login onLoginSuccess={() => {}} />;
-  }
-
-  // Permission Logic Helpers
   const role = userProfile?.role || 'user';
   // Role Hierarchy: user(Free) < starter < pro < business < admin
   const isStarterPlus = ['starter', 'pro', 'business', 'admin'].includes(role);
@@ -239,6 +227,12 @@ const App: React.FC = () => {
   const hasAutomationAccess = isBusinessPlus || userProfile?.unlockedFeatures?.includes('AUTOMATION');
   const hasSeoAccess = isProPlus || userProfile?.unlockedFeatures?.includes('SEO') || userProfile?.unlockedFeatures?.includes('SEO_ARTICLES');
   const hasThreadsAccess = isProPlus || userProfile?.unlockedFeatures?.includes('THREADS');
+
+  if (loadingAuth) return <div className="h-screen flex items-center justify-center bg-dark text-white">載入中...</div>;
+
+  if (view === AppView.LOGIN) {
+    return <Login onLoginSuccess={() => {}} />;
+  }
 
   return (
     <div className="min-h-screen bg-dark text-gray-200 flex flex-col md:flex-row relative">
@@ -407,53 +401,34 @@ const App: React.FC = () => {
         {view === AppView.ANALYTICS && (
           hasAnalyticsAccess ? <AnalyticsDashboard settings={settings} /> : <div className="p-8 text-center text-gray-500">Access Denied</div>
         )}
-
+        
         {view === AppView.AUTOMATION && (
-          hasAutomationAccess ? <AutomationPanel settings={settings} onSave={(s) => {handleSaveSettings(s);}} /> : <div className="p-8 text-center text-gray-500">Access Denied</div>
+          hasAutomationAccess ? <AutomationPanel settings={settings} onSave={handleSaveSettings} /> : <div className="p-8 text-center text-gray-500">Access Denied</div>
         )}
 
         {view === AppView.SEO_ARTICLES && (
             hasSeoAccess ? <SeoArticleGenerator user={userProfile} onQuotaUpdate={refreshProfile} /> : <div className="p-8 text-center text-gray-500">Access Denied</div>
         )}
 
-        {view === AppView.SETTINGS && (
-          <SettingsForm 
-            initialSettings={settings} 
-            onSave={(s) => {handleSaveSettings(s);}} 
-          />
-        )}
-
-        {view === AppView.ADMIN && isAdmin && userProfile && (
-           <AdminPanel currentUser={userProfile} />
+        {view === AppView.ADMIN && isAdmin && (
+          <AdminPanel currentUser={userProfile!} />
         )}
       </main>
       {/* #endregion */}
-
-      {/* #region Floating Error Report Button */}
+      
+      {/* Modals */}
+      {showRedeemModal && <RedeemModal onClose={() => setShowRedeemModal(false)} onRedeem={handleRedeemKey} />}
+      {showPwdModal && <ChangePasswordModal onClose={() => setShowPwdModal(false)} />}
+      
+      {/* Bug Report Button (Always visible) */}
       <button 
         onClick={() => setShowReportModal(true)}
-        className="fixed bottom-6 right-6 w-12 h-12 bg-red-600 hover:bg-red-500 text-white rounded-full shadow-lg flex items-center justify-center transition-transform hover:scale-110 z-40 border-2 border-white/20"
+        className="fixed bottom-4 right-4 bg-red-900/80 text-white p-2 rounded-full shadow-lg border border-red-500 hover:bg-red-800 transition-colors z-40"
         title="回報問題"
       >
-        🐛
+        🐞
       </button>
-      {/* #endregion */}
-
-      {/* #region Global Modals */}
-      {showReportModal && (
-          <ErrorReportModal 
-            user={userProfile} 
-            currentView={view} 
-            onClose={() => setShowReportModal(false)} 
-          />
-      )}
-      {showRedeemModal && (
-          <RedeemModal onClose={() => setShowRedeemModal(false)} onRedeem={handleRedeemKey} />
-      )}
-      {showPwdModal && (
-          <ChangePasswordModal onClose={() => setShowPwdModal(false)} />
-      )}
-      {/* #endregion */}
+      {showReportModal && <ErrorReportModal user={userProfile} currentView={view} onClose={() => setShowReportModal(false)} />}
     </div>
   );
 };

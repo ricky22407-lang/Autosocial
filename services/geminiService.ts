@@ -1,5 +1,4 @@
 
-
 import { BrandSettings, TrendingTopic, CachedTrendData } from "../types";
 import { db } from "./firebase"; // Using compat export
 
@@ -96,6 +95,7 @@ const callBackend = async (action: string, payload: any) => {
         }
         
         if (!res.ok) {
+            console.error(`[Backend Call Error] Status: ${res.status}`, data);
             throw new Error(data.error || 'Server Error');
         }
         return data;
@@ -326,7 +326,8 @@ export const generateImage = async (prompt: string): Promise<string> => {
 
     } catch (e: any) {
         // Attempt 2: Pollinations AI (Ultimate Fallback)
-        console.error("❌ [ImageGen] Backend Failed. Switching to Frontend Fallback (Pollinations).", e.message);
+        console.error("❌ [ImageGen] Backend Failed. Switching to Frontend Fallback (Pollinations). Reason:", e.message);
+        console.warn("Falling back to free Pollinations API to ensure user gets an image.");
         
         const seed = Math.floor(Math.random() * 100000);
         const encodedPrompt = encodeURIComponent(enhancedPrompt);

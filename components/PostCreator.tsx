@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useRef } from 'react';
 import { BrandSettings, Post, TrendingTopic, UserProfile } from '../types';
 import { getTrendingTopics, generatePostDraft, generateImage } from '../services/geminiService';
@@ -291,7 +290,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     try {
         const allowed = await checkAndUseQuota(user.user_id, 1);
         if (!allowed) {
-            alert("⚠️ 您的 AI 使用配額已額滿 (或連線資料庫失敗)。");
+            alert("⚠️ 您的 AI 使用配額已額滿 (或資料庫連線失敗)。");
             return;
         }
     } catch (e) {
@@ -380,7 +379,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
         return;
     }
 
-    // 判斷是否為重新生成，如果是，提示用戶
+    // 判斷是否為重新生成
     const isRegeneration = !!mediaUrl;
     const msg = isRegeneration 
         ? `確定重新生成圖片嗎？這將再次消耗 ${cost} 點配額。` 
@@ -395,7 +394,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     }
     onQuotaUpdate();
 
-    // 關鍵修正：立即清除舊圖片，提供明確的視覺回饋
+    // 關鍵修正：立即清除舊圖片，顯示 Loading
     setMediaUrl(undefined);
     setIsGeneratingMedia(true);
 
@@ -408,8 +407,9 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
       }
 
       // 強制加入隨機種子，確保 API (或 Fallback) 知道這是一個新的請求
+      // This helps bypass caching and ensures "Regenerate" actually changes something
       const seed = Math.floor(Math.random() * 999999);
-      const variationSuffix = ` --seed ${seed} --random ${Date.now()}`; 
+      const variationSuffix = ` (random_seed: ${seed})`; 
       const promptToSend = draft.imagePrompt + variationSuffix;
       
       console.log(`[PostCreator] Requesting Image with forced randomness: ${seed}`);
