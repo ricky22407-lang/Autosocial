@@ -1,14 +1,8 @@
-
-
-
-
-
-
 import React, { useState, useEffect } from 'react';
 import { 
   getAllUsers, generateAdminKey, updateUserRole, 
   getDashboardStats, getSystemLogs, getSystemConfig, updateSystemConfig, 
-  toggleUserSuspension, manualUpdateQuota, getUserReports, getUserUsageLogs
+  toggleUserSuspension, manualUpdateQuota, getUserReports, getUserUsageLogs, deleteUserUsageLogs
 } from '../services/authService';
 import { UserProfile, UserRole, DashboardStats, LogEntry, SystemConfig, UserReport } from '../types';
 
@@ -16,8 +10,16 @@ interface Props {
   currentUser: UserProfile;
 }
 
-// --- Secure Download Modal ---
-const DownloadSecurityModal = ({ targetUserId, onClose }: { targetUserId: string, onClose: () => void }) => {
+// --- Security Modal (Handles Download & Delete) ---
+const SecurityActionModal = ({ 
+    targetUserId, 
+    actionType, 
+    onClose 
+}: { 
+    targetUserId: string, 
+    actionType: 'DOWNLOAD' | 'DELETE',
+    onClose: () => void 
+}) => {
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -32,57 +34,65 @@ const DownloadSecurityModal = ({ targetUserId, onClose }: { targetUserId: string
         setError('');
         
         try {
-            const logs = await getUserUsageLogs(targetUserId);
-            
-            if (logs.length === 0) {
-                alert("該用戶尚無使用紀錄可供下載。");
-                setLoading(false);
-                return;
-            }
-
-            // Convert to CSV
-            // BOM for Excel Chinese support
-            let csvContent = "\uFEFFTimeStamp,Action,Topic,Prompt,Result(Truncated),Params\n";
-            
-            logs.forEach(log => {
-                const ts = new Date(log.ts).toLocaleString().replace(/,/g, ' ');
-                const act = log.act;
-                const topic = (log.topic || '').replace(/"/g, '""');
-                const prompt = (log.prmt || '').replace(/"/g, '""').replace(/\n/g, ' ');
-                const res = (log.res || '').replace(/"/g, '""').replace(/\n/g, ' ');
-                const params = (log.params || '').replace(/"/g, '""');
+            if (actionType === 'DOWNLOAD') {
+                const logs = await getUserUsageLogs(targetUserId);
                 
-                csvContent += `${ts},"${act}","${topic}","${prompt}","${res}","${params}"\n`;
-            });
+                if (logs.length === 0) {
+                    alert("該用戶尚無使用紀錄可供下載。");
+                    setLoading(false);
+                    return;
+                }
 
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = `user_logs_${targetUserId}_${new Date().toISOString().slice(0,10)}.csv`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+                // Convert to CSV
+                let csvContent = "\uFEFFTimeStamp,Action,Topic,Prompt,Result(Truncated),Params\n";
+                
+                logs.forEach(log => {
+                    const ts = new Date(log.ts).toLocaleString().replace(/,/g, ' ');
+                    const act = log.act;
+                    const topic = (log.topic || '').replace(/"/g, '""');
+                    const prompt = (log.prmt || '').replace(/"/g, '""').replace(/\n/g, ' ');
+                    const res = (log.res || '').replace(/"/g, '""').replace(/\n/g, ' ');
+                    const params = (log.params || '').replace(/"/g, '""');
+                    
+                    csvContent += `${ts},"${act}","${topic}","${prompt}","${res}","${params}"\n`;
+                });
+
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `user_logs_${targetUserId}_${new Date().toISOString().slice(0,10)}.csv`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } else if (actionType === 'DELETE') {
+                if (confirm(`⚠️ 嚴重警告：您即將永久刪除會員 ${targetUserId} 的所有使用紀錄 (Log)。此操作無法復原！\n\n確定執行？`)) {
+                    await deleteUserUsageLogs(targetUserId);
+                    alert("✅ 紀錄刪除成功！");
+                }
+            }
             
             onClose(); // Close on success
         } catch (e: any) {
-            setError(`下載失敗: ${e.message}`);
+            setError(`操作失敗: ${e.message}`);
         } finally {
             setLoading(false);
         }
     };
 
+    const isDelete = actionType === 'DELETE';
+
     return (
         <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[200] animate-fade-in">
-            <div className="bg-red-950/30 p-6 rounded-xl border border-red-500/50 max-w-sm w-full shadow-2xl backdrop-blur-sm">
-                <h3 className="text-xl font-bold text-red-400 mb-2 flex items-center gap-2">
-                    🔒 資料管制區
+            <div className={`bg-opacity-90 p-6 rounded-xl border max-w-sm w-full shadow-2xl backdrop-blur-sm ${isDelete ? 'bg-red-950 border-red-500' : 'bg-gray-900 border-gray-600'}`}>
+                <h3 className={`text-xl font-bold mb-2 flex items-center gap-2 ${isDelete ? 'text-red-400' : 'text-blue-400'}`}>
+                    {isDelete ? '⚠️ 危險：刪除紀錄' : '🔒 資料管制區'}
                 </h3>
                 <p className="text-gray-300 text-sm mb-4">
-                    您正在嘗試下載會員 <span className="font-mono text-xs bg-black px-1 rounded">{targetUserId}</span> 的完整使用紀錄。
+                    您正在嘗試 <b>{isDelete ? '永久刪除' : '下載'}</b> 會員 <span className="font-mono text-xs bg-black px-1 rounded">{targetUserId}</span> 的使用紀錄。
                     <br/>
                     <br/>
-                    依據隱私與資安規範，請輸入<b>管制密碼</b>以解鎖下載權限。
+                    依據隱私與資安規範，請輸入<b>管制密碼</b>以驗證權限。
                 </p>
                 
                 <input 
@@ -90,7 +100,7 @@ const DownloadSecurityModal = ({ targetUserId, onClose }: { targetUserId: string
                     value={password}
                     onChange={e => setPassword(e.target.value)}
                     placeholder="輸入管制密碼..."
-                    className="w-full bg-black border border-red-900 rounded p-3 text-white focus:border-red-500 outline-none mb-2 text-center"
+                    className="w-full bg-black border border-gray-700 rounded p-3 text-white focus:border-primary outline-none mb-2 text-center"
                 />
                 
                 {error && <p className="text-red-400 text-sm font-bold text-center mb-2">{error}</p>}
@@ -102,9 +112,9 @@ const DownloadSecurityModal = ({ targetUserId, onClose }: { targetUserId: string
                     <button 
                         onClick={handleConfirm} 
                         disabled={!password || loading}
-                        className="flex-1 bg-red-600 hover:bg-red-500 text-white py-2 rounded font-bold disabled:opacity-50"
+                        className={`flex-1 text-white py-2 rounded font-bold disabled:opacity-50 ${isDelete ? 'bg-red-600 hover:bg-red-500' : 'bg-blue-600 hover:bg-blue-500'}`}
                     >
-                        {loading ? '處理中...' : '確認下載'}
+                        {loading ? '處理中...' : (isDelete ? '確認刪除' : '確認下載')}
                     </button>
                 </div>
             </div>
@@ -130,8 +140,8 @@ const AdminPanel: React.FC<Props> = ({ currentUser }) => {
   const [editUsed, setEditUsed] = useState<number>(0);
   const [editTotal, setEditTotal] = useState<number>(0);
 
-  // Secure Download State
-  const [downloadTargetId, setDownloadTargetId] = useState<string | null>(null);
+  // Security Action State
+  const [securityTarget, setSecurityTarget] = useState<{uid: string, type: 'DOWNLOAD'|'DELETE'} | null>(null);
 
   // System State
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -441,11 +451,18 @@ const AdminPanel: React.FC<Props> = ({ currentUser }) => {
                                 </td>
                                 <td className="p-4 text-right flex gap-2 justify-end">
                                     <button 
-                                        onClick={() => setDownloadTargetId(user.user_id)}
+                                        onClick={() => setSecurityTarget({uid: user.user_id, type: 'DOWNLOAD'})}
                                         className="text-xs bg-blue-900/50 text-blue-200 px-2 py-1 rounded hover:bg-blue-900 border border-blue-800"
                                         title="下載用戶優化紀錄"
                                     >
                                         📥 紀錄
+                                    </button>
+                                    <button 
+                                        onClick={() => setSecurityTarget({uid: user.user_id, type: 'DELETE'})}
+                                        className="text-xs bg-red-900/50 text-red-200 px-2 py-1 rounded hover:bg-red-900 border border-red-800"
+                                        title="刪除用戶紀錄"
+                                    >
+                                        🗑️
                                     </button>
                                     <button 
                                         onClick={() => handleToggleSuspend(user.user_id, user.isSuspended)}
@@ -525,11 +542,12 @@ const AdminPanel: React.FC<Props> = ({ currentUser }) => {
           </div>
       )}
       
-      {/* Secure Download Modal */}
-      {downloadTargetId && (
-          <DownloadSecurityModal 
-              targetUserId={downloadTargetId} 
-              onClose={() => setDownloadTargetId(null)} 
+      {/* Security Action Modal (Download/Delete) */}
+      {securityTarget && (
+          <SecurityActionModal 
+              targetUserId={securityTarget.uid} 
+              actionType={securityTarget.type}
+              onClose={() => setSecurityTarget(null)} 
           />
       )}
     </div>

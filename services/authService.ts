@@ -1,9 +1,3 @@
-
-
-
-
-
-
 import { UserProfile, UserRole, AdminKey, SystemConfig, LogEntry, DashboardStats, BrandSettings, UserReport, UsageLog } from '../types';
 import { auth, db, isMock, firebase } from './firebase';
 
@@ -235,6 +229,21 @@ export const updateUserSettings = async (userId: string, settings: BrandSettings
 
 // --- Quota & Role Operations ---
 
+// Helper function defined before usage
+const deduct = async (userId: string, amount: number): Promise<boolean> => {
+    if (!isMock) {
+        await db.collection('users').doc(userId).update({
+            quota_used: firebase.firestore.FieldValue.increment(amount),
+            updated_at: Date.now()
+        });
+    } else {
+        const users = getDb(DB_USERS);
+        users[userId].quota_used += amount;
+        saveDb(DB_USERS, users);
+    }
+    return true;
+}
+
 export const checkAndUseQuota = async (userId: string, amount: number = 1): Promise<boolean> => {
     const user = await getUserProfile(userId);
     if (!user) return false;
@@ -271,20 +280,6 @@ export const checkAndUseQuota = async (userId: string, amount: number = 1): Prom
     // Deduct
     return await deduct(userId, amount);
 };
-
-const deduct = async (userId: string, amount: number): Promise<boolean> => {
-    if (!isMock) {
-        await db.collection('users').doc(userId).update({
-            quota_used: firebase.firestore.FieldValue.increment(amount),
-            updated_at: Date.now()
-        });
-    } else {
-        const users = getDb(DB_USERS);
-        users[userId].quota_used += amount;
-        saveDb(DB_USERS, users);
-    }
-    return true;
-}
 
 // --- Admin Operations ---
 
@@ -587,5 +582,24 @@ export const getUserUsageLogs = async (userId: string): Promise<UsageLog[]> => {
         return logs.sort((a, b) => b.ts - a.ts);
     } else {
         return [];
+    }
+};
+
+// --- Delete Usage Logs (Admin) ---
+export const deleteUserUsageLogs = async (userId: string): Promise<void> => {
+    if (!isMock) {
+        // Note: Firebase batch limit is 500. For large datasets, this should be recursive or batched in chunks.
+        // Assuming log count is manageable for this simplified admin feature.
+        const snapshot = await db.collection('usage_logs').where('uid', '==', userId).get();
+        if (snapshot.empty) return;
+
+        const batch = db.batch();
+        snapshot.docs.forEach((doc) => {
+            batch.delete(doc.ref);
+        });
+        await batch.commit();
+    } else {
+        console.log("Mock delete logs for", userId);
+        // No-op for mock currently as logs aren't saved to localStorage persistently in mock
     }
 };
