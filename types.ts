@@ -72,6 +72,20 @@ export interface UserProfile {
 }
 
 // ==========================================
+// Domain: Usage Logging (New)
+// ==========================================
+
+export interface UsageLog {
+  uid: string;           // User ID
+  act: 'draft' | 'img' | 'seo' | 'threads'; // Short action code
+  topic: string;         // Main topic/keyword
+  prmt: string;          // The Prompt (Full)
+  res: string;           // Result (Truncated to 500 chars)
+  params?: string;       // JSON string of settings (e.g., tone, style) - kept small
+  ts: number;            // Timestamp
+}
+
+// ==========================================
 // Domain: Brand & Settings
 // ==========================================
 

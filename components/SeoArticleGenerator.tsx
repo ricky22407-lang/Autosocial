@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { generateSeoArticle } from '../services/geminiService';
-import { checkAndUseQuota } from '../services/authService';
+import { checkAndUseQuota, logUserActivity } from '../services/authService';
 import { UserProfile } from '../types';
 
 interface Props {
@@ -65,6 +65,17 @@ const SeoArticleGenerator: React.FC<Props> = ({ user, onQuotaUpdate }) => {
             );
             setResultText(result.fullText);
             setImageKeyword(result.imageKeyword);
+
+            // --- Log Usage ---
+            logUserActivity({
+                uid: user.user_id,
+                act: 'seo',
+                topic: topic,
+                prmt: `Keywords: ${keywords}, Length: ${length}`,
+                res: result.fullText,
+                params: JSON.stringify({ options: { optAgenda, optMeta, optFAQ } })
+            });
+
         } catch (e: any) {
             console.error(e);
             setErrorMsg(`生成失敗: ${e.message || "未知錯誤"}`);

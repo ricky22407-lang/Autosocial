@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { BrandSettings, Post, TrendingTopic, UserProfile, CtaItem } from '../types';
 import { getTrendingTopics, generatePostDraft, generateImage, applyWatermark } from '../services/geminiService';
 import { publishPostToFacebook } from '../services/facebookService';
-import { checkAndUseQuota, getSystemConfig } from '../services/authService';
+import { checkAndUseQuota, getSystemConfig, logUserActivity } from '../services/authService';
 
 interface Props {
   settings: BrandSettings;
@@ -343,6 +343,16 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
         videoPrompt: generated.videoPrompt
       });
 
+      // --- Log Usage ---
+      logUserActivity({
+          uid: user.user_id,
+          act: 'draft',
+          topic: topic,
+          prmt: `Length: ${finalLength}, Tone: ${settings.brandTone}, Product: ${settings.productInfo}`,
+          res: finalCaption,
+          params: JSON.stringify({ role: user.role, model: 'dynamic' })
+      });
+
     } catch (e: any) {
       console.error(e);
       alert(`生成草稿失敗：${e.message}`);
@@ -367,9 +377,6 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   const handleGenerateMedia = async () => {
     if (!user || isGeneratingMedia) return;
     
-    // Free Tier can now generate images via Pollinations!
-    // if (isFreeTier && !isDemoMode) { ... } -> Removed restriction
-
     const cost = 5; 
     if (isDemoMode) {
         setIsGeneratingMedia(true);
@@ -381,7 +388,6 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
         return;
     }
 
-    // 判斷是否為重新生成
     const isRegeneration = !!mediaUrl;
     const msg = isRegeneration 
         ? `確定重新生成圖片嗎？這將再次消耗 ${cost} 點配額。` 
@@ -396,7 +402,6 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     }
     onQuotaUpdate();
 
-    // 關鍵修正：立即清除舊圖片，顯示 Loading
     setMediaUrl(undefined);
     setIsGeneratingMedia(true);
 
@@ -408,36 +413,40 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
           return;
       }
 
-      // 強制加入隨機種子，確保 API (或 Fallback) 知道這是一個新的請求
-      // This helps bypass caching and ensures "Regenerate" actually changes something
       const seed = Math.floor(Math.random() * 999999);
       const variationSuffix = ` (random_seed: ${seed})`; 
       const promptToSend = draft.imagePrompt + variationSuffix;
       
       console.log(`[PostCreator] Requesting Image with forced randomness: ${seed}`);
       
-      // Pass user role AND Brand Style Prompt to generator
       let url = await generateImage(promptToSend, user.role, settings.brandStylePrompt);
       
-      // --- Auto Watermark Logic ---
       if (settings.logoUrl) {
           try {
               console.log("Applying watermark automatically...");
               url = await applyWatermark(url, settings.logoUrl);
           } catch (wmError) {
               console.warn("Auto watermark failed:", wmError);
-              // Fail silently and show original image, but maybe user can retry manually
           }
       }
       
       setMediaUrl(url);
+
+      // --- Log Usage ---
+      logUserActivity({
+          uid: user.user_id,
+          act: 'img',
+          topic: topic, // Context
+          prmt: promptToSend,
+          res: 'Generated Image URL (not stored in log)', // Don't store huge base64
+          params: JSON.stringify({ role: user.role, style: settings.brandStylePrompt })
+      });
 
     } catch (e: any) {
       console.error(e);
       let msg = e.message;
       if (msg.includes('429')) msg = "API 配額額滿 (429 Too Many Requests)。系統正在切換 Key，請重試。";
       alert(`素材生成失敗: ${msg}`);
-      // 不要恢復舊圖片，讓用戶知道這次失敗了，需要重試
     } finally {
       setIsGeneratingMedia(false);
     }

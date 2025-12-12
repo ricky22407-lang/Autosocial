@@ -2,7 +2,9 @@
 
 
 
-import { UserProfile, UserRole, AdminKey, SystemConfig, LogEntry, DashboardStats, BrandSettings, UserReport } from '../types';
+
+
+import { UserProfile, UserRole, AdminKey, SystemConfig, LogEntry, DashboardStats, BrandSettings, UserReport, UsageLog } from '../types';
 import { auth, db, isMock, firebase } from './firebase';
 
 /* 
@@ -550,5 +552,40 @@ export const resetUserQuota = async (userId: string) => {
             users[userId].quota_used = 0;
             saveDb(DB_USERS, users);
         }
+    }
+};
+
+// --- Usage Logging (For Optimization) ---
+export const logUserActivity = async (logData: Omit<UsageLog, 'ts'>) => {
+    try {
+        const log: UsageLog = {
+            ...logData,
+            // Truncate result to save space
+            res: logData.res ? logData.res.substring(0, 500) : '',
+            ts: Date.now()
+        };
+
+        if (!isMock) {
+            // Use 'add' to auto-generate ID
+            await db.collection('usage_logs').add(log);
+        } else {
+            console.log("[Mock Log]", log);
+        }
+    } catch (e) {
+        // Fail silently - logging should not break app
+        console.warn("Logging failed", e);
+    }
+};
+
+// --- Export Usage Logs (Admin) ---
+export const getUserUsageLogs = async (userId: string): Promise<UsageLog[]> => {
+    if (!isMock) {
+        // Simple query without compound index requirement (filter in memory if needed for complex sorts, but 'where' is fine)
+        const snapshot = await db.collection('usage_logs').where('uid', '==', userId).get();
+        const logs = snapshot.docs.map(doc => doc.data() as UsageLog);
+        // Client-side sort by timestamp desc
+        return logs.sort((a, b) => b.ts - a.ts);
+    } else {
+        return [];
     }
 };
