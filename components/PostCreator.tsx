@@ -1,8 +1,6 @@
-
-
 import React, { useState, useEffect, useRef } from 'react';
 import { BrandSettings, Post, TrendingTopic, UserProfile, CtaItem } from '../types';
-import { getTrendingTopics, generatePostDraft, generateImage } from '../services/geminiService';
+import { getTrendingTopics, generatePostDraft, generateImage, applyWatermark } from '../services/geminiService';
 import { publishPostToFacebook } from '../services/facebookService';
 import { checkAndUseQuota, getSystemConfig } from '../services/authService';
 
@@ -309,6 +307,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
       const validCtaList = ctaList.filter(l => l.url.trim() !== '');
       const finalLength = isFreeTier ? '150-300字' : captionLength;
 
+      // Pass user role to smart model selection
       const generated = await generatePostDraft(
           topic, 
           settings, 
@@ -317,7 +316,8 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
             ctaList: validCtaList,
             tempHashtags: '' 
           },
-          selectedTopicData || undefined
+          selectedTopicData || undefined,
+          user.role // Smart Fallback: Flash for Free, Pro for Pro
       );
 
       let finalCaption = generated.caption;
@@ -367,10 +367,8 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   const handleGenerateMedia = async () => {
     if (!user || isGeneratingMedia) return;
     
-    if (isFreeTier && !isDemoMode) {
-        alert("免費版不支援 AI 圖片生成功能。");
-        return;
-    }
+    // Free Tier can now generate images via Pollinations!
+    // if (isFreeTier && !isDemoMode) { ... } -> Removed restriction
 
     const cost = 5; 
     if (isDemoMode) {
@@ -417,7 +415,21 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
       const promptToSend = draft.imagePrompt + variationSuffix;
       
       console.log(`[PostCreator] Requesting Image with forced randomness: ${seed}`);
-      const url = await generateImage(promptToSend);
+      
+      // Pass user role AND Brand Style Prompt to generator
+      let url = await generateImage(promptToSend, user.role, settings.brandStylePrompt);
+      
+      // --- Auto Watermark Logic ---
+      if (settings.logoUrl) {
+          try {
+              console.log("Applying watermark automatically...");
+              url = await applyWatermark(url, settings.logoUrl);
+          } catch (wmError) {
+              console.warn("Auto watermark failed:", wmError);
+              // Fail silently and show original image, but maybe user can retry manually
+          }
+      }
+      
       setMediaUrl(url);
 
     } catch (e: any) {
@@ -431,51 +443,17 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     }
   };
 
-  // --- Watermark Logic ---
-  const handleApplyWatermark = () => {
+  // --- Watermark Logic (Manual) ---
+  const handleApplyWatermark = async () => {
       if (!mediaUrl || !settings.logoUrl) return;
       setIsApplyingWatermark(true);
 
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-
-      const mainImg = new Image();
-      mainImg.crossOrigin = "anonymous";
-      mainImg.src = mediaUrl;
-
-      mainImg.onload = () => {
-          canvas.width = mainImg.width;
-          canvas.height = mainImg.height;
-
-          // Draw main image
-          ctx.drawImage(mainImg, 0, 0);
-
-          // Draw logo
-          const logoImg = new Image();
-          logoImg.src = settings.logoUrl!;
-          logoImg.onload = () => {
-              // Calculate logo size (e.g., 15% of width)
-              const logoWidth = canvas.width * 0.15;
-              const logoHeight = (logoImg.height / logoImg.width) * logoWidth;
-              const padding = canvas.width * 0.05;
-
-              // Position: Bottom Right
-              const x = canvas.width - logoWidth - padding;
-              const y = canvas.height - logoHeight - padding;
-              
-              ctx.globalAlpha = 0.8; // Slight transparency
-              ctx.drawImage(logoImg, x, y, logoWidth, logoHeight);
-
-              // Output
-              const newUrl = canvas.toDataURL('image/png');
-              setMediaUrl(newUrl);
-              setIsApplyingWatermark(false);
-          };
-      };
-      
-      mainImg.onerror = () => {
-          alert("無法讀取圖片進行浮水印合成 (可能是跨域問題)");
+      try {
+          const newUrl = await applyWatermark(mediaUrl, settings.logoUrl);
+          setMediaUrl(newUrl);
+      } catch (e: any) {
+          alert(`浮水印合成失敗: ${e.message}`);
+      } finally {
           setIsApplyingWatermark(false);
       }
   };
@@ -550,7 +528,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   // Enhanced Wait UI
   if (isLoadingTopics) return <LoadingOverlay message="AI 正在搜尋熱門話題" detail="正在分析新聞來源與社群趨勢..." />;
   if (isGeneratingDraft) return <LoadingOverlay message="AI 正在撰寫文案" detail={`針對主題「${topic}」進行創意發想中...`} />;
-  if (isGeneratingMedia) return <LoadingOverlay message="AI 正在繪製圖片" detail="正在調用高效能繪圖模型 (優先呼叫 Gemini Pro)，請稍候..." />;
+  if (isGeneratingMedia) return <LoadingOverlay message="AI 正在繪製圖片" detail="正在調用高效能繪圖模型 (自動套用浮水印)..." />;
   if (isPublishing) return <LoadingOverlay message="正在發佈貼文" detail={syncInstagram ? "正在同步發送至 Facebook 與 Instagram..." : "正在發送至 Facebook..."} />;
 
   if (step === 1) {
@@ -707,10 +685,23 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                                 🖼️ AI 圖片 (5點)
                             </label>
                         </div>
+                        
+                        <div className="flex justify-between items-center mb-1 px-1">
+                             <label className="text-xs text-gray-400">提示詞 (Prompt)</label>
+                             <div className="flex gap-1">
+                                {settings.brandStylePrompt && (
+                                    <span className="text-[10px] text-pink-400 bg-pink-900/20 px-2 py-0.5 rounded border border-pink-800" title={settings.brandStylePrompt}>
+                                        🎨 已套用品牌風格
+                                    </span>
+                                )}
+                                <span className="text-[10px] text-green-400 bg-green-900/20 px-2 py-0.5 rounded border border-green-800">✨ 支援中文輸入</span>
+                             </div>
+                        </div>
+
                         <textarea value={draft.imagePrompt} onChange={e => setDraft(prev => ({...prev, imagePrompt: e.target.value}))} className="w-full h-24 bg-dark border-gray-600 rounded p-3 text-white mb-2" placeholder="AI 提示詞..." />
                         
-                        <button type="button" onClick={handleGenerateMedia} className={`w-full py-3 rounded font-bold text-white transition-all flex justify-center items-center gap-2 ${isDemoMode ? 'bg-yellow-600' : isFreeTier ? 'bg-gray-600 cursor-not-allowed opacity-50' : 'bg-secondary hover:bg-indigo-600'}`}>
-                            {isDemoMode ? `產生 Demo 素材` : isFreeTier ? '🔒 升級解鎖' : `生成圖片 (扣5點)`}
+                        <button type="button" onClick={handleGenerateMedia} className={`w-full py-3 rounded font-bold text-white transition-all flex justify-center items-center gap-2 ${isDemoMode ? 'bg-yellow-600' : 'bg-secondary hover:bg-indigo-600'}`}>
+                            {isDemoMode ? `產生 Demo 素材` : `生成圖片 (扣5點)`}
                         </button>
                         
                         {mediaUrl && (
@@ -775,7 +766,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                         disabled={isApplyingWatermark}
                         className="w-full bg-gray-700 hover:bg-gray-600 text-white text-sm py-2 rounded flex items-center justify-center gap-2"
                      >
-                         {isApplyingWatermark ? '合成中...' : '🏷️ 套用品牌浮水印 (免費)'}
+                         {isApplyingWatermark ? '合成中...' : '🏷️ 重新套用浮水印 (手動)'}
                      </button>
                 </div>
             )}

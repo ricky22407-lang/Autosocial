@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { BrandSettings, ThreadsAccount, UserProfile, TrendingTopic } from '../types';
 import { generateCommentReply, getTrendingTopics, generateThreadsBatch, generateImage, fetchNewsImageFromUrl } from '../services/geminiService';
@@ -280,7 +279,8 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
               if (finalMode === 'ai') {
                   paid = true;
                   try {
-                      finalImageUrl = await generateImage(r.imagePrompt);
+                      // Pass user role to enforce limits
+                      finalImageUrl = await generateImage(r.imagePrompt, user.role);
                   } catch (e) {
                       console.warn("AI Image gen failed in batch", e);
                       errorLog = '圖片生成失敗 (請點擊重試)';
@@ -302,7 +302,8 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                   if (!finalImageUrl) {
                       try {
                          const newsPrompt = `News photo about ${topicSource}, realistic, journalism style, 4k`;
-                         finalImageUrl = await generateImage(newsPrompt);
+                         // Pass role to news image fallback too
+                         finalImageUrl = await generateImage(newsPrompt, user.role);
                       } catch (e) {
                          finalMode = 'none';
                          errorLog = '無法取得新聞圖片';
@@ -413,7 +414,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       if (newMode === 'ai') {
           setIsRegeneratingImage(post.id);
           try {
-              const url = await generateImage(post.imagePrompt);
+              const url = await generateImage(post.imagePrompt, user.role);
               setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageUrl: url } : p));
           } catch (e: any) {
               setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageUrl: undefined, log: '生成失敗 (點擊重試)' } : p));
@@ -437,8 +438,8 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                }
                
                try {
-                  const newsPrompt = `News photo about ${post.topic}, realistic, journalism style`;
-                  const aiNewsImg = await generateImage(newsPrompt);
+                  const newsPrompt = `News photo about ${post.topic}, realistic, journalism style, 4k`;
+                  const aiNewsImg = await generateImage(newsPrompt, user.role);
                   setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, newsImageUrl: aiNewsImg } : p));
                } catch(e) {
                   alert("此話題無新聞圖片，也無法生成替代圖。");

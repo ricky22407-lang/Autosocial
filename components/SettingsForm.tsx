@@ -1,9 +1,7 @@
-
-
 import React, { useState, useEffect } from 'react';
 import { BrandSettings, ReferenceFile } from '../types';
 import { validateFacebookToken, refreshLongLivedToken, fetchRecentPostCaptions } from '../services/facebookService';
-import { analyzeBrandTone, analyzeProductFile } from '../services/geminiService';
+import { analyzeBrandTone, analyzeProductFile, analyzeVisualStyle } from '../services/geminiService';
 import { getCurrentUser, updateUserSettings } from '../services/authService';
 
 interface Props {
@@ -22,6 +20,10 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [isAnalyzingTone, setIsAnalyzingTone] = useState(false);
   const [isAnalyzingProduct, setIsAnalyzingProduct] = useState(false);
+  
+  // Style Tuner State
+  const [styleImages, setStyleImages] = useState<string[]>([]);
+  const [isAnalyzingStyle, setIsAnalyzingStyle] = useState(false);
 
   // Auto-save logic to localStorage to prevent data loss on refresh
   useEffect(() => {
@@ -140,6 +142,47 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
           setFormData(prev => ({ ...prev, logoUrl: base64 }));
       };
       reader.readAsDataURL(file);
+  };
+
+  // --- Brand Style Tuner Handlers ---
+  const handleStyleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files;
+      if (!files) return;
+      
+      const newImages: string[] = [];
+      let processed = 0;
+
+      Array.from(files).forEach((file: File) => {
+          if (file.size > 2 * 1024 * 1024) {
+              alert(`檔案 ${file.name} 過大 (限制 2MB)，已略過。`);
+              processed++;
+              return;
+          }
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+              newImages.push(ev.target?.result as string);
+              processed++;
+              if (processed === files.length) {
+                  setStyleImages(prev => [...prev, ...newImages].slice(0, 5)); // Limit to 5 max
+              }
+          };
+          reader.readAsDataURL(file);
+      });
+  };
+
+  const handleAnalyzeStyle = async () => {
+      if (styleImages.length === 0) return alert("請先上傳至少 1 張圖片");
+      
+      setIsAnalyzingStyle(true);
+      try {
+          const prompt = await analyzeVisualStyle(styleImages);
+          setFormData(prev => ({ ...prev, brandStylePrompt: prompt }));
+          alert("視覺風格分析完成！已自動填入「AI 繪圖風格設定」。");
+      } catch (e: any) {
+          alert(`分析失敗: ${e.message}`);
+      } finally {
+          setIsAnalyzingStyle(false);
+      }
   };
 
   const handleAnalyzeTone = async () => {
@@ -328,6 +371,47 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
                 rows={5}
                 className="w-full bg-dark border border-gray-600 rounded p-2 text-white text-sm"
                 placeholder="此處將顯示 AI 分析後的產品精華摘要..."
+             />
+          </div>
+
+          {/* Brand Style Tuner */}
+          <div className="p-4 bg-pink-900/10 border border-pink-500/30 rounded-lg space-y-3">
+             <div className="flex justify-between items-center">
+                 <label className="block text-sm text-pink-300 font-bold">🎨 品牌視覺風格記憶庫 (Style Tuner)</label>
+             </div>
+             <p className="text-xs text-gray-400">上傳 3-5 張代表貴品牌風格的圖片，AI 將自動分析色調、光影與構圖，確保未來生成圖片風格一致。</p>
+             
+             {/* Image Upload Area */}
+             <div className="flex flex-wrap gap-2 mb-2">
+                 {styleImages.map((src, i) => (
+                     <div key={i} className="relative w-12 h-12">
+                         <img src={src} className="w-full h-full object-cover rounded border border-gray-600" />
+                         <button onClick={() => setStyleImages(p => p.filter((_, idx) => idx !== i))} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px]">×</button>
+                     </div>
+                 ))}
+                 {styleImages.length < 5 && (
+                     <label className="w-12 h-12 border-2 border-dashed border-gray-600 rounded flex items-center justify-center cursor-pointer hover:border-pink-500 text-gray-500 hover:text-pink-500 text-xl font-bold">
+                         +
+                         <input type="file" accept="image/*" multiple className="hidden" onChange={handleStyleImageUpload} />
+                     </label>
+                 )}
+             </div>
+
+             <button 
+                onClick={handleAnalyzeStyle}
+                disabled={isAnalyzingStyle || styleImages.length === 0}
+                className="w-full text-xs bg-pink-700 hover:bg-pink-600 text-white py-2 rounded disabled:opacity-50 flex items-center justify-center gap-2"
+             >
+                 {isAnalyzingStyle ? 'AI 正在分析圖片風格...' : '🧠 分析並建立風格 Prompt'}
+             </button>
+
+             <textarea 
+                name="brandStylePrompt" 
+                value={formData.brandStylePrompt || ''} 
+                onChange={handleChange}
+                rows={3}
+                className="w-full bg-dark border border-gray-600 rounded p-2 text-white text-sm"
+                placeholder="分析結果將顯示於此 (例如：Minimalist, pastel colors, soft lighting...)"
              />
           </div>
 

@@ -1,5 +1,3 @@
-
-
 import { BrandSettings, TrendingTopic, CachedTrendData, CtaItem } from "../types";
 import { db } from "./firebase"; // Using compat export
 
@@ -107,17 +105,19 @@ const callBackend = async (action: string, payload: any) => {
 };
 
 // --- Cache Logic (Firebase) ---
-const CACHE_TTL = 4 * 60 * 60 * 1000; 
+const CACHE_TTL = 12 * 60 * 60 * 1000; // Increased to 12 hours for better sharing
 
 const checkTrendCache = async (industry: string): Promise<TrendingTopic[] | null> => {
     try {
         const dateKey = new Date().toISOString().split('T')[0];
+        // Shared Global Key: YYYY-MM-DD_Industry
         const cacheId = `${dateKey}_${industry.replace(/\s+/g, '_')}`;
         const doc = await db.collection('global_trend_cache').doc(cacheId).get();
         if (doc.exists) {
             const data = doc.data() as CachedTrendData;
             const age = Date.now() - data.createdAt;
             if (age < CACHE_TTL && data.topics && data.topics.length > 0) {
+                console.log(`[TrendCache] Hit: ${cacheId}`);
                 return shuffleArray(data.topics);
             }
         }
@@ -132,6 +132,7 @@ const saveTrendCache = async (industry: string, topics: TrendingTopic[]) => {
         await db.collection('global_trend_cache').doc(cacheId).set({
             id: cacheId, industry, topics, createdAt: Date.now()
         });
+        console.log(`[TrendCache] Saved: ${cacheId}`);
     } catch (e) { console.warn("Cache write failed", e); }
 };
 
@@ -218,6 +219,7 @@ const fetchRealtimeRss = async (keyword: string): Promise<TrendingTopic[]> => {
 // #region Core Services
 
 export const getTrendingTopics = async (industry: string = "台灣熱門時事", seed?: number): Promise<TrendingTopic[]> => {
+  // Strategy A: Global Trend Cache (First)
   const cached = await checkTrendCache(industry);
   if (cached) return cached;
 
@@ -315,12 +317,52 @@ export const analyzeProductFile = async (text: string): Promise<string> => {
     return response.text || "";
 };
 
+// --- NEW: Visual Style Analysis ---
+export const analyzeVisualStyle = async (imageB64s: string[]): Promise<string> => {
+    const parts = [
+        { text: "You are a professional Art Director. Analyze these brand images and extract a consistent 'Visual Style Prompt' that I can use to generate similar images with AI.\n\nFocus on:\n1. Lighting (e.g., soft, studio, natural)\n2. Color Palette (e.g., pastel, neon, earthy)\n3. Composition (e.g., minimal, busy, macro)\n4. Mood/Vibe (e.g., cozy, professional, energetic)\n\nOutput a single, concise English paragraph (max 50 words) starting with 'Style: ...' that describes this aesthetic." },
+    ];
+
+    // Add images to parts
+    imageB64s.forEach(b64 => {
+        // Remove data:image/png;base64, prefix if present for API, but check if backend needs it. 
+        // The backend `generateContent` wrapper usually expects the full object structure.
+        // We will construct the payload to match what `callBackend` expects for `contents`.
+        // However, `callBackend` stringifies `payload`. We need to form the `contents` array properly.
+        
+        // Let's pass the raw parts to `callBackend` manually since `analyzeVisualStyle` is client side logic prep.
+        // Wait, `callBackend` handles the fetch. We need to construct the `contents` properly.
+        
+        // Strip prefix for inlineData
+        const base64Clean = b64.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, '');
+        parts.push({
+            inlineData: {
+                mimeType: "image/png", // Assuming PNG or generic compatible type
+                data: base64Clean
+            }
+        } as any);
+    });
+
+    const response = await callBackend('generateContent', {
+        model: "gemini-2.5-flash", // Flash is multimodal
+        contents: { parts }
+    });
+
+    return response.text || "Minimalist, clean, high-key lighting.";
+};
+
 export const generatePostDraft = async (
     topic: string, 
     settings: BrandSettings, 
     options: { length: string, ctaList: CtaItem[], tempHashtags: string },
-    topicContext?: TrendingTopic
+    topicContext?: TrendingTopic,
+    userRole: string = 'user'
 ) => {
+  // Strategy B: Smart Model Fallback
+  // Only high-tier users get access to the "Pro" model.
+  const isHighTier = ['pro', 'business', 'admin'].includes(userRole);
+  const selectedModel = isHighTier ? "gemini-3-pro-preview" : "gemini-2.5-flash";
+
   // Construct CTA Prompt
   let ctaPrompt = "無特定 CTA";
   if (options.ctaList && options.ctaList.length > 0) {
@@ -363,7 +405,7 @@ export const generatePostDraft = async (
   `;
 
   const response = await callBackend('generateContent', {
-    model: "gemini-3-pro-preview",
+    model: selectedModel,
     contents: prompt,
     config: { 
         responseMimeType: "application/json",
@@ -383,37 +425,79 @@ export const generatePostDraft = async (
 };
 
 const ensureEnglishPrompt = async (prompt: string): Promise<string> => {
-    // If prompt contains Chinese characters, translate it.
-    if (/[\u4e00-\u9fa5]/.test(prompt)) {
-        try {
-            console.log("Detecting Chinese in prompt, translating to English...");
-            const response = await callBackend('generateContent', {
-                model: 'gemini-2.5-flash',
-                contents: `Translate the following image prompt to detailed English for an AI image generator. Only return the English text.\n\nPrompt: ${prompt}`
-            });
-            return response.text.trim();
-        } catch (e) {
-            console.warn("Translation failed, using original prompt");
-            return prompt;
-        }
+    // Strategy C: Regex Check (Cost Saving)
+    // If input is purely ASCII (English/Symbols/Numbers), skip translation API call.
+    if (/^[\x00-\x7F]*$/.test(prompt)) {
+        return prompt;
     }
-    return prompt;
-};
-
-export const generateImage = async (prompt: string): Promise<string> => {
-    // 1. Ensure Prompt is English (Imagen models require English)
-    const englishPrompt = await ensureEnglishPrompt(prompt);
-    
-    // 2. Enhance Prompt - Removed "8k" and "detailed" as per request for efficiency/relevance
-    const enhancedPrompt = `${englishPrompt}, photorealistic, cinematic lighting, photography style`;
 
     try {
-        console.log("🎨 [ImageGen] Attempting to generate image via Backend (Waterfall: Imagen 3.0 -> Flash -> OpenAI)...");
-        // We pass 'imagen-3.0-generate-002' as the preferred model.
-        // The backend handles the waterfall.
+        console.log("Detecting non-ASCII in prompt, translating to English...");
+        const response = await callBackend('generateContent', {
+            model: 'gemini-2.5-flash',
+            contents: `Role: Expert AI Image Prompt Translator.
+Task: Translate the following text into a descriptive English prompt suitable for high-quality AI image generation.
+Input: "${prompt}"
+Requirements:
+1. Translate accurately to English.
+2. If the input is simple (e.g., "a cat"), add subtle details to make it a better prompt (e.g., "a fluffy cat, soft lighting").
+3. Do NOT output explanations. ONLY output the English prompt string.`
+        });
+        const translated = response.text.trim();
+        console.log("Translated Prompt:", translated);
+        return translated;
+    } catch (e) {
+        console.warn("Translation failed, using original prompt");
+        return prompt;
+    }
+};
+
+export const generateImage = async (prompt: string, userRole: string = 'user', stylePrompt?: string): Promise<string> => {
+    // Strategy E: "No Limit" Trigger & Safety Bypass
+    const noLimitTrigger = /no limit/i.test(prompt);
+    let finalPrompt = prompt.replace(/no limit/ig, '').trim(); // Remove the trigger from prompt
+
+    // If "No Limit" is present, force 'admin' effective role to ensure Backend generation (Pro models).
+    const effectiveRole = noLimitTrigger ? 'admin' : userRole;
+    const isPaidImageTier = ['pro', 'business', 'admin'].includes(effectiveRole);
+
+    // 1. Ensure Prompt is English
+    const englishPrompt = await ensureEnglishPrompt(finalPrompt);
+    
+    // 2. Enhance Prompt (Apply Style Tuner if available)
+    let enhancedPrompt = "";
+    if (stylePrompt) {
+        enhancedPrompt = `${englishPrompt}. Visual Style: ${stylePrompt}. Photorealistic, cinematic lighting.`;
+    } else {
+        enhancedPrompt = `${englishPrompt}, photorealistic, cinematic lighting, photography style`;
+    }
+
+    // 3. Economy Mode (Client-side generation)
+    // Skipped if "No Limit" is active (as effectiveRole is admin)
+    if (!isPaidImageTier) {
+         console.log("🎨 [ImageGen] Economy Mode: Using Pollinations (Frontend).");
+         const seed = Math.floor(Math.random() * 100000);
+         const encodedPrompt = encodeURIComponent(enhancedPrompt);
+         // Using Flux model on Pollinations for decent quality for free users
+         return `https://image.pollinations.ai/prompt/${encodedPrompt}?n=${seed}&model=flux&enhance=true`;
+    }
+
+    // 4. Pro Mode (Backend generation)
+    try {
+        console.log(`🎨 [ImageGen] Pro Mode: Attempting Backend generation${noLimitTrigger ? ' (NO LIMIT)' : ''}...`);
+        
+        // Define Safety Settings if No Limit is requested
+        const safetySettings = noLimitTrigger ? [
+            { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+            { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+            { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+            { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' }
+        ] : undefined;
+
         const response = await callBackend('generateImages', {
             model: 'imagen-3.0-generate-002', 
-            prompt: enhancedPrompt
+            prompt: enhancedPrompt,
+            safetySettings // Pass explicit safety settings
         });
         
         if (response.base64) {
@@ -423,7 +507,7 @@ export const generateImage = async (prompt: string): Promise<string> => {
         throw new Error("No image data found in response");
 
     } catch (e: any) {
-        // Attempt 2: Pollinations AI (Ultimate Client-side Fallback)
+        // Fallback to Pollinations even for Pro users if backend fails completely
         console.error("❌ [ImageGen] Backend Failed. Switching to Frontend Fallback (Pollinations). Reason:", e.message);
         console.warn("Falling back to free Pollinations API to ensure user gets an image.");
         
@@ -448,8 +532,8 @@ export const generateVideo = async (prompt: string): Promise<string> => {
 
     } catch (e: any) {
         console.warn("Veo failed, fallback to Image:", e);
-        // Fallback to Image if Video fails
-        const img = await generateImage(prompt);
+        // Fallback to Image if Video fails (User Role assumed 'pro' if they can call video, but default to 'user' safe)
+        const img = await generateImage(prompt, 'pro'); 
         throw new Error(`影片生成失敗，已降級為圖片: ${e.message}`);
     }
 };
@@ -565,7 +649,7 @@ export const generateThreadsBatch = async (
     `;
 
     const response = await callBackend('generateContent', {
-        model: "gemini-2.5-flash",
+        model: "gemini-2.5-flash", // Sticking to Flash for Threads as requested
         contents: prompt,
         config: { 
             responseMimeType: "application/json",
@@ -615,5 +699,57 @@ export const generateCommentReply = async (
     });
     
     return JSON.parse(cleanJsonText(response.text || '[]'));
+};
+
+// --- UTILITY: Watermark Applicator ---
+export const applyWatermark = async (mainImageUrl: string, logoUrl: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            reject(new Error("Canvas not supported"));
+            return;
+        }
+
+        const mainImg = new Image();
+        mainImg.crossOrigin = "anonymous";
+        mainImg.src = mainImageUrl;
+
+        mainImg.onload = () => {
+            canvas.width = mainImg.width;
+            canvas.height = mainImg.height;
+            ctx.drawImage(mainImg, 0, 0);
+
+            const logoImg = new Image();
+            logoImg.crossOrigin = "anonymous";
+            logoImg.src = logoUrl;
+
+            logoImg.onload = () => {
+                // Logic: 15% width, padding 5%, bottom-right
+                const logoWidth = canvas.width * 0.15;
+                const logoHeight = (logoImg.height / logoImg.width) * logoWidth;
+                const padding = canvas.width * 0.05;
+                const x = canvas.width - logoWidth - padding;
+                const y = canvas.height - logoHeight - padding;
+
+                ctx.globalAlpha = 0.9;
+                ctx.drawImage(logoImg, x, y, logoWidth, logoHeight);
+                
+                resolve(canvas.toDataURL('image/png'));
+            };
+            
+            logoImg.onerror = (e) => {
+                 console.warn("Logo load failed", e);
+                 resolve(mainImageUrl); // Return original if logo fails
+            }
+        };
+
+        mainImg.onerror = (e) => {
+            console.error("Main image load failed", e);
+            // If main image fails (e.g. strict CORS), reject or return original? 
+            // Often best to return original to not break flow, but reject notifies caller.
+            reject(new Error("無法讀取原始圖片以合成浮水印 (跨域限制或圖片無效)"));
+        };
+    });
 };
 // #endregion

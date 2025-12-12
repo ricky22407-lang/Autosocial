@@ -1,7 +1,5 @@
-
-
 import { BrandSettings, AutoPilotConfig } from '../types';
-import { getTrendingTopics, generatePostDraft, generateImage, generateVideo, generateThreadsBatch } from './geminiService';
+import { getTrendingTopics, generatePostDraft, generateImage, generateVideo, generateThreadsBatch, applyWatermark } from './geminiService';
 import { publishPostToFacebook } from './facebookService';
 import { publishThreadsPost } from './threadsService';
 import { checkAndUseQuota, getUserProfile, getCurrentUser } from './authService';
@@ -41,7 +39,11 @@ export const AutomationClient = {
     const config = settings.autoPilot;
     if (!config || !config.enabled) throw new Error("自動化功能未啟用");
 
-    console.log("[AutoPilot Client] Starting FB task...");
+    // NEW: Fetch user role for smart model selection
+    const profile = await getUserProfile(user.uid);
+    const userRole = profile?.role || 'user';
+
+    console.log(`[AutoPilot Client] Starting FB task... Role: ${userRole}`);
 
     // 2. Determine Topic
     let topic = '';
@@ -56,11 +58,12 @@ export const AutomationClient = {
     }
 
     // 3. Generate Content
+    // Pass userRole to generatePostDraft for smart fallback
     const draft = await generatePostDraft(topic, settings, {
         length: '150-300字',
         ctaList: [],
         tempHashtags: ''
-    });
+    }, undefined, userRole);
 
     // 4. Generate Media
     let mediaUrl = '';
@@ -74,11 +77,24 @@ export const AutomationClient = {
                 mediaUrl = await generateVideo(draft.videoPrompt || topic);
              } catch (e) {
                 console.warn("Video generation failed in automation, falling back to image", e);
-                mediaUrl = await generateImage(draft.imagePrompt || topic);
+                // Pass userRole to generateImage for Pollinations fallback check
+                mediaUrl = await generateImage(draft.imagePrompt || topic, userRole);
              }
         } else {
-             mediaUrl = await generateImage(draft.imagePrompt || topic);
+             // Pass userRole to generateImage for Pollinations fallback check
+             mediaUrl = await generateImage(draft.imagePrompt || topic, userRole);
         }
+
+        // --- Auto Watermark Logic (Automation) ---
+        if (settings.logoUrl && mediaUrl) {
+            try {
+                console.log("[AutoPilot] Applying watermark...");
+                mediaUrl = await applyWatermark(mediaUrl, settings.logoUrl);
+            } catch (wmError) {
+                console.warn("[AutoPilot] Watermark failed, proceeding with original image.", wmError);
+            }
+        }
+
     } catch (e) {
         console.warn("Media generation failed", e);
     }
@@ -147,6 +163,7 @@ export const AutomationClient = {
 
       // 1. Determine Topic
       const seedKeyword = settings.industry || '台灣熱門時事';
+      // Use cached trends implicitly via getTrendingTopics
       const trends = await getTrendingTopics(seedKeyword);
       const topic = trends.length > 0 ? trends[0].title : `${settings.industry} 熱門討論`;
 
@@ -155,6 +172,7 @@ export const AutomationClient = {
       const persona = targetAccount.personaPrompt ? [targetAccount.personaPrompt] : [];
 
       // 3. Generate Post (Batch size 1)
+      // generateThreadsBatch always uses Flash, so logic is handled inside service
       const posts = await generateThreadsBatch(topic, 1, settings, persona);
       const post = posts[0];
 
@@ -162,6 +180,23 @@ export const AutomationClient = {
       let imageUrl = undefined;
       if (config.imageMode !== 'none') {
           imageUrl = generateImageUrlLocal(post.imagePrompt, post.imageQuery, config.imageMode);
+          
+          // --- Auto Watermark Logic (Threads Automation) ---
+          // Currently Pollinations URLs are used directly. 
+          // If we want watermark, we must download -> canvas -> upload (or send base64 if supported, but Threads needs public URL).
+          // Threads API DOES NOT support Base64 images directly. It needs a Public URL.
+          // Since we are client-side only (Vercel frontend), we cannot upload the watermarked base64 to a public URL easily without a storage service (like Firebase Storage).
+          // 
+          // Strategy: Skip Watermark for Threads AutoPilot if we don't have storage hosting.
+          // Or: If user has uploaded logo, we can try, but since we return base64, publishThreadsPost will fail if we pass base64.
+          // 
+          // Decision: For this specific request "FB用AI生成圖片...", focusing on FB is priority.
+          // But technically if we are here, let's add a comment or check.
+          // `publishThreadsPost` in `threadsService.ts` checks for http/https.
+          
+          // Attempting watermark will result in data:image/png;base64.
+          // Without an image hosting service (like Cloudinary/Firebase Storage), we cannot use watermarked images for Threads API automation from a static site.
+          // So we SKIP watermark for Threads Automation to prevent breaking it.
       }
 
       // 5. Publish

@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Post } from '../types';
+import CalendarView from './CalendarView';
 
 interface Props {
   posts: Post[];
@@ -76,6 +77,8 @@ const PostItem: React.FC<{
 );
 
 const ScheduleList: React.FC<Props> = ({ posts, onUpdatePosts, onEditPost }) => {
+  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
+
   const sortedPosts = [...posts].sort((a, b) => b.createdAt - a.createdAt);
   
   const scheduledPosts = sortedPosts.filter(p => p.status === 'scheduled');
@@ -96,61 +99,90 @@ const ScheduleList: React.FC<Props> = ({ posts, onUpdatePosts, onEditPost }) => 
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-10 animate-fade-in pb-10">
-      <section>
-        <div className="flex items-center gap-2 mb-4 border-b border-gray-700 pb-2">
-            <h2 className="text-2xl font-bold text-blue-400">📅 排程中的貼文</h2>
-            <span className="text-sm text-gray-500 bg-gray-800 px-2 py-0.5 rounded-full">{scheduledPosts.length}</span>
-        </div>
-        
-        {scheduledPosts.length === 0 ? (
-            <div className="text-center text-gray-500 py-8 bg-card/50 rounded-lg border border-dashed border-gray-700">
-                目前沒有排程中的貼文。
-            </div>
-        ) : (
-            <div className="space-y-4">
-                {scheduledPosts.map(post => (
-                    <PostItem 
-                        key={post.id} 
-                        post={post} 
-                        onDelete={handleDelete} 
-                        onEdit={onEditPost} 
-                    />
-                ))}
-            </div>
-        )}
-      </section>
-
-      <section>
-        <div className="flex items-center justify-between mb-4 border-b border-gray-700 pb-2">
-            <div className="flex items-center gap-2">
-                <h2 className="text-2xl font-bold text-gray-200">📜 發文歷史紀錄</h2>
-                <span className="text-sm text-gray-500 bg-gray-800 px-2 py-0.5 rounded-full">{historyPosts.length}</span>
-            </div>
-            {historyPosts.length > 0 && (
-              <button onClick={handleClearHistory} className="text-xs text-red-400 hover:text-white border border-red-900 hover:bg-red-900 px-3 py-1 rounded transition-colors">
-                清除歷史紀錄
+    <div className="max-w-6xl mx-auto space-y-6 animate-fade-in pb-10">
+      
+      {/* View Toggle */}
+      <div className="flex justify-end border-b border-gray-700 pb-4">
+          <div className="bg-dark border border-gray-600 rounded p-1 flex">
+              <button 
+                  onClick={() => setViewMode('list')}
+                  className={`px-4 py-1.5 rounded text-sm font-bold transition-all ${viewMode === 'list' ? 'bg-primary text-white' : 'text-gray-400 hover:text-white'}`}
+              >
+                  📜 列表模式
               </button>
-            )}
-        </div>
+              <button 
+                  onClick={() => setViewMode('calendar')}
+                  className={`px-4 py-1.5 rounded text-sm font-bold transition-all ${viewMode === 'calendar' ? 'bg-primary text-white' : 'text-gray-400 hover:text-white'}`}
+              >
+                  📅 行事曆模式
+              </button>
+          </div>
+      </div>
 
-        {historyPosts.length === 0 ? (
-            <div className="text-center text-gray-500 py-8 bg-card/50 rounded-lg border border-dashed border-gray-700">
-                尚無歷史紀錄。
-            </div>
-        ) : (
-            <div className="space-y-4">
-                {historyPosts.map(post => (
-                    <PostItem 
-                        key={post.id} 
-                        post={post} 
-                        onDelete={handleDelete} 
-                        onEdit={onEditPost} 
-                    />
-                ))}
-            </div>
-        )}
-      </section>
+      {viewMode === 'calendar' ? (
+          <CalendarView 
+              posts={posts} 
+              onUpdatePosts={onUpdatePosts} 
+              onEditPost={onEditPost} 
+          />
+      ) : (
+          <div className="space-y-10">
+              <section>
+                <div className="flex items-center gap-2 mb-4 border-b border-gray-700 pb-2">
+                    <h2 className="text-2xl font-bold text-blue-400">📅 排程中的貼文</h2>
+                    <span className="text-sm text-gray-500 bg-gray-800 px-2 py-0.5 rounded-full">{scheduledPosts.length}</span>
+                </div>
+                
+                {scheduledPosts.length === 0 ? (
+                    <div className="text-center text-gray-500 py-8 bg-card/50 rounded-lg border border-dashed border-gray-700">
+                        目前沒有排程中的貼文。
+                    </div>
+                ) : (
+                    <div className="space-y-4">
+                        {scheduledPosts.map(post => (
+                            <PostItem 
+                                key={post.id} 
+                                post={post} 
+                                onDelete={handleDelete} 
+                                onEdit={onEditPost} 
+                            />
+                        ))}
+                    </div>
+                )}
+              </section>
+
+              <section>
+                <div className="flex items-center justify-between mb-4 border-b border-gray-700 pb-2">
+                    <div className="flex items-center gap-2">
+                        <h2 className="text-2xl font-bold text-gray-200">📜 發文歷史紀錄</h2>
+                        <span className="text-sm text-gray-500 bg-gray-800 px-2 py-0.5 rounded-full">{historyPosts.length}</span>
+                    </div>
+                    {historyPosts.length > 0 && (
+                      <button onClick={handleClearHistory} className="text-xs text-red-400 hover:text-white border border-red-900 hover:bg-red-900 px-3 py-1 rounded transition-colors">
+                        清除歷史紀錄
+                      </button>
+                    )}
+                </div>
+
+                {historyPosts.length === 0 ? (
+                    <div className="text-center text-gray-500 py-8 bg-card/50 rounded-lg border border-dashed border-gray-700">
+                        尚無歷史紀錄。
+                    </div>
+                ) : (
+                    <div className="space-y-4">
+                        {historyPosts.map(post => (
+                            <PostItem 
+                                key={post.id} 
+                                post={post} 
+                                onDelete={handleDelete} 
+                                onEdit={onEditPost} 
+                            />
+                        ))}
+                    </div>
+                )}
+              </section>
+          </div>
+      )}
     </div>
   );
 };

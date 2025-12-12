@@ -111,6 +111,9 @@ export interface BrandSettings {
   persona: string;
   logoUrl?: string; // New: Base64 or URL for Watermark
   
+  // Style Tuner (New)
+  brandStylePrompt?: string; // Stores the analyzed visual style prompt
+  
   // API Config (Sensitive data should be handled carefully)
   facebookPageId: string;
   facebookToken: string;

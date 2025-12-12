@@ -1,5 +1,3 @@
-
-
 import { AnalyticsData, TopPostData } from "../types";
 
 const FB_API_VERSION = 'v17.0'; 
@@ -130,7 +128,8 @@ export const publishPostToFacebook = async (
             const formData = new FormData();
             formData.append('access_token', token);
             formData.append('message', message);
-            formData.append('source', blob);
+            // FIX: Append filename 'image.png' to ensure FB API recognizes it as a file upload
+            formData.append('source', blob, 'image.png');
             
             const uploadUrl = `https://graph.facebook.com/${FB_API_VERSION}/${endpoint}`;
             const res = await fetch(uploadUrl, { method: 'POST', body: formData });

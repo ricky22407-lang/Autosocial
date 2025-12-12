@@ -215,7 +215,7 @@ module.exports = async function (req, res) {
     
     // --- Action: generateImages ---
     else if (action === 'generateImages') {
-      const { prompt } = payload;
+      const { prompt, safetySettings } = payload;
       
       // Helper: Generate via generateContent (For Nano/Banana/Flash-Image models)
       // This uses .generateContent(), not .generateImages()
@@ -224,7 +224,10 @@ module.exports = async function (req, res) {
           const response = await ai.models.generateContent({
               model: modelName,
               contents: { parts: [{ text: prompt }] },
-              config: { imageConfig: { aspectRatio: "1:1" } }
+              config: { 
+                  imageConfig: { aspectRatio: "1:1" },
+                  safetySettings: safetySettings // Injected from payload (for No Limit)
+              }
           });
           
           let b64 = null;
@@ -250,7 +253,8 @@ module.exports = async function (req, res) {
               config: { 
                   numberOfImages: 1,
                   // Imagen requires explicit Aspect Ratio or defaults to 1:1
-                  aspectRatio: "1:1"
+                  aspectRatio: "1:1",
+                  safetySettings: safetySettings // Injected from payload (for No Limit)
               }
           });
 
@@ -263,11 +267,8 @@ module.exports = async function (req, res) {
 
       // === WATERFALL STRATEGY ===
       // PRIORITY 1: Imagen 3.0 (Stable & Common)
-      // Note: User mentioned Imagen 4.0, but we default to 3.0 for stability, unless 4.0 is preferred.
-      // Let's try 3.0 first.
       try {
           const result = await executeWithRetry(async (ai) => {
-              // Try Imagen 3.0 (generate-002 is the latest stable version usually)
               return await generateViaImagen(ai, 'imagen-3.0-generate-002');
           });
           return res.status(200).json(result);
