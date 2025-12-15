@@ -421,46 +421,49 @@ export const generateViralContent = async (
         audience: string;
         viralType: ViralType;
         platform: ViralPlatform;
-    }
+        versionCount: number; // Added: Control output count
+    },
+    settings: BrandSettings // Added: Pass Brand Settings for Soft Sell
 ): Promise<ViralPostDraft> => {
+    
+    const productInfo = settings.productContext || settings.productInfo || '';
+    const brandName = settings.industry || '我們品牌';
+
     const prompt = `
-    你是一個「營銷號級別」的社群內容寫手，
-    專門負責生成高點擊、高停留率、高互動的爆文內容。
+    你是一個「頂尖社群行銷專家」與「營銷號文案寫手」。
+    任務：針對主題「${topic}」撰寫 ${options.versionCount} 則高轉換率的爆款貼文。
 
-    【風格核心規則】
-    1. 絕對避免官方、品牌、業配語氣
-    2. 文案必須像「真人分享 / 吐槽 / 心得」
-    3. 開頭 2 行必須有情緒或衝突，不能鋪陳
-    4. 用生活化口語，允許不完整句子
-    5. 禁止出現「推薦」、「歡迎私訊」、「限時優惠」
-
-    【爆文結構】
-    - 第 1 行：殺人標題（製造焦慮 / 好奇 / 身份代入）
-    - 第 2~3 行：放大情緒（後悔 / 驚訝 / 打臉 / 共鳴）
-    - 中段：具體經驗或細節（一定要有數字或情境）
-    - 結尾：拋問題或引導留言（不要 CTA）
+    【核心策略：軟性推廣 (Soft Sell)】
+    我們不是要單純抱怨或發廢文，而是要用「吸睛故事」包裝「產品推廣」。
+    
+    【必備結構 (小紅書/營銷號邏輯)】
+    1. **Hook (鉤子)**：用標題殺人，製造焦慮、後悔、驚訝或共鳴。(前 2 行最重要)
+    2. **Story (故事/痛點)**：具體描述一個場景或痛點，讓讀者覺得「天啊這就是在說我」。語氣要真實、像真人分享 (可以使用"我"、"真心覺得")。
+    3. **Value (轉折/價值)**：分享一個觀念、方法或發現，解決上述痛點。
+    4. **Product (置入)**：自然地帶出我們的產品/服務，將其作為解決方案的關鍵工具。不要硬廣，要像是「私藏好物分享」。
+    
+    【品牌與產品資訊 (必須置入)】
+    - 品牌/行業：${brandName}
+    - 核心產品/賣點：${productInfo}
+    *請從上方資訊中提取適合的賣點，融入故事中。*
 
     【輸入參數】
-    主題：${topic}
-    目標族群：${options.audience}
-    爆文類型：${options.viralType} (regret=後悔, expose=內幕, counter=打臉, identity=族群代入, result=成果)
-    平台：${options.platform} (Facebook:段落清楚, Threads:極口語/碎念, XHS:筆記感/條列+心得)
+    - 目標族群：${options.audience}
+    - 爆文類型：${options.viralType} (例如：後悔沒早點知道、內幕揭秘)
+    - 平台：${options.platform} (如果是小紅書/Threads，請多用 Emoji，分段要短)
 
     【輸出要求】
-    1. 輸出 3 則完整爆文版本 (versions array)
+    1. 輸出 ${options.versionCount} 則完整貼文 (versions array)。
     2. 針對此內容生成一個詳細的圖片 Prompt (imagePrompt) - 使用英文。如果是 XHS 平台，請描述為「手寫筆記風格 (Handwritten Note Style)」。
 
     Output JSON Format:
     {
-      "versions": ["Version 1 Content...", "Version 2 Content...", "Version 3 Content..."],
+      "versions": ["Version 1 Content...", "Version 2 Content..."],
       "imagePrompt": "Detailed English image prompt..."
     }
     `;
 
-    // FIX: Switched from 'gemini-3-pro-preview' to 'gemini-2.5-flash'
-    // Reason: Vercel serverless function timeouts (10s limit on free tier).
-    // Pro model takes too long for complex generation + JSON formatting.
-    // Flash is sufficient for "Viral" style which is less complex structurally.
+    // Using Flash for speed/stability as requested
     const response = await callBackend('generateContent', {
         model: "gemini-2.5-flash", 
         contents: prompt,

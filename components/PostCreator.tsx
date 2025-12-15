@@ -52,7 +52,12 @@ const LoadingOverlay: React.FC<{ message: string, detail?: string }> = ({ messag
 
 const DRAFT_KEY = 'autosocial_post_draft';
 
-export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, onQuotaUpdate, editPost, onCancel }) => {
+export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, onPostCreated, onQuotaUpdate, editPost, onCancel }) => {
+  // Brand Profile Management
+  const [currentSettings, setCurrentSettings] = useState<BrandSettings>(initialSettings);
+  const [brandProfiles, setBrandProfiles] = useState<{id: string, name: string, settings: BrandSettings}[]>([]);
+  const [selectedProfileId, setSelectedProfileId] = useState<string>('default');
+
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [topic, setTopic] = useState('');
   const [postMode, setPostMode] = useState<'standard' | 'viral'>('standard');
@@ -80,7 +85,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   const [titleCandidates, setTitleCandidates] = useState<TitleScore[]>([]);
   const [isScoringTitles, setIsScoringTitles] = useState(false);
   const [selectedViralVersion, setSelectedViralVersion] = useState<number>(0);
-  const [viralDrafts, setViralDrafts] = useState<string[]>([]); // Store the 3 versions
+  const [viralDrafts, setViralDrafts] = useState<string[]>([]); // Store the versions
 
   const [trendingTopics, setTrendingTopics] = useState<TrendingTopic[]>([]);
   const [isLoadingTopics, setIsLoadingTopics] = useState(false);
@@ -107,6 +112,36 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   const [isApplyingWatermark, setIsApplyingWatermark] = useState(false);
 
   const isPlaceholderMedia = mediaUrl && (mediaUrl.includes('placehold.co') || mediaUrl.includes('sample/BigBuckBunny'));
+
+  // Load Profiles on Mount
+  useEffect(() => {
+      const savedProfiles = localStorage.getItem('autosocial_brand_profiles');
+      if (savedProfiles) {
+          const parsed = JSON.parse(savedProfiles);
+          setBrandProfiles(parsed);
+          // Auto-select if last used
+          const lastId = localStorage.getItem('autosocial_last_profile_id');
+          if (lastId && parsed.find((p: any) => p.id === lastId)) {
+              setSelectedProfileId(lastId);
+              const target = parsed.find((p: any) => p.id === lastId);
+              if (target) setCurrentSettings(target.settings);
+          } else if (parsed.length > 0) {
+              setSelectedProfileId(parsed[0].id);
+              setCurrentSettings(parsed[0].settings);
+          }
+      }
+  }, []);
+
+  const handleProfileSwitch = (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const newId = e.target.value;
+      setSelectedProfileId(newId);
+      const target = brandProfiles.find(p => p.id === newId);
+      if (target) {
+          setCurrentSettings(target.settings);
+          // Optional: Persist selection preference
+          localStorage.setItem('autosocial_last_profile_id', newId);
+      }
+  };
 
   const resetToDefaults = () => {
     setStep(1);
@@ -265,7 +300,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     setTopicError('');
     try {
       const seed = Date.now();
-      const industry = settings.industry || "台灣熱門時事";
+      const industry = currentSettings.industry || "台灣熱門時事";
       const topics = await getTrendingTopics(industry, seed);
       setTrendingTopics(topics);
       if (topics.length === 0) setTopicError('找不到相關話題，請檢查 API Key 或稍後再試。');
@@ -311,16 +346,12 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
 
       setIsScoringTitles(true);
       try {
-          // Optimization: Use dedicated title generator instead of full content gen
-          // This avoids the timeout issue when generating 3 full articles just for titles.
           const generatedTitles = await generateViralTitles(topic, {
               audience: targetAudience || '大眾',
               viralType: viralType
           });
           
-          // Add original topic to comparison
           const titlesToScore = [...new Set([topic, ...generatedTitles])].slice(0, 5);
-
           const scores = await scoreViralTitles(titlesToScore);
           setTitleCandidates(scores);
       } catch (e: any) {
@@ -331,8 +362,18 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
       }
   };
 
-  const handleNextToDraft = async () => {
-    if (!topic || isGeneratingDraft) return;
+  // Click on a title to generate content directly
+  const handleSelectTitleAndGenerate = async (selectedTitle: string) => {
+      // Set the selected title as the topic
+      setTopic(selectedTitle);
+      // Proceed to generation
+      await handleNextToDraft(selectedTitle);
+  };
+
+  const handleNextToDraft = async (overrideTopic?: string) => {
+    const effectiveTopic = overrideTopic || topic;
+    
+    if (!effectiveTopic || isGeneratingDraft) return;
     if (!user) {
         alert("請先登入");
         return;
@@ -344,13 +385,13 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
         setIsGeneratingDraft(true);
         setTimeout(() => {
             const demoCaption = postMode === 'viral' 
-                ? `【Demo 爆文】${topic} 竟然隱藏這種秘密？！\n\n很多人都不知道，其實... (情緒鋪陳)\n\n#爆料 #內幕`
-                : `【Demo 模式】關於 ${topic} 的精彩內容分享！\n\n這是 AutoSocial 的演示功能...`;
+                ? `【Demo 爆文】${effectiveTopic} 竟然隱藏這種秘密？！\n\n很多人都不知道，其實... (情緒鋪陳)\n\n#爆料 #內幕`
+                : `【Demo 模式】關於 ${effectiveTopic} 的精彩內容分享！\n\n這是 AutoSocial 的演示功能...`;
             setDraft({
                 caption: demoCaption,
                 firstComment: "點擊連結: example.com",
-                imagePrompt: `(Demo) 為 ${topic} 產生一張現代風格的行銷圖片`,
-                videoPrompt: `(Demo) 為 ${topic} 產生一支短影音`
+                imagePrompt: `(Demo) 為 ${effectiveTopic} 產生一張現代風格的行銷圖片`,
+                videoPrompt: `(Demo) 為 ${effectiveTopic} 產生一支短影音`
             });
             setIsGeneratingDraft(false);
         }, 1500);
@@ -382,19 +423,26 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
 
       if (postMode === 'viral') {
           // --- Viral Generation ---
-          const viralRes = await generateViralContent(topic, {
-              audience: targetAudience || 'General Audience',
-              viralType,
-              platform: viralPlatform
-          });
+          // Determine number of versions based on role
+          const isHighTier = ['pro', 'business', 'admin'].includes(user.role);
+          const versionCount = isHighTier ? 2 : 1;
+
+          const viralRes = await generateViralContent(
+              effectiveTopic, 
+              {
+                  audience: targetAudience || 'General Audience',
+                  viralType,
+                  platform: viralPlatform,
+                  versionCount // Pass version count preference
+              },
+              currentSettings // Pass current brand settings for soft sell
+          );
           
           setViralDrafts(viralRes.versions);
           finalCaption = viralRes.versions[0]; // Default to first
           finalImagePrompt = viralRes.imagePrompt;
           finalVideoPrompt = viralRes.imagePrompt; // Reuse for simplicity
 
-          // Viral posts usually don't have standard CTA logic in prompt, so we handle manually if needed?
-          // The prompt says "No CTA", but we can append link if user provided ctaList in comments.
           if (ctaList.length > 0 && ctaList[0].url) {
               finalFirstComment = `${ctaList[0].text}: ${ctaList[0].url}`;
           }
@@ -405,8 +453,8 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
           const finalLength = isFreeTier ? '150-300字' : captionLength;
 
           const generated = await generatePostDraft(
-              topic, 
-              settings, 
+              effectiveTopic, 
+              currentSettings, 
               {
                 length: finalLength,
                 ctaList: validCtaList,
@@ -441,10 +489,10 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
       logUserActivity({
           uid: user.user_id,
           act: postMode === 'viral' ? 'viral' : 'draft',
-          topic: topic,
+          topic: effectiveTopic,
           prmt: postMode === 'viral' ? `Viral Type: ${viralType}` : `Length: ${captionLength}`,
           res: finalCaption,
-          params: JSON.stringify({ role: user.role, mode: postMode })
+          params: JSON.stringify({ role: user.role, mode: postMode, brand: currentSettings.industry })
       });
 
     } catch (e: any) {
@@ -509,17 +557,17 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
       const promptToSend = draft.imagePrompt + variationSuffix;
       
       // Determine Style Prompt
-      let stylePrompt = settings.brandStylePrompt;
+      let stylePrompt = currentSettings.brandStylePrompt;
       if (postMode === 'viral' && viralPlatform === 'xhs') {
           stylePrompt = "Little Red Book (Xiaohongshu) handwritten note style";
       }
 
       let url = await generateImage(promptToSend, user.role, stylePrompt);
       
-      if (settings.logoUrl && postMode !== 'viral') {
+      if (currentSettings.logoUrl && postMode !== 'viral') {
           // Viral posts (especially XHS) usually don't want branded watermarks to look authentic
           try {
-              url = await applyWatermark(url, settings.logoUrl);
+              url = await applyWatermark(url, currentSettings.logoUrl);
           } catch (wmError) {
               console.warn("Auto watermark failed:", wmError);
           }
@@ -548,11 +596,11 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
 
   // --- Watermark Logic (Manual) ---
   const handleApplyWatermark = async () => {
-      if (!mediaUrl || !settings.logoUrl) return;
+      if (!mediaUrl || !currentSettings.logoUrl) return;
       setIsApplyingWatermark(true);
 
       try {
-          const newUrl = await applyWatermark(mediaUrl, settings.logoUrl);
+          const newUrl = await applyWatermark(mediaUrl, currentSettings.logoUrl);
           setMediaUrl(newUrl);
       } catch (e: any) {
           alert(`浮水印合成失敗: ${e.message}`);
@@ -594,8 +642,8 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
           alert(`[Demo/Dry Run] 模擬發文成功！\nPayload:\n${JSON.stringify({caption: draft.caption.substring(0, 50)+'...', ig: syncInstagram}, null, 2)}`);
       } else {
           result = await publishPostToFacebook(
-            settings.facebookPageId, 
-            settings.facebookToken, 
+            currentSettings.facebookPageId, 
+            currentSettings.facebookToken, 
             draft.caption, 
             mediaUrl,
             draft.firstComment,
@@ -629,6 +677,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   // --- Render ---
 
   if (isLoadingTopics) return <LoadingOverlay message="AI 正在搜尋熱門話題" detail="正在分析新聞來源與社群趨勢..." />;
+  if (isScoringTitles) return <LoadingOverlay message="AI 正在構思爆款標題" detail="正在預測點擊率並生成高誘因標題..." />;
   if (isGeneratingDraft) return <LoadingOverlay message="AI 正在撰寫文案" detail={`針對主題「${topic}」進行創意發想中...`} />;
   if (isGeneratingMedia) return <LoadingOverlay message="AI 正在繪製圖片" detail="正在調用高效能繪圖模型..." />;
   if (isPublishing) return <LoadingOverlay message="正在發佈貼文" detail={syncInstagram ? "正在同步發送至 Facebook 與 Instagram..." : "正在發送至 Facebook..."} />;
@@ -647,6 +696,25 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                         <button type="button" onClick={handleClearDraft} className="text-red-400 text-sm border border-red-900 bg-red-900/10 px-3 py-1 rounded hover:bg-red-900/40">🗑️ 清除</button>
                     </div>
                </div>
+               
+               {/* Brand Switcher at Top */}
+               {brandProfiles.length > 0 && (
+                   <div className="bg-blue-900/20 p-3 rounded border border-blue-800 flex items-center justify-between">
+                       <div className="flex items-center gap-2 flex-1">
+                           <span className="text-blue-300 font-bold text-sm">發文身分:</span>
+                           <select 
+                               value={selectedProfileId} 
+                               onChange={handleProfileSwitch}
+                               className="bg-dark border border-blue-500 rounded px-3 py-1 text-white font-bold outline-none flex-1 max-w-xs"
+                           >
+                               {brandProfiles.map(p => (
+                                   <option key={p.id} value={p.id}>{p.name}</option>
+                               ))}
+                           </select>
+                       </div>
+                       <span className="text-xs text-gray-400 hidden sm:inline">將使用此品牌的語氣與產品資訊</span>
+                   </div>
+               )}
                
                <div className="bg-card p-6 rounded-xl border border-gray-700 space-y-6">
                   {/* Mode Switcher */}
@@ -803,11 +871,15 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                               
                               {titleCandidates.length > 0 ? (
                                   <div className="space-y-2">
+                                      <p className="text-xs text-gray-300 mb-2">💡 點擊下方標題可直接生成貼文：</p>
                                       {titleCandidates.map((c, i) => (
-                                          <div key={i} className="bg-black/40 p-3 rounded border border-gray-700 hover:border-pink-500 cursor-pointer" onClick={() => setTopic(c.title)}>
-                                              <div className="flex justify-between">
-                                                  <span className="font-bold text-white text-sm">{c.title}</span>
-                                                  <span className={`font-mono font-bold ${c.score >= 40 ? 'text-green-400' : c.score < 30 ? 'text-red-400' : 'text-yellow-400'}`}>{c.score}分</span>
+                                          <div key={i} className="bg-black/40 p-3 rounded border border-gray-700 hover:border-pink-500 cursor-pointer group transition-all" onClick={() => handleSelectTitleAndGenerate(c.title)}>
+                                              <div className="flex justify-between items-center">
+                                                  <span className="font-bold text-white text-sm group-hover:text-pink-300 transition-colors">{c.title}</span>
+                                                  <div className="flex items-center gap-2">
+                                                      <span className={`font-mono font-bold ${c.score >= 40 ? 'text-green-400' : c.score < 30 ? 'text-red-400' : 'text-yellow-400'}`}>{c.score}分</span>
+                                                      <span className="text-xs bg-pink-700 text-white px-2 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity">生成</span>
+                                                  </div>
                                               </div>
                                               <p className="text-xs text-gray-400 mt-1">{c.comment}</p>
                                           </div>
@@ -826,7 +898,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                         <button 
                             type="button" 
                             disabled={!topic} 
-                            onClick={handleNextToDraft} 
+                            onClick={() => handleNextToDraft()} 
                             className={`w-full text-white py-3 rounded font-bold transition-all ${
                                 isDemoMode ? 'bg-yellow-600' : 
                                 postMode === 'viral' ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500' :
@@ -1007,7 +1079,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
             </div>
             
             {/* --- Tools & Actions --- */}
-            {mediaUrl && settings.logoUrl && postMode === 'standard' && (
+            {mediaUrl && currentSettings.logoUrl && postMode === 'standard' && (
                 <div className="mb-4">
                      <button 
                         onClick={handleApplyWatermark} 
