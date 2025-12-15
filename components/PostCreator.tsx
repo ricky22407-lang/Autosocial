@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BrandSettings, Post, TrendingTopic, UserProfile, CtaItem, ViralType, ViralPlatform, TitleScore } from '../types';
-import { getTrendingTopics, generatePostDraft, generateImage, applyWatermark, generateViralContent, scoreViralTitles } from '../services/geminiService';
+import { getTrendingTopics, generatePostDraft, generateImage, applyWatermark, generateViralContent, generateViralTitles, scoreViralTitles } from '../services/geminiService';
 import { publishPostToFacebook } from '../services/facebookService';
 import { checkAndUseQuota, getSystemConfig, logUserActivity } from '../services/authService';
 
@@ -311,23 +311,20 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
 
       setIsScoringTitles(true);
       try {
-          // 1. Generate Raw Titles via Viral Prompt (Simplified call to save logic)
-          // We can just ask for title ideas first or use the topic directly if it's already a good sentence.
-          // For better UX, let's generate 5 variations of the topic as titles then score them.
-          const draftRes = await generateViralContent(topic, {
+          // Optimization: Use dedicated title generator instead of full content gen
+          // This avoids the timeout issue when generating 3 full articles just for titles.
+          const generatedTitles = await generateViralTitles(topic, {
               audience: targetAudience || '大眾',
-              viralType: viralType,
-              platform: viralPlatform
+              viralType: viralType
           });
           
-          // Extract titles from the 3 versions (assuming first line is title)
-          const generatedTitles = draftRes.versions.map(v => v.split('\n')[0].replace(/^#/, '').trim());
-          // Add original topic
+          // Add original topic to comparison
           const titlesToScore = [...new Set([topic, ...generatedTitles])].slice(0, 5);
 
           const scores = await scoreViralTitles(titlesToScore);
           setTitleCandidates(scores);
       } catch (e: any) {
+          console.error("Score Error", e);
           alert(`標題評分失敗: ${e.message}`);
       } finally {
           setIsScoringTitles(false);

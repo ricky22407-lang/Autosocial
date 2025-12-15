@@ -54,8 +54,6 @@ const cleanJsonText = (text: string): string => {
     const firstOpen = clean.search(/[\{\[]/);
     
     // Find the last closing brace/bracket
-    // Note: search() finds first match, so we use string manipulation for last
-    // We want the last valid closing character
     const lastCloseCurly = clean.lastIndexOf('}');
     const lastCloseSquare = clean.lastIndexOf(']');
     const lastClose = Math.max(lastCloseCurly, lastCloseSquare);
@@ -92,14 +90,22 @@ const isValidNewsImage = (url: string): boolean => {
 const callBackend = async (action: string, payload: any) => {
     try {
         console.log(`[Backend Call] Action: ${action}`, payload.model ? `Model: ${payload.model}` : '');
+        
+        // Timeout handling: abort fetch if backend hangs > 55s (Vercel limit 60s/10s depending on plan)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 55000);
+
         const res = await fetch('/api/gemini', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ action, payload })
+            body: JSON.stringify({ action, payload }),
+            signal: controller.signal
         });
         
+        clearTimeout(timeoutId);
+
         let data;
         const text = await res.text();
         
@@ -117,6 +123,9 @@ const callBackend = async (action: string, payload: any) => {
         return data;
     } catch (e: any) {
         console.error(`Backend API Error [${action}]:`, e);
+        if (e.name === 'AbortError') {
+            throw new Error("請求逾時 (Server Timeout)。請重試或改用較簡單的指令。");
+        }
         throw e;
     }
 };
@@ -360,6 +369,51 @@ export const analyzeVisualStyle = async (imageB64s: string[]): Promise<string> =
     return response.text || "Minimalist, clean, high-key lighting.";
 };
 
+// --- NEW: LIGHTWEIGHT TITLE GENERATOR (For Scoring) ---
+export const generateViralTitles = async (
+    topic: string,
+    options: {
+        audience: string;
+        viralType: ViralType;
+    }
+): Promise<string[]> => {
+    const prompt = `
+    你是一個「社群標題專家」。
+    任務：針對主題「${topic}」產生 5 個極具吸引力的「爆文標題」。
+    
+    【設定】
+    目標受眾：${options.audience}
+    類型：${options.viralType} (例如：後悔型、內幕型、打臉型)
+    
+    【要求】
+    1. 標題要短促有力，引發好奇或焦慮。
+    2. 不要使用 "標題1:" 這種前綴，直接列出標題。
+    3. 只回傳 JSON 字串陣列。
+    
+    Example Output: ["標題一", "標題二", "標題三", "標題四", "標題五"]
+    `;
+
+    const response = await callBackend('generateContent', {
+        model: "gemini-2.5-flash", // Use Flash for speed
+        contents: prompt,
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING }
+            }
+        }
+    });
+
+    const clean = cleanJsonText(response.text || '[]');
+    try {
+        return JSON.parse(clean);
+    } catch (e: any) {
+        console.error("Title Gen Parse Error", e);
+        return [topic]; // Fallback to topic itself
+    }
+};
+
 // --- VIRAL / MARKETING CONTENT GENERATOR ---
 export const generateViralContent = async (
     topic: string,
@@ -403,8 +457,12 @@ export const generateViralContent = async (
     }
     `;
 
+    // FIX: Switched from 'gemini-3-pro-preview' to 'gemini-2.5-flash'
+    // Reason: Vercel serverless function timeouts (10s limit on free tier).
+    // Pro model takes too long for complex generation + JSON formatting.
+    // Flash is sufficient for "Viral" style which is less complex structurally.
     const response = await callBackend('generateContent', {
-        model: "gemini-3-pro-preview", // Use Pro for better creative nuance
+        model: "gemini-2.5-flash", 
         contents: prompt,
         config: {
             responseMimeType: "application/json",
@@ -506,7 +564,9 @@ export const generatePostDraft = async (
     userRole: string = 'user'
 ) => {
   // Strategy B: Smart Model Fallback
-  const isHighTier = ['pro', 'business', 'admin'].includes(userRole);
+  // Update: Default to Flash for all to ensure speed and avoid timeout unless specific need.
+  // Pro is used only if user is strictly Business/Admin to justify the wait/cost.
+  const isHighTier = ['business', 'admin'].includes(userRole);
   const selectedModel = isHighTier ? "gemini-3-pro-preview" : "gemini-2.5-flash";
 
   // Construct CTA Prompt
@@ -578,7 +638,7 @@ export const generatePostDraft = async (
       "imagePrompt": "Detailed English image prompt...",
       "videoPrompt": "Detailed English video prompt..."
     }
-  `;
+    `;
 
   const response = await callBackend('generateContent', {
     model: selectedModel,
