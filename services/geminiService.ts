@@ -1,7 +1,9 @@
+// REFACTOR ONLY: no functional changes
+
 import { BrandSettings, TrendingTopic, CachedTrendData, CtaItem, ViralType, ViralPlatform, TitleScore, ViralPostDraft } from "../types";
 import { db } from "./firebase"; // Using compat export
 
-// Local Type Definition to replace SDK Import and maintain type safety
+// Local Type Definition
 const Type = {
   STRING: 'STRING',
   NUMBER: 'NUMBER',
@@ -43,7 +45,7 @@ Threads in Taiwan is a mix of group therapy, trash talk, and stream-of-conscious
 - Lowercase aesthetic (if using English) is preferred but not mandatory.
 `;
 
-// #region Helper Functions
+// #region Utilities (Text & HTML)
 
 const cleanJsonText = (text: string): string => {
     if (!text) return '{}';
@@ -86,28 +88,39 @@ const isValidNewsImage = (url: string): boolean => {
     return true;
 };
 
+const shuffleArray = <T,>(array: T[]): T[] => {
+    const arr = [...array];
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+};
+
+// #endregion
+
+// #region Backend & Cache Layer
+
 // --- Backend API Caller ---
 const callBackend = async (action: string, payload: any) => {
     try {
         console.log(`[Backend Call] Action: ${action}`, payload.model ? `Model: ${payload.model}` : '');
         
-        // Timeout handling: abort fetch if backend hangs > 55s (Vercel limit 60s/10s depending on plan)
+        // Timeout handling
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 55000);
 
         const res = await fetch('/api/gemini', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action, payload }),
             signal: controller.signal
         });
         
         clearTimeout(timeoutId);
 
-        let data;
         const text = await res.text();
+        let data;
         
         try {
             data = JSON.parse(text);
@@ -131,12 +144,11 @@ const callBackend = async (action: string, payload: any) => {
 };
 
 // --- Cache Logic (Firebase) ---
-const CACHE_TTL = 12 * 60 * 60 * 1000; // Increased to 12 hours for better sharing
+const CACHE_TTL = 12 * 60 * 60 * 1000;
 
 const checkTrendCache = async (industry: string): Promise<TrendingTopic[] | null> => {
     try {
         const dateKey = new Date().toISOString().split('T')[0];
-        // Shared Global Key: YYYY-MM-DD_Industry
         const cacheId = `${dateKey}_${industry.replace(/\s+/g, '_')}`;
         const doc = await db.collection('global_trend_cache').doc(cacheId).get();
         if (doc.exists) {
@@ -162,23 +174,16 @@ const saveTrendCache = async (industry: string, topics: TrendingTopic[]) => {
     } catch (e) { console.warn("Cache write failed", e); }
 };
 
-const shuffleArray = <T,>(array: T[]): T[] => {
-    const arr = [...array];
-    for (let i = arr.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-    return arr;
-};
+// #endregion
 
-// #region RSS Fetching
+// #region RSS & News Fetching
+
 const fetchRssContent = async (targetUrl: string): Promise<string> => {
     const data = await callBackend('fetchRss', { url: targetUrl });
     if (!data.text) throw new Error("Backend returned empty RSS content");
     return data.text;
 };
 
-// NEW: Fetch OG Image via Backend Proxy
 export const fetchNewsImageFromUrl = async (url: string): Promise<string | null> => {
     if (!url) return null;
     try {
@@ -190,6 +195,38 @@ export const fetchNewsImageFromUrl = async (url: string): Promise<string | null>
         console.warn("Backend OG fetch failed", e);
     }
     return null;
+};
+
+const extractImageUrlFromItem = (item: Element): string => {
+    let imageUrl = '';
+    
+    // Check media:content
+    const mediaContent = item.getElementsByTagName('media:content')[0];
+    if (mediaContent) imageUrl = mediaContent.getAttribute('url') || '';
+    
+    // Check enclosure
+    if (!imageUrl) {
+        const enclosure = item.getElementsByTagName('enclosure')[0];
+        if (enclosure && (enclosure.getAttribute('type') || '').startsWith('image')) {
+            imageUrl = enclosure.getAttribute('url') || '';
+        }
+    }
+    
+    // Check description HTML
+    if (!imageUrl) {
+        const descRaw = item.querySelector("description")?.textContent || "";
+        const descHtml = decodeHtml(descRaw);
+        const match = descHtml.match(/<img[^>]+src=["']([^"']+)["']/i);
+        if (match && match[1] && isValidNewsImage(match[1])) imageUrl = match[1];
+    }
+
+    // Fix googleusercontent URLs resolution
+    if (imageUrl && (imageUrl.includes('googleusercontent.com') || imageUrl.includes('ggpht.com'))) {
+        if (imageUrl.match(/=[wh]\d+/)) imageUrl = imageUrl.replace(/=[wh]\d+[-a-z0-9]*/, '=w800');
+        else imageUrl += '=w800';
+    }
+
+    return imageUrl;
 };
 
 const fetchRealtimeRss = async (keyword: string): Promise<TrendingTopic[]> => {
@@ -210,26 +247,8 @@ const fetchRealtimeRss = async (keyword: string): Promise<TrendingTopic[]> => {
             const item = items[i];
             const title = item.querySelector("title")?.textContent || "";
             const link = item.querySelector("link")?.textContent || "";
-            let imageUrl = '';
+            const imageUrl = extractImageUrlFromItem(item);
 
-            const mediaContent = item.getElementsByTagName('media:content')[0];
-            if (mediaContent) imageUrl = mediaContent.getAttribute('url') || '';
-            if (!imageUrl) {
-                const enclosure = item.getElementsByTagName('enclosure')[0];
-                if (enclosure && (enclosure.getAttribute('type') || '').startsWith('image')) {
-                    imageUrl = enclosure.getAttribute('url') || '';
-                }
-            }
-            if (!imageUrl) {
-                const descRaw = item.querySelector("description")?.textContent || "";
-                const descHtml = decodeHtml(descRaw);
-                const match = descHtml.match(/<img[^>]+src=["']([^"']+)["']/i);
-                if (match && match[1] && isValidNewsImage(match[1])) imageUrl = match[1];
-            }
-            if (imageUrl && (imageUrl.includes('googleusercontent.com') || imageUrl.includes('ggpht.com'))) {
-                if (imageUrl.match(/=[wh]\d+/)) imageUrl = imageUrl.replace(/=[wh]\d+[-a-z0-9]*/, '=w800');
-                else imageUrl += '=w800';
-            }
             if (title && link) {
                 results.push({ title, description: title, url: link, imageUrl });
             }
@@ -240,17 +259,18 @@ const fetchRealtimeRss = async (keyword: string): Promise<TrendingTopic[]> => {
         return [];
     }
 };
+
 // #endregion
 
 // #region Core Services
 
 export const getTrendingTopics = async (industry: string = "台灣熱門時事", seed?: number): Promise<TrendingTopic[]> => {
-  // Strategy A: Global Trend Cache (First)
   const cached = await checkTrendCache(industry);
   if (cached) return cached;
 
   let topics = await fetchRealtimeRss(industry);
 
+  // Fallback to Gemini if RSS is empty
   if (topics.length === 0) {
       console.warn("RSS returned 0 items. Attempting Gemini fallback generation via backend.");
       try {
@@ -259,9 +279,7 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
             contents: `列出目前台灣關於「${industry}」的 5 個熱門社群話題。
             請直接回傳純 JSON 陣列，不要有任何 Markdown 格式。
             格式: [{ "title": "...", "description": "...", "url": "..." }]`,
-            config: {
-                responseMimeType: "application/json"
-            }
+            config: { responseMimeType: "application/json" }
         });
         
         const cleanText = cleanJsonText(response.text || '[]');
@@ -281,6 +299,131 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
   if (topics.length > 0 && topics[0].url !== '#') await saveTrendCache(industry, topics);
   return topics;
 };
+
+// #region Prompt Builders (Helpers for Logic Isolation)
+
+const getStrategyPrompt = (brandType?: string) => {
+    if (brandType === 'personal') {
+        return `[MODE: Personal Brand/Influencer (真人感)]
+      - Tone: Authentic, vulnerable, conversational, maybe slightly emotional.
+      - Style: Use short sentences. Use lower case aesthetic if fitting. Avoid corporate jargon.
+      - Hook: Start with a personal thought or feeling ("我發現...", "其實...", "心情有點複雜").
+      - Prohibited: Do NOT use "總結來說", "綜上所述", "小編".`;
+    }
+    return `[MODE: Enterprise Brand (專業感)]
+      - Framework: Use the AIDA model (Attention -> Interest -> Desire -> Action) OR PAS (Problem -> Agitation -> Solution).
+      - Tone: Professional, trustworthy, structured, value-driven.
+      - Structure: Clear hook -> Value proposition -> Call to action.`;
+};
+
+const buildCtaPrompt = (ctaList: CtaItem[]) => {
+    if (!ctaList || ctaList.length === 0) return "無特定 CTA";
+    let prompt = "必須包含以下行動呼籲 (CTA) 資訊，請將其整理成吸引人的語句 (不要只放連結)：\n";
+    ctaList.forEach(cta => {
+        prompt += `- ${cta.text}: ${cta.url}\n`;
+    });
+    return prompt;
+};
+
+const buildDraftPrompt = (
+    topic: string, 
+    settings: BrandSettings, 
+    options: { length: string, ctaList: CtaItem[], tempHashtags: string, includeEngagement?: boolean, imageText?: string },
+    topicContext?: TrendingTopic
+) => {
+    const ctaPrompt = buildCtaPrompt(options.ctaList);
+    const strategyPrompt = getStrategyPrompt(settings.brandType);
+    
+    const engagementInstruction = options.includeEngagement 
+      ? "CRITICAL: You MUST end the post with a specific question (e.g., A or B choice) or a request to tag a friend to boost comments. This is high priority." 
+      : "";
+
+    const imageTextInstruction = options.imageText
+      ? `The image MUST clearly display the text: "${options.imageText}". Ensure the text is legible, stylish, and integrated into the scene (e.g., on a sign, neon light, or overlay).`
+      : "";
+
+    const contextPrompt = topicContext ? `\n參考新聞: ${topicContext.title} (${topicContext.url})` : '';
+    const productContext = settings.productContext ? `\n[核心產品知識庫 - 必須融入貼文]:\n${settings.productContext}\n` : '';
+
+    return `
+    品牌: ${settings.industry}
+    語氣設定: ${settings.brandTone}
+    小編人設: ${settings.persona}
+    ${productContext}
+    
+    ${strategyPrompt}
+
+    任務: 針對主題「${topic}」${contextPrompt} 寫一篇 Facebook 貼文。
+    
+    [嚴格格式要求 - Structure Rules]
+    1. **強制分段**：Facebook 貼文需要高可讀性。請在每個邏輯段落之間使用「雙換行」留白。
+    2. **禁止 Markdown**：Facebook 不支援 Bold/Italic。請勿使用 **粗體** 或 *斜體* 符號。
+    3. **表情符號**：請依照品牌語氣適量使用 Emoji。
+    
+    [內容要求]
+    1. 字數: ${options.length}
+    2. 結構: 依照 [MODE] 設定的策略撰寫。
+    3. CTA 處理: ${ctaPrompt} (請將完整的 CTA 文案包含連結，獨立放在 JSON 的 ctaText 欄位)
+    4. 互動誘餌: ${engagementInstruction}
+    5. Hashtags: ${settings.fixedHashtags} ${options.tempHashtags} (放在文末)
+    6. Image Prompt: IMPORTANT - Must be in ENGLISH, detailed, describing a scene (Midjourney style). ${imageTextInstruction}
+
+    Output JSON Format:
+    {
+      "caption": "...",
+      "ctaText": "...", 
+      "imagePrompt": "Detailed English image prompt...",
+      "videoPrompt": "Detailed English video prompt..."
+    }
+    `;
+};
+
+const buildViralPrompt = (
+    topic: string,
+    options: { audience: string, viralType: ViralType, platform: ViralPlatform, versionCount: number },
+    settings: BrandSettings
+) => {
+    const productInfo = settings.productContext || settings.productInfo || '';
+    const brandName = settings.industry || '我們品牌';
+
+    return `
+    你是一個「頂尖社群行銷專家」與「營銷號文案寫手」。
+    任務：針對主題「${topic}」撰寫 ${options.versionCount} 則高轉換率的爆款貼文。
+
+    【核心策略：軟性推廣 (Soft Sell)】
+    我們不是要單純抱怨或發廢文，而是要用「吸睛故事」包裝「產品推廣」。
+    
+    【必備結構 (小紅書/營銷號邏輯)】
+    1. **Hook (鉤子)**：用標題殺人，製造焦慮、後悔、驚訝或共鳴。(前 2 行最重要)
+    2. **Story (故事/痛點)**：具體描述一個場景或痛點，讓讀者覺得「天啊這就是在說我」。語氣要真實、像真人分享 (可以使用"我"、"真心覺得")。
+    3. **Value (轉折/價值)**：分享一個觀念、方法或發現，解決上述痛點。
+    4. **Product (置入)**：自然地帶出我們的產品/服務，將其作為解決方案的關鍵工具。不要硬廣，要像是「私藏好物分享」。
+    
+    【品牌與產品資訊 (必須置入)】
+    - 品牌/行業：${brandName}
+    - 核心產品/賣點：${productInfo}
+    *請從上方資訊中提取適合的賣點，融入故事中。*
+
+    【輸入參數】
+    - 目標族群：${options.audience}
+    - 爆文類型：${options.viralType} (例如：後悔沒早點知道、內幕揭秘)
+    - 平台：${options.platform} (如果是小紅書/Threads，請多用 Emoji，分段要短)
+
+    【輸出要求】
+    1. 輸出 ${options.versionCount} 則完整貼文 (versions array)。
+    2. 針對此內容生成一個詳細的圖片 Prompt (imagePrompt) - 使用英文。如果是 XHS 平台，請描述為「手寫筆記風格 (Handwritten Note Style)」。
+
+    Output JSON Format:
+    {
+      "versions": ["Version 1 Content...", "Version 2 Content..."],
+      "imagePrompt": "Detailed English image prompt..."
+    }
+    `;
+};
+
+// #endregion
+
+// #region Generators
 
 // Analysis Service
 export const analyzeBrandTone = async (posts: string[]): Promise<{ tone: string, persona: string }> => {
@@ -343,39 +486,30 @@ export const analyzeProductFile = async (text: string): Promise<string> => {
     return response.text || "";
 };
 
-// --- NEW: Visual Style Analysis ---
 export const analyzeVisualStyle = async (imageB64s: string[]): Promise<string> => {
     const parts = [
         { text: "You are a professional Art Director. Analyze these brand images and extract a consistent 'Visual Style Prompt' that I can use to generate similar images with AI.\n\nFocus on:\n1. Lighting (e.g., soft, studio, natural)\n2. Color Palette (e.g., pastel, neon, earthy)\n3. Composition (e.g., minimal, busy, macro)\n4. Mood/Vibe (e.g., cozy, professional, energetic)\n\nOutput a single, concise English paragraph (max 50 words) starting with 'Style: ...' that describes this aesthetic." },
     ];
 
-    // Add images to parts
     imageB64s.forEach(b64 => {
-        // Strip prefix for inlineData
         const base64Clean = b64.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, '');
         parts.push({
-            inlineData: {
-                mimeType: "image/png", // Assuming PNG or generic compatible type
-                data: base64Clean
-            }
+            inlineData: { mimeType: "image/png", data: base64Clean }
         } as any);
     });
 
     const response = await callBackend('generateContent', {
-        model: "gemini-2.5-flash", // Flash is multimodal
+        model: "gemini-2.5-flash",
         contents: { parts }
     });
 
     return response.text || "Minimalist, clean, high-key lighting.";
 };
 
-// --- NEW: LIGHTWEIGHT TITLE GENERATOR (For Scoring) ---
+// --- Viral Title Generators ---
 export const generateViralTitles = async (
     topic: string,
-    options: {
-        audience: string;
-        viralType: ViralType;
-    }
+    options: { audience: string; viralType: ViralType; }
 ): Promise<string[]> => {
     const prompt = `
     你是一個「社群標題專家」。
@@ -394,14 +528,11 @@ export const generateViralTitles = async (
     `;
 
     const response = await callBackend('generateContent', {
-        model: "gemini-2.5-flash", // Use Flash for speed
+        model: "gemini-2.5-flash", 
         contents: prompt,
         config: {
             responseMimeType: "application/json",
-            responseSchema: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING }
-            }
+            responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } }
         }
     });
 
@@ -410,85 +541,10 @@ export const generateViralTitles = async (
         return JSON.parse(clean);
     } catch (e: any) {
         console.error("Title Gen Parse Error", e);
-        return [topic]; // Fallback to topic itself
+        return [topic];
     }
 };
 
-// --- VIRAL / MARKETING CONTENT GENERATOR ---
-export const generateViralContent = async (
-    topic: string,
-    options: {
-        audience: string;
-        viralType: ViralType;
-        platform: ViralPlatform;
-        versionCount: number; // Added: Control output count
-    },
-    settings: BrandSettings // Added: Pass Brand Settings for Soft Sell
-): Promise<ViralPostDraft> => {
-    
-    const productInfo = settings.productContext || settings.productInfo || '';
-    const brandName = settings.industry || '我們品牌';
-
-    const prompt = `
-    你是一個「頂尖社群行銷專家」與「營銷號文案寫手」。
-    任務：針對主題「${topic}」撰寫 ${options.versionCount} 則高轉換率的爆款貼文。
-
-    【核心策略：軟性推廣 (Soft Sell)】
-    我們不是要單純抱怨或發廢文，而是要用「吸睛故事」包裝「產品推廣」。
-    
-    【必備結構 (小紅書/營銷號邏輯)】
-    1. **Hook (鉤子)**：用標題殺人，製造焦慮、後悔、驚訝或共鳴。(前 2 行最重要)
-    2. **Story (故事/痛點)**：具體描述一個場景或痛點，讓讀者覺得「天啊這就是在說我」。語氣要真實、像真人分享 (可以使用"我"、"真心覺得")。
-    3. **Value (轉折/價值)**：分享一個觀念、方法或發現，解決上述痛點。
-    4. **Product (置入)**：自然地帶出我們的產品/服務，將其作為解決方案的關鍵工具。不要硬廣，要像是「私藏好物分享」。
-    
-    【品牌與產品資訊 (必須置入)】
-    - 品牌/行業：${brandName}
-    - 核心產品/賣點：${productInfo}
-    *請從上方資訊中提取適合的賣點，融入故事中。*
-
-    【輸入參數】
-    - 目標族群：${options.audience}
-    - 爆文類型：${options.viralType} (例如：後悔沒早點知道、內幕揭秘)
-    - 平台：${options.platform} (如果是小紅書/Threads，請多用 Emoji，分段要短)
-
-    【輸出要求】
-    1. 輸出 ${options.versionCount} 則完整貼文 (versions array)。
-    2. 針對此內容生成一個詳細的圖片 Prompt (imagePrompt) - 使用英文。如果是 XHS 平台，請描述為「手寫筆記風格 (Handwritten Note Style)」。
-
-    Output JSON Format:
-    {
-      "versions": ["Version 1 Content...", "Version 2 Content..."],
-      "imagePrompt": "Detailed English image prompt..."
-    }
-    `;
-
-    // Using Flash for speed/stability as requested
-    const response = await callBackend('generateContent', {
-        model: "gemini-2.5-flash", 
-        contents: prompt,
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                    versions: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    imagePrompt: { type: Type.STRING }
-                }
-            }
-        }
-    });
-
-    const clean = cleanJsonText(response.text || '{}');
-    try {
-        return JSON.parse(clean);
-    } catch (e: any) {
-        console.error("Viral Content Parse Error. Raw:", response.text, "Cleaned:", clean);
-        throw new Error(`生成失敗 (格式錯誤): ${e.message}`);
-    }
-};
-
-// --- TITLE SCORING SYSTEM ---
 export const scoreViralTitles = async (titles: string[]): Promise<TitleScore[]> => {
     const prompt = `
     你是一個「社群平台點擊率預測模型」，
@@ -516,7 +572,7 @@ export const scoreViralTitles = async (titles: string[]): Promise<TitleScore[]> 
     `;
 
     const response = await callBackend('generateContent', {
-        model: "gemini-2.5-flash", // Fast enough for scoring
+        model: "gemini-2.5-flash",
         contents: prompt,
         config: {
             responseMimeType: "application/json",
@@ -548,8 +604,42 @@ export const scoreViralTitles = async (titles: string[]): Promise<TitleScore[]> 
     try {
         return JSON.parse(clean);
     } catch (e: any) {
-        console.error("Score Titles Parse Error. Raw:", response.text, "Cleaned:", clean);
+        console.error("Score Titles Parse Error", e);
         throw new Error(`評分失敗 (格式錯誤): ${e.message}`);
+    }
+};
+
+// --- Main Content Generators ---
+
+export const generateViralContent = async (
+    topic: string,
+    options: { audience: string; viralType: ViralType; platform: ViralPlatform; versionCount: number; },
+    settings: BrandSettings
+): Promise<ViralPostDraft> => {
+    
+    const prompt = buildViralPrompt(topic, options, settings);
+
+    const response = await callBackend('generateContent', {
+        model: "gemini-2.5-flash", 
+        contents: prompt,
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                    versions: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    imagePrompt: { type: Type.STRING }
+                }
+            }
+        }
+    });
+
+    const clean = cleanJsonText(response.text || '{}');
+    try {
+        return JSON.parse(clean);
+    } catch (e: any) {
+        console.error("Viral Content Parse Error", e);
+        throw new Error(`生成失敗 (格式錯誤): ${e.message}`);
     }
 };
 
@@ -560,88 +650,16 @@ export const generatePostDraft = async (
         length: string, 
         ctaList: CtaItem[], 
         tempHashtags: string,
-        includeEngagement?: boolean, // Direction C
-        imageText?: string // Direction D
+        includeEngagement?: boolean, 
+        imageText?: string 
     },
     topicContext?: TrendingTopic,
     userRole: string = 'user'
 ) => {
-  // Strategy B: Smart Model Fallback
-  // Update: Default to Flash for all to ensure speed and avoid timeout unless specific need.
-  // Pro is used only if user is strictly Business/Admin to justify the wait/cost.
   const isHighTier = ['business', 'admin'].includes(userRole);
   const selectedModel = isHighTier ? "gemini-3-pro-preview" : "gemini-2.5-flash";
 
-  // Construct CTA Prompt
-  let ctaPrompt = "無特定 CTA";
-  if (options.ctaList && options.ctaList.length > 0) {
-      ctaPrompt = "必須包含以下行動呼籲 (CTA) 資訊，請將其整理成吸引人的語句 (不要只放連結)：\n";
-      options.ctaList.forEach(cta => {
-          ctaPrompt += `- ${cta.text}: ${cta.url}\n`;
-      });
-  }
-
-  // Direction A vs B: Strategy Selection
-  let strategyPrompt = "";
-  if (settings.brandType === 'personal') {
-      // Direction B: Humanizer
-      strategyPrompt = `[MODE: Personal Brand/Influencer (真人感)]
-      - Tone: Authentic, vulnerable, conversational, maybe slightly emotional.
-      - Style: Use short sentences. Use lower case aesthetic if fitting. Avoid corporate jargon.
-      - Hook: Start with a personal thought or feeling ("我發現...", "其實...", "心情有點複雜").
-      - Prohibited: Do NOT use "總結來說", "綜上所述", "小編".`;
-  } else {
-      // Direction A: Enterprise (Default)
-      strategyPrompt = `[MODE: Enterprise Brand (專業感)]
-      - Framework: Use the AIDA model (Attention -> Interest -> Desire -> Action) OR PAS (Problem -> Agitation -> Solution).
-      - Tone: Professional, trustworthy, structured, value-driven.
-      - Structure: Clear hook -> Value proposition -> Call to action.`;
-  }
-
-  // Direction C: Engagement Bait
-  const engagementInstruction = options.includeEngagement 
-      ? "CRITICAL: You MUST end the post with a specific question (e.g., A or B choice) or a request to tag a friend to boost comments. This is high priority." 
-      : "";
-
-  // Direction D: Image Text
-  const imageTextInstruction = options.imageText
-      ? `The image MUST clearly display the text: "${options.imageText}". Ensure the text is legible, stylish, and integrated into the scene (e.g., on a sign, neon light, or overlay).`
-      : "";
-
-  const contextPrompt = topicContext ? `\n參考新聞: ${topicContext.title} (${topicContext.url})` : '';
-  const productContext = settings.productContext ? `\n[核心產品知識庫 - 必須融入貼文]:\n${settings.productContext}\n` : '';
-
-  const prompt = `
-    品牌: ${settings.industry}
-    語氣設定: ${settings.brandTone}
-    小編人設: ${settings.persona}
-    ${productContext}
-    
-    ${strategyPrompt}
-
-    任務: 針對主題「${topic}」${contextPrompt} 寫一篇 Facebook 貼文。
-    
-    [嚴格格式要求 - Structure Rules]
-    1. **強制分段**：Facebook 貼文需要高可讀性。請在每個邏輯段落之間使用「雙換行」留白。
-    2. **禁止 Markdown**：Facebook 不支援 Bold/Italic。請勿使用 **粗體** 或 *斜體* 符號。
-    3. **表情符號**：請依照品牌語氣適量使用 Emoji。
-    
-    [內容要求]
-    1. 字數: ${options.length}
-    2. 結構: 依照 [MODE] 設定的策略撰寫。
-    3. CTA 處理: ${ctaPrompt} (請將完整的 CTA 文案包含連結，獨立放在 JSON 的 ctaText 欄位)
-    4. 互動誘餌: ${engagementInstruction}
-    5. Hashtags: ${settings.fixedHashtags} ${options.tempHashtags} (放在文末)
-    6. Image Prompt: IMPORTANT - Must be in ENGLISH, detailed, describing a scene (Midjourney style). ${imageTextInstruction}
-
-    Output JSON Format:
-    {
-      "caption": "...",
-      "ctaText": "...", 
-      "imagePrompt": "Detailed English image prompt...",
-      "videoPrompt": "Detailed English video prompt..."
-    }
-    `;
+  const prompt = buildDraftPrompt(topic, settings, options, topicContext);
 
   const response = await callBackend('generateContent', {
     model: selectedModel,
@@ -663,9 +681,9 @@ export const generatePostDraft = async (
   return JSON.parse(cleanJsonText(response.text || '{}'));
 };
 
+// --- Image Generators ---
+
 const ensureEnglishPrompt = async (prompt: string): Promise<string> => {
-    // Strategy C: Regex Check (Cost Saving)
-    // If input is purely ASCII (English/Symbols/Numbers), skip translation API call.
     if (/^[\x00-\x7F]*$/.test(prompt)) {
         return prompt;
     }
@@ -682,9 +700,7 @@ Requirements:
 2. If the input is simple (e.g., "a cat"), add subtle details to make it a better prompt (e.g., "a fluffy cat, soft lighting").
 3. Do NOT output explanations. ONLY output the English prompt string.`
         });
-        const translated = response.text.trim();
-        console.log("Translated Prompt:", translated);
-        return translated;
+        return response.text.trim();
     } catch (e) {
         console.warn("Translation failed, using original prompt");
         return prompt;
@@ -692,25 +708,18 @@ Requirements:
 };
 
 export const generateImage = async (prompt: string, userRole: string = 'user', stylePrompt?: string): Promise<string> => {
-    // Strategy E: "No Limit" Trigger & Safety Bypass
     const noLimitTrigger = /no limit/i.test(prompt);
-    let finalPrompt = prompt.replace(/no limit/ig, '').trim(); // Remove the trigger from prompt
+    let finalPrompt = prompt.replace(/no limit/ig, '').trim();
 
-    // If "No Limit" is present, force 'admin' effective role to ensure Backend generation (Pro models).
     const effectiveRole = noLimitTrigger ? 'admin' : userRole;
     const isPaidImageTier = ['pro', 'business', 'admin'].includes(effectiveRole);
 
-    // 1. Ensure Prompt is English
     const englishPrompt = await ensureEnglishPrompt(finalPrompt);
     
-    // 2. Enhance Prompt (Apply Style Tuner if available)
     let enhancedPrompt = "";
-    
-    // --- XHS Note Style Logic ---
     const isXHS = /handwritten note style/i.test(stylePrompt || '') || /xiaohongshu/i.test(stylePrompt || '') || /note/i.test(stylePrompt || '');
     
     if (isXHS) {
-        // Aesthetic rules for Red Note Style
         enhancedPrompt = `${englishPrompt}. 
         Style: Little Red Book (Xiaohongshu) note aesthetic. 
         Visuals: Beige or white paper background, handwritten-like font notes overlay (if possible), highlighter marks, circled key points, clean photography, lifestyle vibe, vertical composition preferred. 
@@ -721,21 +730,18 @@ export const generateImage = async (prompt: string, userRole: string = 'user', s
         enhancedPrompt = `${englishPrompt}, photorealistic, cinematic lighting, photography style`;
     }
 
-    // 3. Economy Mode (Client-side generation)
-    // Skipped if "No Limit" is active (as effectiveRole is admin)
+    // Economy Mode (Pollinations)
     if (!isPaidImageTier) {
          console.log("🎨 [ImageGen] Economy Mode: Using Pollinations (Frontend).");
          const seed = Math.floor(Math.random() * 100000);
          const encodedPrompt = encodeURIComponent(enhancedPrompt);
-         // Using Flux model on Pollinations for decent quality for free users
          return `https://image.pollinations.ai/prompt/${encodedPrompt}?n=${seed}&model=flux&enhance=true`;
     }
 
-    // 4. Pro Mode (Backend generation)
+    // Pro Mode (Backend)
     try {
         console.log(`🎨 [ImageGen] Pro Mode: Attempting Backend generation${noLimitTrigger ? ' (NO LIMIT)' : ''}...`);
         
-        // Define Safety Settings if No Limit is requested
         const safetySettings = noLimitTrigger ? [
             { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
             { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
@@ -746,7 +752,7 @@ export const generateImage = async (prompt: string, userRole: string = 'user', s
         const response = await callBackend('generateImages', {
             model: 'imagen-3.0-generate-002', 
             prompt: enhancedPrompt,
-            safetySettings // Pass explicit safety settings
+            safetySettings
         });
         
         if (response.base64) {
@@ -756,10 +762,7 @@ export const generateImage = async (prompt: string, userRole: string = 'user', s
         throw new Error("No image data found in response");
 
     } catch (e: any) {
-        // Fallback to Pollinations even for Pro users if backend fails completely
-        console.error("❌ [ImageGen] Backend Failed. Switching to Frontend Fallback (Pollinations). Reason:", e.message);
-        console.warn("Falling back to free Pollinations API to ensure user gets an image.");
-        
+        console.error("❌ [ImageGen] Backend Failed. Switching to Frontend Fallback.", e.message);
         const seed = Math.floor(Math.random() * 100000);
         const encodedPrompt = encodeURIComponent(enhancedPrompt);
         return `https://image.pollinations.ai/prompt/${encodedPrompt}?n=${seed}&model=flux&enhance=true`;
@@ -781,12 +784,12 @@ export const generateVideo = async (prompt: string): Promise<string> => {
 
     } catch (e: any) {
         console.warn("Veo failed, fallback to Image:", e);
-        // Fallback to Image if Video fails (User Role assumed 'pro' if they can call video, but default to 'user' safe)
         const img = await generateImage(prompt, 'pro'); 
         throw new Error(`影片生成失敗，已降級為圖片: ${e.message}`);
     }
 };
 
+// --- SEO Article Generator ---
 export const generateSeoArticle = async (
     topic: string, 
     length: string, 
@@ -846,6 +849,7 @@ export const generateSeoArticle = async (
     return parsed;
 };
 
+// --- Report Generator ---
 export const generateWeeklyReport = async (analytics: any, settings: BrandSettings, topPosts?: any) => {
     const prompt = `
       Act as a senior social media analyst. Brand: ${settings.industry}.
@@ -859,13 +863,13 @@ export const generateWeeklyReport = async (analytics: any, settings: BrandSettin
     return response.text || "報告生成失敗";
 };
 
+// --- Threads Batch Generator ---
 export const generateThreadsBatch = async (
     topic: string, 
     count: number, 
     settings: BrandSettings, 
     personas: string[] = []
 ): Promise<any[]> => {
-    // 權重設計：Character Soul (Persona) 為「角色靈魂」，權重 60%。
     const personaConstraint = personas.length > 0 
         ? `[CHARACTER SOUL - 60% Weight]
            You MUST embody the following specific persona.
@@ -898,7 +902,7 @@ export const generateThreadsBatch = async (
     `;
 
     const response = await callBackend('generateContent', {
-        model: "gemini-2.5-flash", // Sticking to Flash for Threads as requested
+        model: "gemini-2.5-flash", 
         contents: prompt,
         config: { 
             responseMimeType: "application/json",
@@ -940,17 +944,17 @@ export const generateCommentReply = async (
         contents: prompt,
         config: {
             responseMimeType: "application/json",
-            responseSchema: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING }
-            }
+            responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } }
         }
     });
     
     return JSON.parse(cleanJsonText(response.text || '[]'));
 };
 
-// --- UTILITY: Text Overlay Application (New Feature) ---
+// #endregion
+
+// #region Visual Utils (Canvas)
+
 export const applyTextOverlay = async (imageUrl: string, text: string): Promise<string> => {
     return new Promise((resolve, reject) => {
         const canvas = document.createElement('canvas');
@@ -961,30 +965,24 @@ export const applyTextOverlay = async (imageUrl: string, text: string): Promise<
         }
 
         const img = new Image();
-        img.crossOrigin = "anonymous"; // Essential for CORS
+        img.crossOrigin = "anonymous";
         img.src = imageUrl;
 
         img.onload = () => {
-            // Set canvas size to image size
             canvas.width = img.width;
             canvas.height = img.height;
             
-            // Draw original image
             ctx.drawImage(img, 0, 0);
 
-            // Configure Text Style
-            const fontSize = Math.floor(canvas.width * 0.08); // Responsive size (8% of width)
-            ctx.font = `bold ${fontSize}px sans-serif`; // Bold font
+            const fontSize = Math.floor(canvas.width * 0.08);
+            ctx.font = `bold ${fontSize}px sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             
-            // Text Wrapping Logic
             const maxWidth = canvas.width * 0.9;
-            const words = text.split(''); // Split by character for CJK support, or use intelligent segmenter
             let line = '';
             const lines = [];
             
-            // Simple character-based wrapper for Chinese/English mix
             for(let i = 0; i < text.length; i++) {
                 const char = text[i];
                 const testLine = line + char;
@@ -999,13 +997,10 @@ export const applyTextOverlay = async (imageUrl: string, text: string): Promise<
             }
             lines.push(line);
 
-            // Draw Overlay Background (Semi-transparent gradient at bottom)
-            // Or a centered band depending on style. Let's do a bottom band style for readability.
             const totalTextHeight = lines.length * (fontSize * 1.2);
             const padding = fontSize;
             const bgY = canvas.height - totalTextHeight - (padding * 2);
             
-            // Gradient Background for text legibility
             const gradient = ctx.createLinearGradient(0, bgY - 50, 0, canvas.height);
             gradient.addColorStop(0, "rgba(0, 0, 0, 0)");
             gradient.addColorStop(0.3, "rgba(0, 0, 0, 0.6)");
@@ -1014,18 +1009,16 @@ export const applyTextOverlay = async (imageUrl: string, text: string): Promise<
             ctx.fillStyle = gradient;
             ctx.fillRect(0, bgY - 50, canvas.width, canvas.height - (bgY - 50));
 
-            // Draw Text
-            let y = canvas.height - totalTextHeight - padding + (fontSize/2); // Start drawing from bottom up
+            let y = canvas.height - totalTextHeight - padding + (fontSize/2);
             
             lines.forEach(lineStr => {
-                // Shadow/Outline for better contrast
                 ctx.shadowColor = "rgba(0,0,0,0.8)";
                 ctx.shadowBlur = 15;
                 ctx.lineWidth = fontSize * 0.05;
                 ctx.strokeStyle = 'black';
                 ctx.strokeText(lineStr, canvas.width / 2, y);
                 
-                ctx.fillStyle = 'white'; // White text
+                ctx.fillStyle = 'white';
                 ctx.fillText(lineStr, canvas.width / 2, y);
                 
                 y += fontSize * 1.2;
@@ -1041,7 +1034,6 @@ export const applyTextOverlay = async (imageUrl: string, text: string): Promise<
     });
 };
 
-// --- UTILITY: Watermark Applicator ---
 export const applyWatermark = async (mainImageUrl: string, logoUrl: string): Promise<string> => {
     return new Promise((resolve, reject) => {
         const canvas = document.createElement('canvas');
@@ -1065,7 +1057,6 @@ export const applyWatermark = async (mainImageUrl: string, logoUrl: string): Pro
             logoImg.src = logoUrl;
 
             logoImg.onload = () => {
-                // Logic: 15% width, padding 5%, bottom-right
                 const logoWidth = canvas.width * 0.15;
                 const logoHeight = (logoImg.height / logoImg.width) * logoWidth;
                 const padding = canvas.width * 0.05;
@@ -1080,14 +1071,12 @@ export const applyWatermark = async (mainImageUrl: string, logoUrl: string): Pro
             
             logoImg.onerror = (e) => {
                  console.warn("Logo load failed", e);
-                 resolve(mainImageUrl); // Return original if logo fails
+                 resolve(mainImageUrl);
             }
         };
 
         mainImg.onerror = (e) => {
             console.error("Main image load failed", e);
-            // If main image fails (e.g. strict CORS), reject or return original? 
-            // Often best to return original to not break flow, but reject notifies caller.
             reject(new Error("無法讀取原始圖片以合成浮水印 (跨域限制或圖片無效)"));
         };
     });

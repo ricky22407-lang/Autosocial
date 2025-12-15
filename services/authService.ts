@@ -1,3 +1,5 @@
+// REFACTOR ONLY: no functional changes
+
 import { UserProfile, UserRole, AdminKey, SystemConfig, LogEntry, DashboardStats, BrandSettings, UserReport, UsageLog } from '../types';
 import { auth, db, isMock, firebase } from './firebase';
 
@@ -7,21 +9,23 @@ import { auth, db, isMock, firebase } from './firebase';
    ==========================================================================
 */
 
-// Mock Keys
+// Keys
 const DB_USERS = 'autosocial_db_users';
 const SESSION_KEY = 'autosocial_session_uid';
-const LOGS_KEY = 'autosocial_mock_logs'; // New: Persistent Mock Logs
+const LOGS_KEY = 'autosocial_mock_logs';
 
-// Helpers
-const getDb = (key: string) => {
+// --- Internal Data Helpers (Mock Mode) ---
+const getMockDb = (key: string) => {
     try {
         return JSON.parse(localStorage.getItem(key) || '{}');
     } catch (e) {
         return {};
     }
 };
-const saveDb = (key: string, data: any) => localStorage.setItem(key, JSON.stringify(data));
-const getLogsDb = (): UsageLog[] => {
+
+const saveMockDb = (key: string, data: any) => localStorage.setItem(key, JSON.stringify(data));
+
+const getMockLogs = (): UsageLog[] => {
     try {
         const data = JSON.parse(localStorage.getItem(LOGS_KEY) || '[]');
         return Array.isArray(data) ? data : [];
@@ -30,27 +34,39 @@ const getLogsDb = (): UsageLog[] => {
     }
 };
 
-// --- Auth Helper ---
+const getQuotaForRole = (role: UserRole): number => {
+  switch (role) {
+    case 'user': return 10;       // Free Tier
+    case 'starter': return 600;   // ~$15/mo
+    case 'pro': return 2000;      // ~$45/mo
+    case 'business': return 6000; // ~$99/mo
+    case 'admin': return 99999;
+    default: return 10;
+  }
+};
+
+// ============================================================================
+// Public Auth Functions
+// ============================================================================
+
 export const getCurrentUser = () => {
     if (!isMock) {
         return auth.currentUser;
-    } else {
-        const uid = localStorage.getItem(SESSION_KEY);
-        if (uid) {
-             const users = getDb(DB_USERS);
-             const u = users[uid];
-             return { uid: uid, email: u ? u.email : 'mock@example.com' };
-        }
-        return null;
+    } 
+    
+    const uid = localStorage.getItem(SESSION_KEY);
+    if (uid) {
+         const users = getMockDb(DB_USERS);
+         const u = users[uid];
+         return { uid: uid, email: u ? u.email : 'mock@example.com' };
     }
+    return null;
 };
 
-// --- Auth Subscription ---
 export const subscribeAuth = (callback: (user: { uid: string, email: string } | null) => void) => {
     if (!isMock) {
         return auth.onAuthStateChanged(async (firebaseUser) => {
             if (firebaseUser) {
-                // Check suspension
                 const profile = await getUserProfile(firebaseUser.uid);
                 if (profile && profile.isSuspended) {
                     await logout();
@@ -62,52 +78,37 @@ export const subscribeAuth = (callback: (user: { uid: string, email: string } | 
                 callback(null);
             }
         });
-    } else {
-        // Mock Subscription
-        const check = () => {
-             const uid = localStorage.getItem(SESSION_KEY);
-             if(uid) {
-                 const users = getDb(DB_USERS);
-                 const u = users[uid];
-                 const email = u ? u.email : 'demo@example.com';
-                 const user = { uid, email };
-                 callback(user);
-             } else {
-                 callback(null);
-             }
-        };
-        if (typeof window !== 'undefined') {
-            window.addEventListener('auth_state_change', check);
-            setTimeout(check, 0); 
-        }
-        return () => {
-            if (typeof window !== 'undefined') window.removeEventListener('auth_state_change', check);
-        };
     }
-};
 
-const getQuotaForRole = (role: UserRole): number => {
-  // Commercial Strategy Quotas
-  switch (role) {
-    case 'user': return 10;       // Free Tier: Taste test only
-    case 'starter': return 600;   // ~$15/mo: Basic usage
-    case 'pro': return 2000;      // ~$45/mo: Professional usage
-    case 'business': return 6000; // ~$99/mo: Heavy usage
-    case 'admin': return 99999;
-    default: return 10;
-  }
+    // Mock Subscription
+    const check = () => {
+         const uid = localStorage.getItem(SESSION_KEY);
+         if(uid) {
+             const users = getMockDb(DB_USERS);
+             const u = users[uid];
+             const email = u ? u.email : 'demo@example.com';
+             callback({ uid, email });
+         } else {
+             callback(null);
+         }
+    };
+    if (typeof window !== 'undefined') {
+        window.addEventListener('auth_state_change', check);
+        setTimeout(check, 0); 
+    }
+    return () => {
+        if (typeof window !== 'undefined') window.removeEventListener('auth_state_change', check);
+    };
 };
-
-// --- Login / Register ---
 
 export const login = async (email: string, pass: string) => {
     // Backdoor for Mock Demo
     if (isMock && email === 'ricky22407@gmail.com' && pass === 'testautosocial1106') {
          const uid = 'demo_admin';
-         const users = getDb(DB_USERS);
+         const users = getMockDb(DB_USERS);
          if (!users[uid]) {
              users[uid] = { user_id: uid, email, role: 'admin', quota_total: 99999, quota_used: 0, created_at: Date.now(), isSuspended: false, unlockedFeatures: ['ANALYTICS', 'AUTOMATION', 'SEO'] } as UserProfile;
-             saveDb(DB_USERS, users);
+             saveMockDb(DB_USERS, users);
          }
          localStorage.setItem(SESSION_KEY, uid);
          window.dispatchEvent(new Event('auth_state_change'));
@@ -117,16 +118,16 @@ export const login = async (email: string, pass: string) => {
     if (!isMock) {
         const cred = await auth.signInWithEmailAndPassword(email, pass);
         return { user: cred.user };
-    } else {
-        const users = getDb(DB_USERS);
-        const user = Object.values(users).find((u: any) => u.email === email) as UserProfile;
-        if (user) {
-            localStorage.setItem(SESSION_KEY, user.user_id);
-            window.dispatchEvent(new Event('auth_state_change'));
-            return { user: { uid: user.user_id, email: user.email } };
-        }
-        throw new Error("用戶不存在 (Mock Mode) - 請切換至「註冊」頁面建立帳號");
+    } 
+    
+    const users = getMockDb(DB_USERS);
+    const user = Object.values(users).find((u: any) => u.email === email) as UserProfile;
+    if (user) {
+        localStorage.setItem(SESSION_KEY, user.user_id);
+        window.dispatchEvent(new Event('auth_state_change'));
+        return { user: { uid: user.user_id, email: user.email } };
     }
+    throw new Error("用戶不存在 (Mock Mode) - 請切換至「註冊」頁面建立帳號");
 };
 
 export const register = async (email: string, pass: string) => {
@@ -134,30 +135,30 @@ export const register = async (email: string, pass: string) => {
         const cred = await auth.createUserWithEmailAndPassword(email, pass);
         await createUserProfile({ uid: cred.user!.uid, email: email });
         return { user: cred.user };
-    } else {
-        const uid = 'user_' + Date.now();
-        await createUserProfile({ uid, email });
-        localStorage.setItem(SESSION_KEY, uid);
-        window.dispatchEvent(new Event('auth_state_change'));
-        return { user: { uid, email } };
-    }
+    } 
+    
+    const uid = 'user_' + Date.now();
+    await createUserProfile({ uid, email });
+    localStorage.setItem(SESSION_KEY, uid);
+    window.dispatchEvent(new Event('auth_state_change'));
+    return { user: { uid, email } };
 };
 
 export const logout = async () => {
-    if (!isMock) await auth.signOut();
-    else {
+    if (!isMock) {
+        await auth.signOut();
+    } else {
         localStorage.removeItem(SESSION_KEY);
         window.dispatchEvent(new Event('auth_state_change'));
     }
 };
 
-// --- Password Management (Real + Mock) ---
+// --- Password Management ---
 
 export const sendPasswordReset = async (email: string) => {
     if (!isMock) {
         await auth.sendPasswordResetEmail(email);
     } else {
-        // Mock delay
         await new Promise(r => setTimeout(r, 1000));
         console.log(`[Mock] Password reset email sent to ${email}`);
     }
@@ -172,22 +173,22 @@ export const changeUserPassword = async (newPassword: string) => {
             throw new Error("用戶未登入");
         }
     } else {
-        // Mock
         await new Promise(r => setTimeout(r, 1000));
         console.log(`[Mock] Password changed to ${newPassword}`);
     }
 };
 
-// --- User Data Operations ---
+// ============================================================================
+// User Data & Profile Operations
+// ============================================================================
 
 export const getUserProfile = async (userId: string): Promise<UserProfile | null> => {
     try {
         if (!isMock) {
             const doc = await db.collection('users').doc(userId).get();
             return doc.exists ? (doc.data() as UserProfile) : null;
-        } else {
-            return getDb(DB_USERS)[userId] || null;
-        }
+        } 
+        return getMockDb(DB_USERS)[userId] || null;
     } catch (e) {
         console.error("Failed to get user profile", e);
         return null;
@@ -195,9 +196,8 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
 };
 
 const generateReferralCode = (uid: string) => {
-    // Generate a code like "REF-A1B2C-789"
     const prefix = uid.substring(0, 5).toUpperCase().replace(/[^A-Z0-9]/g, 'X');
-    const random = Math.floor(100 + Math.random() * 900); // 3 digit random
+    const random = Math.floor(100 + Math.random() * 900); 
     return `REF-${prefix}-${random}`;
 };
 
@@ -205,7 +205,7 @@ export const createUserProfile = async (user: { uid: string, email: string }): P
     const newUser: UserProfile = {
         user_id: user.uid,
         email: user.email,
-        role: 'user', // Default to Free (User)
+        role: 'user', 
         quota_total: 10,
         quota_used: 0,
         quota_reset_date: Date.now() + 30 * 24 * 60 * 60 * 1000,
@@ -218,94 +218,91 @@ export const createUserProfile = async (user: { uid: string, email: string }): P
     };
 
     if (!isMock) {
-        // Clean undefined fields just in case
         const cleanUser = JSON.parse(JSON.stringify(newUser));
         await db.collection('users').doc(user.uid).set(cleanUser);
     } else {
-        const users = getDb(DB_USERS);
+        const users = getMockDb(DB_USERS);
         users[user.uid] = newUser;
-        saveDb(DB_USERS, users);
+        saveMockDb(DB_USERS, users);
     }
     return newUser;
 };
 
-// --- Settings Sync (For Backend Cron) ---
 export const updateUserSettings = async (userId: string, settings: BrandSettings) => {
     if (!isMock) {
-        // Save to a separate collection 'brand_settings' for Backend access
-        // We clean undefined fields to prevent firebase errors
         const cleanSettings = JSON.parse(JSON.stringify(settings));
         await db.collection('brand_settings').doc(userId).set(cleanSettings, { merge: true });
     } else {
-        // LocalStorage fallback handled by frontend component, but we can sim DB here
         console.log("Mock Sync Settings to Cloud");
     }
 };
 
-// --- Quota & Role Operations ---
+// --- Quota Logic ---
 
-// Helper function defined before usage
-const deduct = async (userId: string, amount: number): Promise<boolean> => {
+const deductQuota = async (userId: string, amount: number): Promise<boolean> => {
     if (!isMock) {
         await db.collection('users').doc(userId).update({
             quota_used: firebase.firestore.FieldValue.increment(amount),
             updated_at: Date.now()
         });
     } else {
-        const users = getDb(DB_USERS);
+        const users = getMockDb(DB_USERS);
         users[userId].quota_used += amount;
-        saveDb(DB_USERS, users);
+        saveMockDb(DB_USERS, users);
     }
     return true;
 }
+
+const performQuotaReset = async (userId: string, role: UserRole) => {
+    const newReset = Date.now() + 30 * 24 * 60 * 60 * 1000;
+    const total = getQuotaForRole(role);
+    
+    if (!isMock) {
+        await db.collection('users').doc(userId).update({
+            quota_used: 0,
+            quota_total: total,
+            quota_reset_date: newReset
+        });
+    } else {
+        const users = getMockDb(DB_USERS);
+        users[userId].quota_used = 0;
+        users[userId].quota_total = total;
+        users[userId].quota_reset_date = newReset;
+        saveMockDb(DB_USERS, users);
+    }
+};
 
 export const checkAndUseQuota = async (userId: string, amount: number = 1): Promise<boolean> => {
     const user = await getUserProfile(userId);
     if (!user) return false;
     if (user.isSuspended) return false;
 
-    // Check Reset Date
+    // Check if reset is due
     if (Date.now() > user.quota_reset_date) {
-        // Reset Logic
-        const newReset = Date.now() + 30 * 24 * 60 * 60 * 1000;
-        const total = getQuotaForRole(user.role);
+        await performQuotaReset(userId, user.role);
         
-        if (!isMock) {
-            await db.collection('users').doc(userId).update({
-                quota_used: 0,
-                quota_total: total,
-                quota_reset_date: newReset
-            });
-        } else {
-            const users = getDb(DB_USERS);
-            users[userId].quota_used = 0;
-            users[userId].quota_total = total;
-            users[userId].quota_reset_date = newReset;
-            saveDb(DB_USERS, users);
-        }
-        // Even after reset, check if amount > total
+        // Check new quota vs amount
+        const total = getQuotaForRole(user.role);
         if (amount > total) return false;
         
-        // Deduct
-        return await deduct(userId, amount);
+        return await deductQuota(userId, amount);
     }
 
     if ((user.quota_used + amount) > user.quota_total) return false;
 
-    // Deduct
-    return await deduct(userId, amount);
+    return await deductQuota(userId, amount);
 };
 
-// --- Admin Operations ---
+// ============================================================================
+// Admin & System Operations
+// ============================================================================
 
 export const getAllUsers = async (): Promise<UserProfile[]> => {
     if (!isMock) {
         const snapshot = await db.collection('users').orderBy('created_at', 'desc').get();
         return snapshot.docs.map(doc => doc.data() as UserProfile);
-    } else {
-        const users = getDb(DB_USERS);
-        return Object.values(users);
-    }
+    } 
+    return Object.values(getMockDb(DB_USERS));
 };
 
 export const generateAdminKey = async (
@@ -316,25 +313,25 @@ export const generateAdminKey = async (
 ): Promise<string> => {
     const keyString = `KEY-${Date.now().toString().slice(-6)}-${Math.floor(Math.random()*10000)}`;
     
-    // Fix: Create object dynamically to avoid 'undefined' values which Firebase rejects
     const keyData: any = {
         key: keyString,
         type,
+        targetRole: role,
+        targetFeature: feature,
         createdBy: adminId,
         createdAt: Date.now(),
-        expiresAt: Date.now() + 24 * 60 * 60 * 1000, // 24 hours
+        expiresAt: Date.now() + 24 * 60 * 60 * 1000, 
         isUsed: false
     };
 
-    if (role) keyData.targetRole = role;
-    if (feature) keyData.targetFeature = feature;
-
     if (!isMock) {
-        await db.collection('admin_keys').doc(keyString).set(keyData);
+        // Use clean object to avoid undefined fields
+        const cleanData = JSON.parse(JSON.stringify(keyData));
+        await db.collection('admin_keys').doc(keyString).set(cleanData);
     } else {
-        const keys = getDb('autosocial_admin_keys');
+        const keys = getMockDb('autosocial_admin_keys');
         keys[keyString] = keyData;
-        saveDb('autosocial_admin_keys', keys);
+        saveMockDb('autosocial_admin_keys', keys);
     }
     return keyString;
 };
@@ -352,7 +349,6 @@ export const useAdminKey = async (userId: string, keyString: string): Promise<{ 
                 if (keyData.isUsed) throw new Error("此金鑰已被使用");
                 if (Date.now() > keyData.expiresAt) throw new Error("此金鑰已過期");
 
-                // Effect
                 if (keyData.type === 'RESET_QUOTA') {
                     t.update(userRef, { quota_used: 0 });
                 } else if (keyData.type === 'UPGRADE_ROLE' && keyData.targetRole) {
@@ -370,31 +366,31 @@ export const useAdminKey = async (userId: string, keyString: string): Promise<{ 
         } catch (e: any) {
             return { success: false, message: e.message };
         }
-    } else {
-        // Mock Implementation
-        const keys = getDb('autosocial_admin_keys');
-        const keyData = keys[keyString];
-        if (!keyData) return { success: false, message: "無效的金鑰" };
-        if (keyData.isUsed) return { success: false, message: "此金鑰已被使用" };
-        
-        const users = getDb(DB_USERS);
-        const user = users[userId];
-        
-        if (keyData.type === 'RESET_QUOTA') {
-            user.quota_used = 0;
-        } else if (keyData.type === 'UPGRADE_ROLE' && keyData.targetRole) {
-            user.role = keyData.targetRole;
-            user.quota_total = getQuotaForRole(keyData.targetRole);
-        } else if (keyData.type === 'UNLOCK_FEATURE' && keyData.targetFeature) {
-             if(!user.unlockedFeatures) user.unlockedFeatures = [];
-             user.unlockedFeatures.push(keyData.targetFeature);
-        }
-        
-        keyData.isUsed = true;
-        saveDb('autosocial_admin_keys', keys);
-        saveDb(DB_USERS, users);
-        return { success: true, message: "兌換成功！" };
+    } 
+    
+    // Mock Implementation
+    const keys = getMockDb('autosocial_admin_keys');
+    const keyData = keys[keyString];
+    if (!keyData) return { success: false, message: "無效的金鑰" };
+    if (keyData.isUsed) return { success: false, message: "此金鑰已被使用" };
+    
+    const users = getMockDb(DB_USERS);
+    const user = users[userId];
+    
+    if (keyData.type === 'RESET_QUOTA') {
+        user.quota_used = 0;
+    } else if (keyData.type === 'UPGRADE_ROLE' && keyData.targetRole) {
+        user.role = keyData.targetRole;
+        user.quota_total = getQuotaForRole(keyData.targetRole);
+    } else if (keyData.type === 'UNLOCK_FEATURE' && keyData.targetFeature) {
+            if(!user.unlockedFeatures) user.unlockedFeatures = [];
+            user.unlockedFeatures.push(keyData.targetFeature);
     }
+    
+    keyData.isUsed = true;
+    saveMockDb('autosocial_admin_keys', keys);
+    saveMockDb(DB_USERS, users);
+    return { success: true, message: "兌換成功！" };
 };
 
 export const updateUserRole = async (userId: string, newRole: UserRole) => {
@@ -405,11 +401,11 @@ export const updateUserRole = async (userId: string, newRole: UserRole) => {
              quota_total: newTotal
          });
      } else {
-         const users = getDb(DB_USERS);
+         const users = getMockDb(DB_USERS);
          if(users[userId]) {
              users[userId].role = newRole;
              users[userId].quota_total = newTotal;
-             saveDb(DB_USERS, users);
+             saveMockDb(DB_USERS, users);
          }
      }
 };
@@ -421,11 +417,11 @@ export const manualUpdateQuota = async (userId: string, used: number, total: num
             quota_total: total
         });
     } else {
-        const users = getDb(DB_USERS);
+        const users = getMockDb(DB_USERS);
         if(users[userId]) {
             users[userId].quota_used = used;
             users[userId].quota_total = total;
-            saveDb(DB_USERS, users);
+            saveMockDb(DB_USERS, users);
         }
     }
 };
@@ -438,10 +434,10 @@ export const toggleUserSuspension = async (userId: string) => {
              await db.collection('users').doc(userId).update({ isSuspended: !current });
          }
      } else {
-         const users = getDb(DB_USERS);
+         const users = getMockDb(DB_USERS);
          if(users[userId]) {
              users[userId].isSuspended = !users[userId].isSuspended;
-             saveDb(DB_USERS, users);
+             saveMockDb(DB_USERS, users);
          }
      }
 };
@@ -451,13 +447,11 @@ export const toggleUserSuspension = async (userId: string) => {
 export const redeemReferralCode = async (currentUserId: string, code: string) => {
     if (!code) throw new Error("請輸入邀請碼");
     
-    // Prevent self-referral
     const currentUser = await getUserProfile(currentUserId);
     if (currentUser?.referralCode === code) throw new Error("不能使用自己的邀請碼");
     if (currentUser?.referredBy) throw new Error("您已經兌換過邀請碼了");
 
     if (!isMock) {
-        // Find owner of code
         const snapshot = await db.collection('users').where('referralCode', '==', code).limit(1).get();
         if (snapshot.empty) throw new Error("無效的邀請碼");
         
@@ -465,13 +459,11 @@ export const redeemReferralCode = async (currentUserId: string, code: string) =>
         const reward = 50;
 
         await db.runTransaction(async (t) => {
-             // 1. Give reward to referrer
              t.update(referrerDoc.ref, {
                  quota_total: firebase.firestore.FieldValue.increment(reward),
                  referralCount: firebase.firestore.FieldValue.increment(1)
              });
              
-             // 2. Give reward to current user & mark as referred
              const userRef = db.collection('users').doc(currentUserId);
              t.update(userRef, {
                  quota_total: firebase.firestore.FieldValue.increment(reward),
@@ -480,28 +472,27 @@ export const redeemReferralCode = async (currentUserId: string, code: string) =>
         });
         
         return { success: true, reward };
-    } else {
-        // Mock (for demo/testing without real backend auth sometimes)
-        // Simulate lookup
-        const users = getDb(DB_USERS);
-        const referrerId = Object.keys(users).find(uid => users[uid].referralCode === code);
-        
-        if (!referrerId) throw new Error("無效的邀請碼 (Mock)");
-        if (referrerId === currentUserId) throw new Error("不能使用自己的邀請碼");
-        
-        const reward = 50;
-        
-        // Update Referrer
-        users[referrerId].quota_total += reward;
-        users[referrerId].referralCount = (users[referrerId].referralCount || 0) + 1;
-        
-        // Update Current User
-        users[currentUserId].quota_total += reward;
-        users[currentUserId].referredBy = code;
-        
-        saveDb(DB_USERS, users);
-        return { success: true, reward };
-    }
+    } 
+    
+    // Mock
+    const users = getMockDb(DB_USERS);
+    const referrerId = Object.keys(users).find(uid => users[uid].referralCode === code);
+    
+    if (!referrerId) throw new Error("無效的邀請碼 (Mock)");
+    if (referrerId === currentUserId) throw new Error("不能使用自己的邀請碼");
+    
+    const reward = 50;
+    
+    // Update Referrer
+    users[referrerId].quota_total += reward;
+    users[referrerId].referralCount = (users[referrerId].referralCount || 0) + 1;
+    
+    // Update Current User
+    users[currentUserId].quota_total += reward;
+    users[currentUserId].referredBy = code;
+    
+    saveMockDb(DB_USERS, users);
+    return { success: true, reward };
 };
 
 // --- Error Reporting & Support ---
@@ -510,10 +501,10 @@ export const submitUserReport = async (report: Omit<UserReport, 'id'>) => {
     if (!isMock) {
         await db.collection('user_reports').add(report);
     } else {
-        const reports = getDb('autosocial_reports');
-        const reportList = Array.isArray(reports) ? reports : []; // Ensure array
+        const reports = getMockDb('autosocial_reports');
+        const reportList = Array.isArray(reports) ? reports : []; 
         reportList.push({ id: Date.now().toString(), ...report });
-        saveDb('autosocial_reports', reportList);
+        saveMockDb('autosocial_reports', reportList);
         console.log("Mock Report Saved", report);
     }
 };
@@ -522,31 +513,27 @@ export const getUserReports = async (): Promise<UserReport[]> => {
     if (!isMock) {
         const snapshot = await db.collection('user_reports').orderBy('timestamp', 'desc').get();
         return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserReport));
-    } else {
-        const data = getDb('autosocial_reports');
-        return Array.isArray(data) ? data : []; // Ensure valid array for filter()
-    }
+    } 
+    const data = getMockDb('autosocial_reports');
+    return Array.isArray(data) ? data : []; 
 };
 
-// --- Logs & Stats (Mock-ish implementation for simplicity) ---
+// --- Logs & Stats ---
 
 export const getSystemLogs = (): LogEntry[] => {
     if (!isMock) {
-        // Real logs would be fetched here
         return [];
-    } else {
-        // Map persistent usage logs to system log format for admin view
-        const logs = getLogsDb();
-        return logs.slice(0, 50).map(l => ({
-            id: `sys_${l.ts}`,
-            timestamp: l.ts,
-            userId: l.uid,
-            userEmail: 'User Action', // Simplified
-            action: l.act.toUpperCase(),
-            status: 'success',
-            details: `Topic: ${l.topic}, Result: ${l.res.substring(0, 30)}...`
-        }));
-    }
+    } 
+    const logs = getMockLogs();
+    return logs.slice(0, 50).map(l => ({
+        id: `sys_${l.ts}`,
+        timestamp: l.ts,
+        userId: l.uid,
+        userEmail: 'User Action',
+        action: l.act.toUpperCase(),
+        status: 'success',
+        details: `Topic: ${l.topic}, Result: ${l.res.substring(0, 30)}...`
+    }));
 };
 
 export const getDashboardStats = async (): Promise<DashboardStats> => {
@@ -554,7 +541,7 @@ export const getDashboardStats = async (): Promise<DashboardStats> => {
     return {
         totalUsers: users.length,
         activeUsersToday: users.filter(u => u.updated_at > Date.now() - 86400000).length,
-        totalApiCallsToday: users.reduce((acc, u) => acc + (u.updated_at > Date.now() - 86400000 ? 1 : 0), 0), // Rough estimate
+        totalApiCallsToday: users.reduce((acc, u) => acc + (u.updated_at > Date.now() - 86400000 ? 1 : 0), 0), 
         errorCountToday: 0
     };
 };
@@ -577,61 +564,48 @@ export const resetUserQuota = async (userId: string) => {
     if (!isMock) {
         await db.collection('users').doc(userId).update({ quota_used: 0 });
     } else {
-        const users = getDb(DB_USERS);
+        const users = getMockDb(DB_USERS);
         if(users[userId]) {
             users[userId].quota_used = 0;
-            saveDb(DB_USERS, users);
+            saveMockDb(DB_USERS, users);
         }
     }
 };
 
-// --- Usage Logging (For Optimization) ---
 export const logUserActivity = async (logData: Omit<UsageLog, 'ts'>) => {
     try {
         const log: UsageLog = {
             ...logData,
-            // Truncate result to save space
             res: logData.res ? logData.res.substring(0, 500) : '',
             ts: Date.now()
         };
 
         if (!isMock) {
-            // Use 'add' to auto-generate ID
             await db.collection('usage_logs').add(log);
         } else {
-            // FIX: Save logs to LocalStorage in Mock mode so Admin Panel works
-            const logs = getLogsDb();
-            logs.unshift(log); // Add to top
-            if (logs.length > 200) logs.pop(); // Limit size
+            const logs = getMockLogs();
+            logs.unshift(log); 
+            if (logs.length > 200) logs.pop(); 
             localStorage.setItem(LOGS_KEY, JSON.stringify(logs));
             console.log("[Mock Log Saved]", log);
         }
     } catch (e) {
-        // Fail silently - logging should not break app
         console.warn("Logging failed", e);
     }
 };
 
-// --- Export Usage Logs (Admin) ---
 export const getUserUsageLogs = async (userId: string): Promise<UsageLog[]> => {
     if (!isMock) {
-        // Simple query without compound index requirement (filter in memory if needed for complex sorts, but 'where' is fine)
         const snapshot = await db.collection('usage_logs').where('uid', '==', userId).get();
         const logs = snapshot.docs.map(doc => doc.data() as UsageLog);
-        // Client-side sort by timestamp desc
         return logs.sort((a, b) => b.ts - a.ts);
-    } else {
-        // Mock Implementation: Filter from local logs
-        const logs = getLogsDb();
-        return logs.filter(l => l.uid === userId);
-    }
+    } 
+    const logs = getMockLogs();
+    return logs.filter(l => l.uid === userId);
 };
 
-// --- Delete Usage Logs (Admin) ---
 export const deleteUserUsageLogs = async (userId: string): Promise<void> => {
     if (!isMock) {
-        // Note: Firebase batch limit is 500. For large datasets, this should be recursive or batched in chunks.
-        // Assuming log count is manageable for this simplified admin feature.
         const snapshot = await db.collection('usage_logs').where('uid', '==', userId).get();
         if (snapshot.empty) return;
 
@@ -641,8 +615,7 @@ export const deleteUserUsageLogs = async (userId: string): Promise<void> => {
         });
         await batch.commit();
     } else {
-        // Mock Implementation
-        let logs = getLogsDb();
+        let logs = getMockLogs();
         logs = logs.filter(l => l.uid !== userId);
         localStorage.setItem(LOGS_KEY, JSON.stringify(logs));
         console.log("Mock delete logs for", userId);
