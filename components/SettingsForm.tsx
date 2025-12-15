@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { BrandSettings, ReferenceFile } from '../types';
 import { validateFacebookToken, refreshLongLivedToken, fetchRecentPostCaptions } from '../services/facebookService';
@@ -9,33 +10,78 @@ interface Props {
   initialSettings: BrandSettings;
 }
 
+interface BrandProfile {
+    id: string;
+    name: string;
+    settings: BrandSettings;
+}
+
 const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
+  // --- Multi-Brand State ---
+  const [profiles, setProfiles] = useState<BrandProfile[]>([]);
+  const [currentProfileId, setCurrentProfileId] = useState<string>('default');
+  const [isManagingProfiles, setIsManagingProfiles] = useState(false);
+
   const [formData, setFormData] = useState<BrandSettings>(initialSettings);
+  
+  // --- Existing State ---
   const [tokenStatus, setTokenStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle');
   const [refreshMsg, setRefreshMsg] = useState('');
-  
-  // Separate state for raw string input to avoid cursor jumping issues
-  // Fix: Add safety check (|| []) to prevent crash if competitors is null/undefined
-  const [competitorsRaw, setCompetitorsRaw] = useState((initialSettings.competitors || []).join(', '));
+  const [competitorsRaw, setCompetitorsRaw] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isAnalyzingTone, setIsAnalyzingTone] = useState(false);
   const [isAnalyzingProduct, setIsAnalyzingProduct] = useState(false);
-  
-  // Style Tuner State
   const [styleImages, setStyleImages] = useState<string[]>([]);
   const [isAnalyzingStyle, setIsAnalyzingStyle] = useState(false);
 
-  // Auto-save logic to localStorage to prevent data loss on refresh
+  // Initialize Profiles
   useEffect(() => {
-    localStorage.setItem('autosocial_settings', JSON.stringify(formData));
-  }, [formData]);
+      const savedProfiles = localStorage.getItem('autosocial_brand_profiles');
+      if (savedProfiles) {
+          const parsed = JSON.parse(savedProfiles);
+          setProfiles(parsed);
+          // Load last used profile ID
+          const lastId = localStorage.getItem('autosocial_last_profile_id');
+          if (lastId && parsed.find((p: any) => p.id === lastId)) {
+              setCurrentProfileId(lastId);
+              const target = parsed.find((p: any) => p.id === lastId);
+              if(target) loadSettingsIntoForm(target.settings);
+          } else {
+              // Default to first
+              setCurrentProfileId(parsed[0].id);
+              loadSettingsIntoForm(parsed[0].settings);
+          }
+      } else {
+          // Init with current props as default profile
+          const defaultProfile: BrandProfile = {
+              id: 'default',
+              name: initialSettings.industry || '預設品牌',
+              settings: initialSettings
+          };
+          setProfiles([defaultProfile]);
+          setCurrentProfileId('default');
+          loadSettingsIntoForm(initialSettings);
+      }
+  }, []); // Run once on mount
 
-  // Check token on initial load if present
+  const loadSettingsIntoForm = (settings: BrandSettings) => {
+      setFormData(settings);
+      setCompetitorsRaw((settings.competitors || []).join(', '));
+      // Reset validation states
+      setTokenStatus('idle');
+      setRefreshMsg('');
+  };
+
+  // Save profiles to LS whenever they change
   useEffect(() => {
-    if (initialSettings.facebookToken) {
-      checkToken(initialSettings.facebookToken, false); // Don't auto-refresh on simple load check
-    }
-  }, []);
+      if (profiles.length > 0) {
+          localStorage.setItem('autosocial_brand_profiles', JSON.stringify(profiles));
+      }
+  }, [profiles]);
+
+  useEffect(() => {
+      localStorage.setItem('autosocial_last_profile_id', currentProfileId);
+  }, [currentProfileId]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -51,13 +97,63 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
   };
 
   const handleCompetitorBlur = () => {
-    // Process only on blur to allow smooth typing
     const list = competitorsRaw.split(/[,，]/).map(s => s.trim()).filter(s => s !== '');
     setFormData(prev => ({ ...prev, competitors: list }));
-    // Optional: Re-format raw string for tidiness
     setCompetitorsRaw(list.join(', '));
   };
 
+  // --- Profile Management Handlers ---
+  const handleProfileChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const newId = e.target.value;
+      // 1. Save current changes to the old profile before switching? 
+      // Optional, but safer to let user explicit save. 
+      // For UX, let's just switch and confirm if dirty? Skipping complexity: just switch.
+      const target = profiles.find(p => p.id === newId);
+      if (target) {
+          setCurrentProfileId(newId);
+          loadSettingsIntoForm(target.settings);
+      }
+  };
+
+  const handleCreateProfile = () => {
+      const name = prompt("請輸入新品牌名稱：");
+      if (!name) return;
+      
+      const newId = 'brand_' + Date.now();
+      const newProfile: BrandProfile = {
+          id: newId,
+          name: name,
+          settings: { ...initialSettings, industry: name } // Reset to blank/default
+      };
+      
+      setProfiles([...profiles, newProfile]);
+      setCurrentProfileId(newId);
+      loadSettingsIntoForm(newProfile.settings);
+      alert(`已建立新品牌「${name}」`);
+  };
+
+  const handleDeleteProfile = () => {
+      if (profiles.length <= 1) return alert("至少需保留一個品牌設定");
+      if (!confirm("確定刪除目前品牌設定檔？此操作無法復原。")) return;
+      
+      const newProfiles = profiles.filter(p => p.id !== currentProfileId);
+      setProfiles(newProfiles);
+      
+      // Switch to first available
+      setCurrentProfileId(newProfiles[0].id);
+      loadSettingsIntoForm(newProfiles[0].settings);
+  };
+
+  const handleRenameProfile = () => {
+      const current = profiles.find(p => p.id === currentProfileId);
+      if(!current) return;
+      const newName = prompt("重新命名品牌：", current.name);
+      if(newName && newName !== current.name) {
+          setProfiles(prev => prev.map(p => p.id === currentProfileId ? { ...p, name: newName } : p));
+      }
+  };
+
+  // --- Existing Logic ---
   const checkToken = async (tokenToCheck?: string, autoRefresh = true) => {
     const token = tokenToCheck ?? formData.facebookToken;
     if (!token) return;
@@ -65,13 +161,10 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
     setTokenStatus('checking');
     setRefreshMsg('');
 
-    // 1. Validate
     const isValid = await validateFacebookToken(token);
     
     if (isValid) {
         setTokenStatus('valid');
-        
-        // 2. Auto Extend/Refresh if valid and requested (User clicked button)
         if (autoRefresh) {
             setRefreshMsg('正在嘗試延長效期...');
             try {
@@ -84,7 +177,6 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
                     }));
                     setRefreshMsg(`✅ 驗證成功且已自動延長效期！(Expires: ${new Date(refreshRes.expiry!).toLocaleDateString()})`);
                 } else {
-                    // Valid but refresh failed (maybe already long-lived or API restriction)
                     setRefreshMsg('✅ Token 有效 (無法自動延長，請確認是否已為長期 Token)');
                 }
             } catch (e) {
@@ -104,7 +196,6 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
       const newFile: ReferenceFile = { name: file.name, content: text };
       setFormData(prev => ({
         ...prev,
-        // Ensure referenceFiles is an array
         referenceFiles: [...(prev.referenceFiles || []), newFile]
       }));
     }
@@ -131,7 +222,7 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
       const file = e.target.files?.[0];
       if (!file) return;
       
-      if (file.size > 500 * 1024) { // 500KB limit for Firestore safety
+      if (file.size > 500 * 1024) { 
           alert("Logo 檔案過大，請使用小於 500KB 的圖片");
           return;
       }
@@ -144,7 +235,6 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
       reader.readAsDataURL(file);
   };
 
-  // --- Brand Style Tuner Handlers ---
   const handleStyleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = e.target.files;
       if (!files) return;
@@ -163,7 +253,7 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
               newImages.push(ev.target?.result as string);
               processed++;
               if (processed === files.length) {
-                  setStyleImages(prev => [...prev, ...newImages].slice(0, 5)); // Limit to 5 max
+                  setStyleImages(prev => [...prev, ...newImages].slice(0, 5)); 
               }
           };
           reader.readAsDataURL(file);
@@ -211,24 +301,24 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
       }
   };
 
-  const removeFile = (index: number) => {
-    setFormData(prev => ({
-      ...prev,
-      referenceFiles: (prev.referenceFiles || []).filter((_, i) => i !== index)
-    }));
-  };
-
   const handleSaveWrapper = async () => {
       setIsSaving(true);
       try {
-          // Local Save
+          // 1. Update Profile in Array
+          const updatedProfiles = profiles.map(p => 
+              p.id === currentProfileId ? { ...p, settings: formData } : p
+          );
+          setProfiles(updatedProfiles);
+          
+          // 2. Local Save
           onSave(formData);
           
-          // Cloud Sync
+          // 3. Cloud Sync
           const user = getCurrentUser();
           if (user) {
               await updateUserSettings(user.uid, formData);
           }
+          alert("設定已儲存！");
       } catch (e) {
           console.error("Save failed", e);
       } finally {
@@ -238,8 +328,45 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
 
   return (
     <div className="max-w-4xl mx-auto p-6 bg-card rounded-xl shadow-lg border border-gray-700 animate-fade-in pb-20">
-      <h2 className="text-2xl font-bold mb-6 text-white">品牌與 API 設定</h2>
       
+      {/* --- Multi-Brand Switcher Header --- */}
+      <div className="flex flex-col md:flex-row justify-between items-center mb-6 border-b border-gray-600 pb-4 gap-4">
+          <div className="flex-1 w-full">
+              <label className="block text-xs text-gray-400 mb-1">目前管理的品牌</label>
+              <div className="flex gap-2">
+                  <select 
+                      value={currentProfileId} 
+                      onChange={handleProfileChange}
+                      className="flex-1 bg-dark border border-primary rounded p-2 text-white font-bold text-lg focus:outline-none"
+                  >
+                      {profiles.map(p => (
+                          <option key={p.id} value={p.id}>
+                              {p.name}
+                          </option>
+                      ))}
+                  </select>
+                  <button onClick={handleRenameProfile} className="bg-gray-700 hover:bg-gray-600 px-3 rounded text-white" title="重新命名">✎</button>
+              </div>
+          </div>
+          
+          <div className="flex gap-2 w-full md:w-auto">
+              <button 
+                  onClick={handleCreateProfile}
+                  className="flex-1 md:flex-none bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded text-sm font-bold flex items-center justify-center gap-1"
+              >
+                  + 新增品牌
+              </button>
+              {profiles.length > 1 && (
+                  <button 
+                      onClick={handleDeleteProfile}
+                      className="flex-1 md:flex-none bg-red-900/50 hover:bg-red-900 text-red-200 px-4 py-2 rounded text-sm font-bold border border-red-800"
+                  >
+                      刪除此品牌
+                  </button>
+              )}
+          </div>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Configuration */}
         <div className="space-y-4">
@@ -304,7 +431,41 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
 
         {/* Brand Identity */}
         <div className="space-y-4">
-          <h3 className="text-lg font-semibold text-primary">品牌識別</h3>
+          <h3 className="text-lg font-semibold text-primary">品牌識別與經營策略</h3>
+          
+          {/* Brand Type Strategy Selector */}
+          <div className="bg-gray-800 p-3 rounded border border-gray-600">
+              <label className="block text-sm text-white font-bold mb-2">經營模式 (影響 AI 文案風格)</label>
+              <div className="flex gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer bg-dark px-3 py-2 rounded border border-gray-600 hover:border-primary flex-1">
+                      <input 
+                          type="radio" 
+                          name="brandType" 
+                          value="enterprise" 
+                          checked={!formData.brandType || formData.brandType === 'enterprise'} 
+                          onChange={() => setFormData(prev => ({...prev, brandType: 'enterprise'}))}
+                      />
+                      <div className="text-sm">
+                          <span className="text-blue-300 font-bold block">🏢 企業品牌</span>
+                          <span className="text-xs text-gray-400">使用 PAS/AIDA 經典行銷框架，強調專業、結構化與產品價值。</span>
+                      </div>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer bg-dark px-3 py-2 rounded border border-gray-600 hover:border-primary flex-1">
+                      <input 
+                          type="radio" 
+                          name="brandType" 
+                          value="personal" 
+                          checked={formData.brandType === 'personal'} 
+                          onChange={() => setFormData(prev => ({...prev, brandType: 'personal'}))}
+                      />
+                      <div className="text-sm">
+                          <span className="text-pink-300 font-bold block">👤 個人品牌</span>
+                          <span className="text-xs text-gray-400">強調「真人感」、情緒化、口語短句，減少商業詞彙。</span>
+                      </div>
+                  </label>
+              </div>
+          </div>
+
           <div>
             <label className="block text-sm text-gray-400 mb-1">產業類別</label>
             <input 
@@ -445,7 +606,7 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
           disabled={isSaving}
           className="bg-primary hover:bg-blue-600 text-white px-8 py-3 rounded-lg font-bold shadow-lg transition-all disabled:opacity-50"
         >
-          {isSaving ? '儲存同步中...' : '儲存設定 (同步至雲端)'}
+          {isSaving ? '儲存同步中...' : '儲存全部設定'}
         </button>
       </div>
     </div>

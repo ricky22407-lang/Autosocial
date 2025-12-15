@@ -10,10 +10,12 @@ import { auth, db, isMock, firebase } from './firebase';
 // Mock Keys
 const DB_USERS = 'autosocial_db_users';
 const SESSION_KEY = 'autosocial_session_uid';
+const LOGS_KEY = 'autosocial_mock_logs'; // New: Persistent Mock Logs
 
 // Helpers
 const getDb = (key: string) => JSON.parse(localStorage.getItem(key) || '{}');
 const saveDb = (key: string, data: any) => localStorage.setItem(key, JSON.stringify(data));
+const getLogsDb = (): UsageLog[] => JSON.parse(localStorage.getItem(LOGS_KEY) || '[]');
 
 // --- Auth Helper ---
 export const getCurrentUser = () => {
@@ -514,8 +516,22 @@ export const getUserReports = async (): Promise<UserReport[]> => {
 // --- Logs & Stats (Mock-ish implementation for simplicity) ---
 
 export const getSystemLogs = (): LogEntry[] => {
-    // In real app, query 'logs' collection
-    return [];
+    if (!isMock) {
+        // Real logs would be fetched here
+        return [];
+    } else {
+        // Map persistent usage logs to system log format for admin view
+        const logs = getLogsDb();
+        return logs.slice(0, 50).map(l => ({
+            id: `sys_${l.ts}`,
+            timestamp: l.ts,
+            userId: l.uid,
+            userEmail: 'User Action', // Simplified
+            action: l.act.toUpperCase(),
+            status: 'success',
+            details: `Topic: ${l.topic}, Result: ${l.res.substring(0, 30)}...`
+        }));
+    }
 };
 
 export const getDashboardStats = async (): Promise<DashboardStats> => {
@@ -564,7 +580,12 @@ export const logUserActivity = async (logData: Omit<UsageLog, 'ts'>) => {
             // Use 'add' to auto-generate ID
             await db.collection('usage_logs').add(log);
         } else {
-            console.log("[Mock Log]", log);
+            // FIX: Save logs to LocalStorage in Mock mode so Admin Panel works
+            const logs = getLogsDb();
+            logs.unshift(log); // Add to top
+            if (logs.length > 200) logs.pop(); // Limit size
+            localStorage.setItem(LOGS_KEY, JSON.stringify(logs));
+            console.log("[Mock Log Saved]", log);
         }
     } catch (e) {
         // Fail silently - logging should not break app
@@ -581,7 +602,9 @@ export const getUserUsageLogs = async (userId: string): Promise<UsageLog[]> => {
         // Client-side sort by timestamp desc
         return logs.sort((a, b) => b.ts - a.ts);
     } else {
-        return [];
+        // Mock Implementation: Filter from local logs
+        const logs = getLogsDb();
+        return logs.filter(l => l.uid === userId);
     }
 };
 
@@ -599,7 +622,10 @@ export const deleteUserUsageLogs = async (userId: string): Promise<void> => {
         });
         await batch.commit();
     } else {
+        // Mock Implementation
+        let logs = getLogsDb();
+        logs = logs.filter(l => l.uid !== userId);
+        localStorage.setItem(LOGS_KEY, JSON.stringify(logs));
         console.log("Mock delete logs for", userId);
-        // No-op for mock currently as logs aren't saved to localStorage persistently in mock
     }
 };

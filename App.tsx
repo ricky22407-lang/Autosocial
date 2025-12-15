@@ -23,6 +23,7 @@ import { subscribeAuth, logout, getUserProfile, useAdminKey, changeUserPassword 
 // #region Default Configuration
 const defaultSettings: BrandSettings = {
   industry: '',
+  brandType: 'enterprise',
   services: '',
   website: '',
   productInfo: '',

@@ -1,5 +1,4 @@
 
-
 // ==========================================
 // Core & API Types
 // ==========================================
@@ -77,7 +76,7 @@ export interface UserProfile {
 
 export interface UsageLog {
   uid: string;           // User ID
-  act: 'draft' | 'img' | 'seo' | 'threads'; // Short action code
+  act: 'draft' | 'img' | 'seo' | 'threads' | 'viral' | 'score'; // Short action code
   topic: string;         // Main topic/keyword
   prmt: string;          // The Prompt (Full)
   res: string;           // Result (Truncated to 500 chars)
@@ -117,6 +116,7 @@ export interface ThreadsAutoPilotConfig {
 export interface BrandSettings {
   // Identity
   industry: string;
+  brandType: 'enterprise' | 'personal'; // New: Strategy Selector
   services: string;
   website: string;
   productInfo: string;
@@ -208,6 +208,31 @@ export interface CachedTrendData {
   topics: TrendingTopic[];
   createdAt: number;
   industry: string;
+}
+
+// ==========================================
+// Domain: Viral / Marketing (New)
+// ==========================================
+
+export type ViralType = 'regret' | 'expose' | 'counter' | 'identity' | 'result';
+export type ViralPlatform = 'facebook' | 'threads' | 'xhs';
+
+export interface TitleScore {
+  title: string;
+  score: number;
+  breakdown: {
+    emotion: number;
+    curiosity: number;
+    identity: number;
+    specific: number;
+    authenticity: number;
+  };
+  comment: string;
+}
+
+export interface ViralPostDraft {
+  versions: string[]; // 3 versions
+  imagePrompt: string;
 }
 
 // ==========================================

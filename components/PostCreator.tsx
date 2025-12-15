@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { BrandSettings, Post, TrendingTopic, UserProfile, CtaItem } from '../types';
-import { getTrendingTopics, generatePostDraft, generateImage, applyWatermark } from '../services/geminiService';
+import { BrandSettings, Post, TrendingTopic, UserProfile, CtaItem, ViralType, ViralPlatform, TitleScore } from '../types';
+import { getTrendingTopics, generatePostDraft, generateImage, applyWatermark, generateViralContent, scoreViralTitles } from '../services/geminiService';
 import { publishPostToFacebook } from '../services/facebookService';
 import { checkAndUseQuota, getSystemConfig, logUserActivity } from '../services/authService';
 
@@ -55,6 +55,7 @@ const DRAFT_KEY = 'autosocial_post_draft';
 export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, onQuotaUpdate, editPost, onCancel }) => {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [topic, setTopic] = useState('');
+  const [postMode, setPostMode] = useState<'standard' | 'viral'>('standard');
   
   const [selectedTopicData, setSelectedTopicData] = useState<TrendingTopic | null>(null);
 
@@ -64,13 +65,22 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
 
   const [isDemoMode, setIsDemoMode] = useState(false);
 
+  // Standard Mode State
   const [captionLength, setCaptionLength] = useState<string>('150-300字');
-  
-  // Updated CTA State: List of Objects
   const [ctaList, setCtaList] = useState<CtaItem[]>([{ text: '👉 點擊了解', url: '' }]);
-  
   const [ctaPlacement, setCtaPlacement] = useState<'caption' | 'comment'>('caption');
+  const [includeEngagement, setIncludeEngagement] = useState(false); // Direction C
+  const [imageText, setImageText] = useState(''); // Direction D
   const [tempHashtags, setTempHashtags] = useState<string>('');
+
+  // Viral Mode State
+  const [viralType, setViralType] = useState<ViralType>('regret');
+  const [viralPlatform, setViralPlatform] = useState<ViralPlatform>('facebook');
+  const [targetAudience, setTargetAudience] = useState('');
+  const [titleCandidates, setTitleCandidates] = useState<TitleScore[]>([]);
+  const [isScoringTitles, setIsScoringTitles] = useState(false);
+  const [selectedViralVersion, setSelectedViralVersion] = useState<number>(0);
+  const [viralDrafts, setViralDrafts] = useState<string[]>([]); // Store the 3 versions
 
   const [trendingTopics, setTrendingTopics] = useState<TrendingTopic[]>([]);
   const [isLoadingTopics, setIsLoadingTopics] = useState(false);
@@ -102,10 +112,21 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     setStep(1);
     setTopic('');
     setSelectedTopicData(null); 
+    setPostMode('standard');
     setCaptionLength('150-300字');
     setCtaList([{ text: '👉 點擊了解', url: '' }]);
     setCtaPlacement('caption');
     setTempHashtags('');
+    setIncludeEngagement(false);
+    setImageText('');
+    
+    // Reset Viral
+    setViralType('regret');
+    setViralPlatform('facebook');
+    setTargetAudience('');
+    setTitleCandidates([]);
+    setViralDrafts([]);
+
     setDraft({ caption: '', firstComment: '', imagePrompt: '', videoPrompt: '' });
     setMediaUrl(undefined);
     setMediaSource('ai');
@@ -143,11 +164,22 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                 const parsed = JSON.parse(savedDraft);
                 setStep(parsed.step || 1);
                 setTopic(parsed.topic || '');
+                setPostMode(parsed.postMode || 'standard');
                 setSelectedTopicData(parsed.selectedTopicData || null);
                 setCaptionLength(parsed.captionLength || '150-300字');
                 setCtaList(parsed.ctaList || [{ text: '👉 點擊了解', url: '' }]);
                 setCtaPlacement(parsed.ctaPlacement || 'caption');
                 setTempHashtags(parsed.tempHashtags || '');
+                setIncludeEngagement(parsed.includeEngagement || false);
+                setImageText(parsed.imageText || '');
+                
+                // Load Viral
+                setViralType(parsed.viralType || 'regret');
+                setViralPlatform(parsed.viralPlatform || 'facebook');
+                setTargetAudience(parsed.targetAudience || '');
+                setTitleCandidates(parsed.titleCandidates || []);
+                setViralDrafts(parsed.viralDrafts || []);
+
                 setDraft(parsed.draft || { caption: '', firstComment: '', imagePrompt: '', videoPrompt: '' });
                 setMediaUrl(parsed.mediaUrl);
                 setMediaSource(parsed.mediaSource || 'ai');
@@ -173,11 +205,19 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
       const stateToSave = {
           step,
           topic,
+          postMode,
           selectedTopicData,
           captionLength,
           ctaList,
           ctaPlacement,
           tempHashtags,
+          includeEngagement,
+          imageText,
+          viralType,
+          viralPlatform,
+          targetAudience,
+          titleCandidates,
+          viralDrafts,
           draft,
           mediaUrl,
           mediaSource,
@@ -187,7 +227,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
           isDemoMode
       };
       localStorage.setItem(DRAFT_KEY, JSON.stringify(stateToSave));
-  }, [step, topic, selectedTopicData, captionLength, ctaList, ctaPlacement, tempHashtags, draft, mediaUrl, mediaSource, selectedMediaType, scheduleDate, syncInstagram, editPost, isDemoMode]);
+  }, [step, topic, postMode, selectedTopicData, captionLength, ctaList, ctaPlacement, tempHashtags, includeEngagement, imageText, viralType, viralPlatform, targetAudience, titleCandidates, viralDrafts, draft, mediaUrl, mediaSource, selectedMediaType, scheduleDate, syncInstagram, editPost, isDemoMode]);
 
   useEffect(() => {
     if (isInputHighlight) {
@@ -258,6 +298,42 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     }
   };
 
+  // --- Viral Title Scoring Handler ---
+  const handleScoreTitles = async () => {
+      if (!user) return alert("請先登入");
+      if (!topic) return alert("請先輸入主題");
+      if (isScoringTitles) return;
+
+      const COST = 1;
+      const allowed = await checkAndUseQuota(user.user_id, COST);
+      if (!allowed) return alert(`配額不足 (需要 ${COST} 點)`);
+      onQuotaUpdate();
+
+      setIsScoringTitles(true);
+      try {
+          // 1. Generate Raw Titles via Viral Prompt (Simplified call to save logic)
+          // We can just ask for title ideas first or use the topic directly if it's already a good sentence.
+          // For better UX, let's generate 5 variations of the topic as titles then score them.
+          const draftRes = await generateViralContent(topic, {
+              audience: targetAudience || '大眾',
+              viralType: viralType,
+              platform: viralPlatform
+          });
+          
+          // Extract titles from the 3 versions (assuming first line is title)
+          const generatedTitles = draftRes.versions.map(v => v.split('\n')[0].replace(/^#/, '').trim());
+          // Add original topic
+          const titlesToScore = [...new Set([topic, ...generatedTitles])].slice(0, 5);
+
+          const scores = await scoreViralTitles(titlesToScore);
+          setTitleCandidates(scores);
+      } catch (e: any) {
+          alert(`標題評分失敗: ${e.message}`);
+      } finally {
+          setIsScoringTitles(false);
+      }
+  };
+
   const handleNextToDraft = async () => {
     if (!topic || isGeneratingDraft) return;
     if (!user) {
@@ -265,22 +341,17 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
         return;
     }
     
+    // DEMO MODE Logic
     if (isDemoMode) {
         setStep(2);
         setIsGeneratingDraft(true);
         setTimeout(() => {
-            const demoCaption = `【Demo 模式】關於 ${topic} 的精彩內容分享！\n\n這是 AutoSocial 的演示功能，讓您體驗自動撰寫文案的流程。我們能根據您的品牌語氣，自動生成合適的貼文內容。\n\n#AutoSocial #Demo #AI行銷`;
-            const demoCta = `點擊了解更多: https://example.com`;
-            let finalCaption = demoCaption;
-            let finalComment = '';
-            if (ctaPlacement === 'caption') {
-                finalCaption += `\n\n${demoCta}`;
-            } else {
-                finalComment = demoCta;
-            }
+            const demoCaption = postMode === 'viral' 
+                ? `【Demo 爆文】${topic} 竟然隱藏這種秘密？！\n\n很多人都不知道，其實... (情緒鋪陳)\n\n#爆料 #內幕`
+                : `【Demo 模式】關於 ${topic} 的精彩內容分享！\n\n這是 AutoSocial 的演示功能...`;
             setDraft({
-                caption: finalCaption,
-                firstComment: finalComment,
+                caption: demoCaption,
+                firstComment: "點擊連結: example.com",
                 imagePrompt: `(Demo) 為 ${topic} 產生一張現代風格的行銷圖片`,
                 videoPrompt: `(Demo) 為 ${topic} 產生一支短影音`
             });
@@ -289,10 +360,13 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
         return;
     }
 
+    // Cost Calculation
+    const cost = postMode === 'viral' ? 2 : 1;
+
     try {
-        const allowed = await checkAndUseQuota(user.user_id, 1);
+        const allowed = await checkAndUseQuota(user.user_id, cost);
         if (!allowed) {
-            alert("⚠️ 您的 AI 使用配額已額滿 (或資料庫連線失敗)。");
+            alert(`⚠️ 您的 AI 使用配額已額滿 (需要 ${cost} 點)。`);
             return;
         }
     } catch (e) {
@@ -304,53 +378,76 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     setStep(2);
     setIsGeneratingDraft(true);
     try {
-      const validCtaList = ctaList.filter(l => l.url.trim() !== '');
-      const finalLength = isFreeTier ? '150-300字' : captionLength;
-
-      // Pass user role to smart model selection
-      const generated = await generatePostDraft(
-          topic, 
-          settings, 
-          {
-            length: finalLength,
-            ctaList: validCtaList,
-            tempHashtags: '' 
-          },
-          selectedTopicData || undefined,
-          user.role // Smart Fallback: Flash for Free, Pro for Pro
-      );
-
-      let finalCaption = generated.caption;
-      const config = getSystemConfig();
-      if (config.dryRunMode) {
-          finalCaption = "[DryRun] " + finalCaption;
-      }
-
+      let finalCaption = '';
       let finalFirstComment = '';
+      let finalImagePrompt = '';
+      let finalVideoPrompt = '';
 
-      if (generated.ctaText && validCtaList.length > 0) {
-        if (ctaPlacement === 'caption' || isFreeTier) {
-          finalCaption = `${finalCaption}\n\n${generated.ctaText}`;
-        } else {
-          finalFirstComment = generated.ctaText;
-        }
+      if (postMode === 'viral') {
+          // --- Viral Generation ---
+          const viralRes = await generateViralContent(topic, {
+              audience: targetAudience || 'General Audience',
+              viralType,
+              platform: viralPlatform
+          });
+          
+          setViralDrafts(viralRes.versions);
+          finalCaption = viralRes.versions[0]; // Default to first
+          finalImagePrompt = viralRes.imagePrompt;
+          finalVideoPrompt = viralRes.imagePrompt; // Reuse for simplicity
+
+          // Viral posts usually don't have standard CTA logic in prompt, so we handle manually if needed?
+          // The prompt says "No CTA", but we can append link if user provided ctaList in comments.
+          if (ctaList.length > 0 && ctaList[0].url) {
+              finalFirstComment = `${ctaList[0].text}: ${ctaList[0].url}`;
+          }
+
+      } else {
+          // --- Standard Generation ---
+          const validCtaList = ctaList.filter(l => l.url.trim() !== '');
+          const finalLength = isFreeTier ? '150-300字' : captionLength;
+
+          const generated = await generatePostDraft(
+              topic, 
+              settings, 
+              {
+                length: finalLength,
+                ctaList: validCtaList,
+                tempHashtags: '',
+                includeEngagement,
+                imageText
+              },
+              selectedTopicData || undefined,
+              user.role
+          );
+
+          finalCaption = generated.caption;
+          if (generated.ctaText && validCtaList.length > 0) {
+            if (ctaPlacement === 'caption' || isFreeTier) {
+              finalCaption = `${finalCaption}\n\n${generated.ctaText}`;
+            } else {
+              finalFirstComment = generated.ctaText;
+            }
+          }
+          finalImagePrompt = generated.imagePrompt;
+          finalVideoPrompt = generated.videoPrompt;
       }
 
       setDraft({
         caption: finalCaption,
         firstComment: finalFirstComment,
-        imagePrompt: generated.imagePrompt,
-        videoPrompt: generated.videoPrompt
+        imagePrompt: finalImagePrompt,
+        videoPrompt: finalVideoPrompt
       });
 
       // --- Log Usage ---
       logUserActivity({
           uid: user.user_id,
-          act: 'draft',
+          act: postMode === 'viral' ? 'viral' : 'draft',
           topic: topic,
-          prmt: `Length: ${finalLength}, Tone: ${settings.brandTone}, Product: ${settings.productInfo}`,
+          prmt: postMode === 'viral' ? `Viral Type: ${viralType}` : `Length: ${captionLength}`,
           res: finalCaption,
-          params: JSON.stringify({ role: user.role, model: 'dynamic' })
+          params: JSON.stringify({ role: user.role, mode: postMode })
       });
 
     } catch (e: any) {
@@ -377,7 +474,9 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   const handleGenerateMedia = async () => {
     if (!user || isGeneratingMedia) return;
     
+    // Viral Image costs 5 (same as standard high quality)
     const cost = 5; 
+    
     if (isDemoMode) {
         setIsGeneratingMedia(true);
         setMediaUrl(undefined);
@@ -388,12 +487,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
         return;
     }
 
-    const isRegeneration = !!mediaUrl;
-    const msg = isRegeneration 
-        ? `確定重新生成圖片嗎？這將再次消耗 ${cost} 點配額。` 
-        : `確定生成圖片嗎？這將消耗 ${cost} 點配額。`;
-    
-    if (!confirm(msg)) return;
+    if (!confirm(`確定生成圖片嗎？這將消耗 ${cost} 點配額。`)) return;
 
     const allowed = await checkAndUseQuota(user.user_id, cost);
     if (!allowed) {
@@ -417,13 +511,17 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
       const variationSuffix = ` (random_seed: ${seed})`; 
       const promptToSend = draft.imagePrompt + variationSuffix;
       
-      console.log(`[PostCreator] Requesting Image with forced randomness: ${seed}`);
+      // Determine Style Prompt
+      let stylePrompt = settings.brandStylePrompt;
+      if (postMode === 'viral' && viralPlatform === 'xhs') {
+          stylePrompt = "Little Red Book (Xiaohongshu) handwritten note style";
+      }
+
+      let url = await generateImage(promptToSend, user.role, stylePrompt);
       
-      let url = await generateImage(promptToSend, user.role, settings.brandStylePrompt);
-      
-      if (settings.logoUrl) {
+      if (settings.logoUrl && postMode !== 'viral') {
+          // Viral posts (especially XHS) usually don't want branded watermarks to look authentic
           try {
-              console.log("Applying watermark automatically...");
               url = await applyWatermark(url, settings.logoUrl);
           } catch (wmError) {
               console.warn("Auto watermark failed:", wmError);
@@ -432,14 +530,13 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
       
       setMediaUrl(url);
 
-      // --- Log Usage ---
       logUserActivity({
           uid: user.user_id,
           act: 'img',
-          topic: topic, // Context
+          topic: topic,
           prmt: promptToSend,
-          res: 'Generated Image URL (not stored in log)', // Don't store huge base64
-          params: JSON.stringify({ role: user.role, style: settings.brandStylePrompt })
+          res: 'Generated Image URL',
+          params: JSON.stringify({ role: user.role, style: stylePrompt })
       });
 
     } catch (e: any) {
@@ -534,17 +631,16 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
 
   // --- Render ---
 
-  // Enhanced Wait UI
   if (isLoadingTopics) return <LoadingOverlay message="AI 正在搜尋熱門話題" detail="正在分析新聞來源與社群趨勢..." />;
   if (isGeneratingDraft) return <LoadingOverlay message="AI 正在撰寫文案" detail={`針對主題「${topic}」進行創意發想中...`} />;
-  if (isGeneratingMedia) return <LoadingOverlay message="AI 正在繪製圖片" detail="正在調用高效能繪圖模型 (自動套用浮水印)..." />;
+  if (isGeneratingMedia) return <LoadingOverlay message="AI 正在繪製圖片" detail="正在調用高效能繪圖模型..." />;
   if (isPublishing) return <LoadingOverlay message="正在發佈貼文" detail={syncInstagram ? "正在同步發送至 Facebook 與 Instagram..." : "正在發送至 Facebook..."} />;
 
   if (step === 1) {
       return (
           <div className="max-w-4xl mx-auto space-y-6 animate-fade-in relative">
                <div className="flex justify-between items-center">
-                    <h2 className="text-2xl font-bold mb-4">1. 設定貼文主題與參數</h2>
+                    <h2 className="text-2xl font-bold mb-4">1. 設定貼文主題與模式</h2>
                     <div className="flex gap-2 items-center">
                         <label className="flex items-center gap-2 cursor-pointer bg-gray-800 border border-gray-600 px-3 py-1 rounded hover:bg-gray-700 transition-colors">
                             <input type="checkbox" checked={isDemoMode} onChange={(e) => setIsDemoMode(e.target.checked)} className="w-4 h-4 rounded" />
@@ -556,85 +652,198 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                </div>
                
                <div className="bg-card p-6 rounded-xl border border-gray-700 space-y-6">
+                  {/* Mode Switcher */}
+                  <div className="flex bg-dark p-1 rounded-lg border border-gray-600">
+                      <button 
+                          onClick={() => setPostMode('standard')}
+                          className={`flex-1 py-2 rounded-md font-bold transition-all ${postMode === 'standard' ? 'bg-primary text-white shadow' : 'text-gray-400 hover:text-white'}`}
+                      >
+                          🏢 一般品牌經營
+                      </button>
+                      <button 
+                          onClick={() => setPostMode('viral')}
+                          className={`flex-1 py-2 rounded-md font-bold transition-all flex items-center justify-center gap-2 ${postMode === 'viral' ? 'bg-gradient-to-r from-pink-600 to-purple-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}
+                      >
+                          🔥 營銷號 / 爆文模式 (Beta)
+                      </button>
+                  </div>
+
                   <div>
                       <label className="block text-sm text-gray-400 mb-1">貼文主題</label>
                       <input 
                         value={topic} 
-                        onChange={e => { setTopic(e.target.value); setSelectedTopicData(null); }} 
+                        onChange={e => { setTopic(e.target.value); setSelectedTopicData(null); setTitleCandidates([]); }} 
                         className={`w-full bg-dark border-gray-600 rounded p-3 text-white outline-none transition-all duration-300 ${isInputHighlight ? 'ring-2 ring-yellow-500 shadow-lg shadow-yellow-500/20' : ''}`} 
-                        placeholder="例如：母親節特賣活動..."
+                        placeholder="例如：母親節特賣活動、職場生存法則..."
                       />
                   </div>
                   
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div>
-                          <label className="block text-sm text-gray-400 mb-1">文案長度</label>
-                          {isFreeTier ? (
-                             <div className="w-full bg-gray-800 border border-gray-600 rounded p-3 text-gray-400 text-sm flex justify-between items-center">
-                                <span>🔒 標準 (150-300字)</span>
-                                <span className="text-xs text-yellow-500">免費版鎖定</span>
-                             </div>
-                          ) : (
-                              <select 
-                                value={captionLength} 
-                                onChange={e => setCaptionLength(e.target.value)}
-                                className="w-full bg-dark border border-gray-600 rounded p-3 text-white"
-                              >
-                                 <option value="150字內">短文 (150字內)</option>
-                                 <option value="150-300字">標準 (150-300字)</option>
-                                 <option value="300-600字">長文 (300-600字)</option>
-                                 <option value="800字內">深度文章 (800字內)</option>
-                              </select>
-                          )}
-                      </div>
-                      <div>
-                          <label className="block text-sm text-gray-400 mb-1">臨時 Hashtags</label>
-                          <input value={tempHashtags} onChange={e => setTempHashtags(e.target.value)} placeholder="#活動限定" className="w-full bg-dark border border-gray-600 rounded p-3 text-white" />
-                      </div>
-                  </div>
+                  {/* STANDARD MODE CONTROLS */}
+                  {postMode === 'standard' && (
+                      <div className="space-y-6 animate-fade-in">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                              <div>
+                                  <label className="block text-sm text-gray-400 mb-1">文案長度</label>
+                                  {isFreeTier ? (
+                                     <div className="w-full bg-gray-800 border border-gray-600 rounded p-3 text-gray-400 text-sm flex justify-between items-center">
+                                        <span>🔒 標準 (150-300字)</span>
+                                        <span className="text-xs text-yellow-500">免費版鎖定</span>
+                                     </div>
+                                  ) : (
+                                      <select 
+                                        value={captionLength} 
+                                        onChange={e => setCaptionLength(e.target.value)}
+                                        className="w-full bg-dark border border-gray-600 rounded p-3 text-white"
+                                      >
+                                         <option value="150字內">短文 (150字內)</option>
+                                         <option value="150-300字">標準 (150-300字)</option>
+                                         <option value="300-600字">長文 (300-600字)</option>
+                                         <option value="800字內">深度文章 (800字內)</option>
+                                      </select>
+                                  )}
+                              </div>
+                              <div>
+                                  <label className="block text-sm text-gray-400 mb-1">臨時 Hashtags</label>
+                                  <input value={tempHashtags} onChange={e => setTempHashtags(e.target.value)} placeholder="#活動限定" className="w-full bg-dark border border-gray-600 rounded p-3 text-white" />
+                              </div>
+                          </div>
 
-                  <div>
-                      <label className="block text-sm text-gray-400 mb-2">行動呼籲 (CTA) 設定</label>
-                      <div className="space-y-3">
-                          {ctaList.map((item, index) => (
-                             <div key={index} className="flex gap-2 items-center">
-                                <input 
-                                    value={item.text} 
-                                    onChange={e => handleCtaChange(index, 'text', e.target.value)}
-                                    placeholder="呼籲詞 (如：加Line)" 
-                                    className="w-1/3 bg-dark border border-gray-600 rounded p-2 text-white text-sm" 
-                                />
-                                <input 
-                                    value={item.url} 
-                                    onChange={e => handleCtaChange(index, 'url', e.target.value)}
-                                    placeholder="https://..." 
-                                    className="flex-1 bg-dark border border-gray-600 rounded p-2 text-white text-sm" 
-                                />
-                                <button type="button" onClick={() => removeCtaItem(index)} className="text-red-400 px-2">×</button>
-                             </div>
-                          ))}
-                          {ctaList.length < 5 && <button type="button" onClick={addCtaItem} className="text-sm text-blue-400">+ 新增 CTA 連結</button>}
+                          <div>
+                              <label className="block text-sm text-gray-400 mb-2">行動呼籲 (CTA)</label>
+                              <div className="space-y-3">
+                                  {ctaList.map((item, index) => (
+                                     <div key={index} className="flex gap-2 items-center">
+                                        <input 
+                                            value={item.text} 
+                                            onChange={e => handleCtaChange(index, 'text', e.target.value)}
+                                            placeholder="呼籲詞 (如：加Line)" 
+                                            className="w-1/3 bg-dark border border-gray-600 rounded p-2 text-white text-sm" 
+                                        />
+                                        <input 
+                                            value={item.url} 
+                                            onChange={e => handleCtaChange(index, 'url', e.target.value)}
+                                            placeholder="https://..." 
+                                            className="flex-1 bg-dark border border-gray-600 rounded p-2 text-white text-sm" 
+                                        />
+                                        <button type="button" onClick={() => removeCtaItem(index)} className="text-red-400 px-2">×</button>
+                                     </div>
+                                  ))}
+                                  {ctaList.length < 5 && <button type="button" onClick={addCtaItem} className="text-sm text-blue-400">+ 新增 CTA 連結</button>}
+                              </div>
+                              <div className="mt-4 flex gap-4 text-sm bg-dark/50 p-3 rounded border border-gray-800">
+                                  <label className="block text-gray-400 mr-2">位置:</label>
+                                  <label className="flex items-center gap-1 text-gray-300 cursor-pointer"><input type="radio" checked={ctaPlacement === 'caption'} onChange={() => setCtaPlacement('caption')} /> 內文文末</label>
+                                  <label className={`flex items-center gap-1 cursor-pointer ${isFreeTier ? 'text-gray-500 cursor-not-allowed' : 'text-gray-300'}`}><input type="radio" checked={ctaPlacement === 'comment'} onChange={() => setCtaPlacement('comment')} disabled={isFreeTier} /> 第一則留言 {isFreeTier && '🔒'}</label>
+                              </div>
+                          </div>
+
+                          <div className="p-3 bg-indigo-900/10 border border-indigo-500/30 rounded-lg">
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                  <input type="checkbox" checked={includeEngagement} onChange={(e) => setIncludeEngagement(e.target.checked)} className="w-4 h-4 rounded text-primary"/>
+                                  <span className="text-sm font-bold text-indigo-300">🔥 增加互動誘餌</span>
+                              </label>
+                          </div>
                       </div>
-                      
-                      <div className="mt-4 flex gap-4 text-sm bg-dark/50 p-3 rounded border border-gray-800">
-                          <label className="block text-gray-400 mr-2">CTA 位置:</label>
-                          <label className="flex items-center gap-1 text-gray-300 cursor-pointer"><input type="radio" checked={ctaPlacement === 'caption'} onChange={() => setCtaPlacement('caption')} /> 內文文末</label>
-                          <label className={`flex items-center gap-1 cursor-pointer ${isFreeTier ? 'text-gray-500 cursor-not-allowed' : 'text-gray-300'}`}><input type="radio" checked={ctaPlacement === 'comment'} onChange={() => setCtaPlacement('comment')} disabled={isFreeTier} /> 第一則留言 {isFreeTier && '🔒'}</label>
+                  )}
+
+                  {/* VIRAL MODE CONTROLS */}
+                  {postMode === 'viral' && (
+                      <div className="space-y-6 animate-fade-in border-t border-purple-500/30 pt-6">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                              <div>
+                                  <label className="block text-sm text-purple-300 font-bold mb-1">爆文類型 (Viral Type)</label>
+                                  <select 
+                                    value={viralType} 
+                                    onChange={e => setViralType(e.target.value as ViralType)}
+                                    className="w-full bg-dark border border-purple-500/50 rounded p-3 text-white focus:ring-1 focus:ring-purple-500"
+                                  >
+                                     <option value="regret">😭 後悔型 (早知道就...)</option>
+                                     <option value="expose">🤫 內幕型 (其實產業秘密是...)</option>
+                                     <option value="counter">👊 打臉型 (別再相信...)</option>
+                                     <option value="identity">👥 族群代入型 (30歲後要注意...)</option>
+                                     <option value="result">📈 成果數字型 (如何3天做到...)</option>
+                                  </select>
+                              </div>
+                              <div>
+                                  <label className="block text-sm text-purple-300 font-bold mb-1">發佈平台優化</label>
+                                  <select 
+                                    value={viralPlatform} 
+                                    onChange={e => setViralPlatform(e.target.value as ViralPlatform)}
+                                    className="w-full bg-dark border border-purple-500/50 rounded p-3 text-white focus:ring-1 focus:ring-purple-500"
+                                  >
+                                     <option value="facebook">📘 Facebook (段落清晰)</option>
+                                     <option value="threads">🧵 Threads (極口語/碎念)</option>
+                                     <option value="xhs">📕 小紅書 (筆記感/條列+心得)</option>
+                                  </select>
+                              </div>
+                          </div>
+                          
+                          <div>
+                              <label className="block text-sm text-purple-300 font-bold mb-1">目標族群 (Target Audience)</label>
+                              <input 
+                                value={targetAudience} 
+                                onChange={e => setTargetAudience(e.target.value)} 
+                                className="w-full bg-dark border border-purple-500/50 rounded p-3 text-white" 
+                                placeholder="例如：剛畢業的新鮮人、想減肥的上班族..." 
+                              />
+                          </div>
+
+                          {/* Title Scoring Section */}
+                          <div className="bg-gradient-to-br from-purple-900/20 to-pink-900/20 p-4 rounded-xl border border-pink-500/30">
+                              <div className="flex justify-between items-center mb-4">
+                                  <h3 className="text-white font-bold flex items-center gap-2">
+                                      🧠 標題 AI 預測評分
+                                      <span className="text-xs bg-pink-600 text-white px-2 py-0.5 rounded">扣 1 點</span>
+                                  </h3>
+                                  <button 
+                                    onClick={handleScoreTitles}
+                                    disabled={!topic || isScoringTitles}
+                                    className="text-xs bg-pink-600 hover:bg-pink-500 text-white px-3 py-1.5 rounded disabled:opacity-50"
+                                  >
+                                      {isScoringTitles ? '分析中...' : '生成並評分'}
+                                  </button>
+                              </div>
+                              
+                              {titleCandidates.length > 0 ? (
+                                  <div className="space-y-2">
+                                      {titleCandidates.map((c, i) => (
+                                          <div key={i} className="bg-black/40 p-3 rounded border border-gray-700 hover:border-pink-500 cursor-pointer" onClick={() => setTopic(c.title)}>
+                                              <div className="flex justify-between">
+                                                  <span className="font-bold text-white text-sm">{c.title}</span>
+                                                  <span className={`font-mono font-bold ${c.score >= 40 ? 'text-green-400' : c.score < 30 ? 'text-red-400' : 'text-yellow-400'}`}>{c.score}分</span>
+                                              </div>
+                                              <p className="text-xs text-gray-400 mt-1">{c.comment}</p>
+                                          </div>
+                                      ))}
+                                  </div>
+                              ) : (
+                                  <p className="text-xs text-gray-500 text-center py-2">
+                                      輸入主題後點擊評分，AI 將自動生成 5 個高點擊標題並預測成效。
+                                  </p>
+                              )}
+                          </div>
                       </div>
-                  </div>
+                  )}
 
                   <div className="pt-4 border-t border-gray-700">
                         <button 
                             type="button" 
                             disabled={!topic} 
                             onClick={handleNextToDraft} 
-                            className={`w-full text-white py-3 rounded font-bold transition-all ${isDemoMode ? 'bg-yellow-600' : 'bg-primary hover:bg-blue-600'}`}
+                            className={`w-full text-white py-3 rounded font-bold transition-all ${
+                                isDemoMode ? 'bg-yellow-600' : 
+                                postMode === 'viral' ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500' :
+                                'bg-primary hover:bg-blue-600'
+                            }`}
                         >
-                            {isDemoMode ? '下一步：Demo 生成' : '下一步：AI 生成 (消耗 1 配額)'}
+                            {isDemoMode ? '下一步：Demo 生成' : 
+                             postMode === 'viral' ? '生成爆文 (消耗 2 配額)' : 
+                             '下一步：AI 生成 (消耗 1 配額)'}
                         </button>
                   </div>
                </div>
 
+               {/* Trending Section (Standard) */}
                <div className="mt-8">
                    <div className="flex items-center justify-between mb-4">
                        <h3 className="text-lg font-semibold text-gray-400">🔥 趨勢靈感</h3>
@@ -662,19 +871,39 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
         <div className="space-y-6">
             <div className="bg-card p-6 rounded-xl border border-gray-700">
                 <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-xl font-bold text-primary">編輯內容 {isDemoMode && <span className="text-xs bg-yellow-600 text-white px-2 py-1 rounded ml-2">Demo</span>}</h3>
+                    <h3 className="text-xl font-bold text-primary">
+                        編輯內容 {postMode === 'viral' && <span className="text-xs bg-pink-600 text-white px-2 py-1 rounded ml-2">Viral Mode</span>}
+                    </h3>
                     <div className="flex gap-2">
                         <button type="button" onClick={() => setStep(1)} className="text-xs text-gray-400 hover:text-white underline">← 返回</button>
                         <button type="button" onClick={handleClearDraft} className="text-xs text-red-400 border border-red-900 px-2 py-1 rounded">清除</button>
                     </div>
                 </div>
                 
+                {/* Version Selector for Viral Mode */}
+                {postMode === 'viral' && viralDrafts.length > 0 && (
+                    <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
+                        {viralDrafts.map((_, i) => (
+                            <button 
+                                key={i}
+                                onClick={() => {
+                                    setSelectedViralVersion(i);
+                                    setDraft(prev => ({...prev, caption: viralDrafts[i]}));
+                                }}
+                                className={`px-3 py-1 rounded text-xs whitespace-nowrap border ${selectedViralVersion === i ? 'bg-pink-600 border-pink-500 text-white' : 'bg-dark border-gray-600 text-gray-400'}`}
+                            >
+                                版本 {i + 1}
+                            </button>
+                        ))}
+                    </div>
+                )}
+
                 <div className="mb-4">
                     <label className="block text-sm text-gray-400 mb-1">貼文文案</label>
-                    <textarea value={draft.caption} onChange={e => setDraft({...draft, caption: e.target.value})} className="w-full h-40 bg-dark border-gray-600 rounded p-3 text-white mb-2" />
+                    <textarea value={draft.caption} onChange={e => setDraft({...draft, caption: e.target.value})} className="w-full h-64 bg-dark border-gray-600 rounded p-3 text-white mb-2" />
                 </div>
                 
-                {ctaPlacement === 'comment' && !isFreeTier && (
+                {ctaPlacement === 'comment' && !isFreeTier && postMode === 'standard' && (
                         <div className="mb-4">
                         <label className="block text-sm text-gray-400 mb-1">第一則留言 (CTA)</label>
                         <textarea value={draft.firstComment} onChange={e => setDraft({...draft, firstComment: e.target.value})} className="w-full h-20 bg-dark border-gray-600 rounded p-3 text-white" />
@@ -695,12 +924,25 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                             </label>
                         </div>
                         
+                        {/* Direction D: Text on Image Input */}
+                        {postMode === 'standard' && (
+                            <div className="mb-3">
+                                <label className="block text-xs text-gray-400 mb-1">圖片內嵌文字 (選填)</label>
+                                <input 
+                                    value={imageText} 
+                                    onChange={e => setImageText(e.target.value)} 
+                                    className="w-full bg-dark border border-gray-600 rounded p-2 text-white text-sm" 
+                                    placeholder="例如：限時特價、New Arrival (建議使用英文)" 
+                                />
+                            </div>
+                        )}
+                        
                         <div className="flex justify-between items-center mb-1 px-1">
                              <label className="text-xs text-gray-400">提示詞 (Prompt)</label>
                              <div className="flex gap-1">
-                                {settings.brandStylePrompt && (
-                                    <span className="text-[10px] text-pink-400 bg-pink-900/20 px-2 py-0.5 rounded border border-pink-800" title={settings.brandStylePrompt}>
-                                        🎨 已套用品牌風格
+                                {postMode === 'viral' && viralPlatform === 'xhs' && (
+                                    <span className="text-[10px] text-pink-400 bg-pink-900/20 px-2 py-0.5 rounded border border-pink-800">
+                                        📕 小紅書筆記風格
                                     </span>
                                 )}
                                 <span className="text-[10px] text-green-400 bg-green-900/20 px-2 py-0.5 rounded border border-green-800">✨ 支援中文輸入</span>
@@ -768,7 +1010,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
             </div>
             
             {/* --- Tools & Actions --- */}
-            {mediaUrl && settings.logoUrl && (
+            {mediaUrl && settings.logoUrl && postMode === 'standard' && (
                 <div className="mb-4">
                      <button 
                         onClick={handleApplyWatermark} 

@@ -1,4 +1,4 @@
-import { BrandSettings, TrendingTopic, CachedTrendData, CtaItem } from "../types";
+import { BrandSettings, TrendingTopic, CachedTrendData, CtaItem, ViralType, ViralPlatform, TitleScore, ViralPostDraft } from "../types";
 import { db } from "./firebase"; // Using compat export
 
 // Local Type Definition to replace SDK Import and maintain type safety
@@ -325,14 +325,6 @@ export const analyzeVisualStyle = async (imageB64s: string[]): Promise<string> =
 
     // Add images to parts
     imageB64s.forEach(b64 => {
-        // Remove data:image/png;base64, prefix if present for API, but check if backend needs it. 
-        // The backend `generateContent` wrapper usually expects the full object structure.
-        // We will construct the payload to match what `callBackend` expects for `contents`.
-        // However, `callBackend` stringifies `payload`. We need to form the `contents` array properly.
-        
-        // Let's pass the raw parts to `callBackend` manually since `analyzeVisualStyle` is client side logic prep.
-        // Wait, `callBackend` handles the fetch. We need to construct the `contents` properly.
-        
         // Strip prefix for inlineData
         const base64Clean = b64.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, '');
         parts.push({
@@ -351,15 +343,140 @@ export const analyzeVisualStyle = async (imageB64s: string[]): Promise<string> =
     return response.text || "Minimalist, clean, high-key lighting.";
 };
 
+// --- VIRAL / MARKETING CONTENT GENERATOR ---
+export const generateViralContent = async (
+    topic: string,
+    options: {
+        audience: string;
+        viralType: ViralType;
+        platform: ViralPlatform;
+    }
+): Promise<ViralPostDraft> => {
+    const prompt = `
+    你是一個「營銷號級別」的社群內容寫手，
+    專門負責生成高點擊、高停留率、高互動的爆文內容。
+
+    【風格核心規則】
+    1. 絕對避免官方、品牌、業配語氣
+    2. 文案必須像「真人分享 / 吐槽 / 心得」
+    3. 開頭 2 行必須有情緒或衝突，不能鋪陳
+    4. 用生活化口語，允許不完整句子
+    5. 禁止出現「推薦」、「歡迎私訊」、「限時優惠」
+
+    【爆文結構】
+    - 第 1 行：殺人標題（製造焦慮 / 好奇 / 身份代入）
+    - 第 2~3 行：放大情緒（後悔 / 驚訝 / 打臉 / 共鳴）
+    - 中段：具體經驗或細節（一定要有數字或情境）
+    - 結尾：拋問題或引導留言（不要 CTA）
+
+    【輸入參數】
+    主題：${topic}
+    目標族群：${options.audience}
+    爆文類型：${options.viralType} (regret=後悔, expose=內幕, counter=打臉, identity=族群代入, result=成果)
+    平台：${options.platform} (Facebook:段落清楚, Threads:極口語/碎念, XHS:筆記感/條列+心得)
+
+    【輸出要求】
+    1. 輸出 3 則完整爆文版本 (versions array)
+    2. 針對此內容生成一個詳細的圖片 Prompt (imagePrompt) - 使用英文。如果是 XHS 平台，請描述為「手寫筆記風格 (Handwritten Note Style)」。
+
+    Output JSON Format:
+    {
+      "versions": ["Version 1 Content...", "Version 2 Content...", "Version 3 Content..."],
+      "imagePrompt": "Detailed English image prompt..."
+    }
+    `;
+
+    const response = await callBackend('generateContent', {
+        model: "gemini-3-pro-preview", // Use Pro for better creative nuance
+        contents: prompt,
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                    versions: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    imagePrompt: { type: Type.STRING }
+                }
+            }
+        }
+    });
+
+    return JSON.parse(cleanJsonText(response.text || '{}'));
+};
+
+// --- TITLE SCORING SYSTEM ---
+export const scoreViralTitles = async (titles: string[]): Promise<TitleScore[]> => {
+    const prompt = `
+    你是一個「社群平台點擊率預測模型」，
+    專門評估標題在社群平台上的「點擊誘因強度」。
+
+    【評分維度】（每項 0–10 分）
+    1. 情緒張力 (emotion)：焦慮、後悔、衝突
+    2. 好奇缺口 (curiosity)：是否讓人想點
+    3. 身份代入感 (identity)：是否鎖定族群
+    4. 具體程度 (specific)：數字、情境
+    5. 真實感 (authenticity)：像不像真人
+
+    【評分規則】
+    - 總分滿分 50 分
+    - 低於 30 分視為低潛力
+    - 40 分以上為高爆文潛力
+    - 不考慮品牌合規或廣告規範
+
+    【輸入標題清單】
+    ${JSON.stringify(titles)}
+
+    【輸出格式】
+    請以 JSON 陣列輸出，每一筆包含 title, score (total), breakdown object, comment.
+    請依 score 由高到低排序。
+    `;
+
+    const response = await callBackend('generateContent', {
+        model: "gemini-2.5-flash", // Fast enough for scoring
+        contents: prompt,
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        title: { type: Type.STRING },
+                        score: { type: Type.NUMBER },
+                        breakdown: {
+                            type: Type.OBJECT,
+                            properties: {
+                                emotion: { type: Type.NUMBER },
+                                curiosity: { type: Type.NUMBER },
+                                identity: { type: Type.NUMBER },
+                                specific: { type: Type.NUMBER },
+                                authenticity: { type: Type.NUMBER }
+                            }
+                        },
+                        comment: { type: Type.STRING }
+                    }
+                }
+            }
+        }
+    });
+
+    return JSON.parse(cleanJsonText(response.text || '[]'));
+};
+
 export const generatePostDraft = async (
     topic: string, 
     settings: BrandSettings, 
-    options: { length: string, ctaList: CtaItem[], tempHashtags: string },
+    options: { 
+        length: string, 
+        ctaList: CtaItem[], 
+        tempHashtags: string,
+        includeEngagement?: boolean, // Direction C
+        imageText?: string // Direction D
+    },
     topicContext?: TrendingTopic,
     userRole: string = 'user'
 ) => {
   // Strategy B: Smart Model Fallback
-  // Only high-tier users get access to the "Pro" model.
   const isHighTier = ['pro', 'business', 'admin'].includes(userRole);
   const selectedModel = isHighTier ? "gemini-3-pro-preview" : "gemini-2.5-flash";
 
@@ -372,6 +489,33 @@ export const generatePostDraft = async (
       });
   }
 
+  // Direction A vs B: Strategy Selection
+  let strategyPrompt = "";
+  if (settings.brandType === 'personal') {
+      // Direction B: Humanizer
+      strategyPrompt = `[MODE: Personal Brand/Influencer (真人感)]
+      - Tone: Authentic, vulnerable, conversational, maybe slightly emotional.
+      - Style: Use short sentences. Use lower case aesthetic if fitting. Avoid corporate jargon.
+      - Hook: Start with a personal thought or feeling ("我發現...", "其實...", "心情有點複雜").
+      - Prohibited: Do NOT use "總結來說", "綜上所述", "小編".`;
+  } else {
+      // Direction A: Enterprise (Default)
+      strategyPrompt = `[MODE: Enterprise Brand (專業感)]
+      - Framework: Use the AIDA model (Attention -> Interest -> Desire -> Action) OR PAS (Problem -> Agitation -> Solution).
+      - Tone: Professional, trustworthy, structured, value-driven.
+      - Structure: Clear hook -> Value proposition -> Call to action.`;
+  }
+
+  // Direction C: Engagement Bait
+  const engagementInstruction = options.includeEngagement 
+      ? "CRITICAL: You MUST end the post with a specific question (e.g., A or B choice) or a request to tag a friend to boost comments. This is high priority." 
+      : "";
+
+  // Direction D: Image Text
+  const imageTextInstruction = options.imageText
+      ? `The image MUST clearly display the text: "${options.imageText}". Ensure the text is legible, stylish, and integrated into the scene (e.g., on a sign, neon light, or overlay).`
+      : "";
+
   const contextPrompt = topicContext ? `\n參考新聞: ${topicContext.title} (${topicContext.url})` : '';
   const productContext = settings.productContext ? `\n[核心產品知識庫 - 必須融入貼文]:\n${settings.productContext}\n` : '';
 
@@ -381,6 +525,8 @@ export const generatePostDraft = async (
     小編人設: ${settings.persona}
     ${productContext}
     
+    ${strategyPrompt}
+
     任務: 針對主題「${topic}」${contextPrompt} 寫一篇 Facebook 貼文。
     
     [嚴格格式要求 - Structure Rules]
@@ -390,10 +536,11 @@ export const generatePostDraft = async (
     
     [內容要求]
     1. 字數: ${options.length}
-    2. 結構: 開頭吸睛 -> 內容價值 (融入產品知識) -> 結尾 CTA
+    2. 結構: 依照 [MODE] 設定的策略撰寫。
     3. CTA 處理: ${ctaPrompt} (請將完整的 CTA 文案包含連結，獨立放在 JSON 的 ctaText 欄位)
-    4. Hashtags: ${settings.fixedHashtags} ${options.tempHashtags} (放在文末)
-    5. Image Prompt: IMPORTANT - Must be in ENGLISH, detailed, describing a scene (Midjourney style).
+    4. 互動誘餌: ${engagementInstruction}
+    5. Hashtags: ${settings.fixedHashtags} ${options.tempHashtags} (放在文末)
+    6. Image Prompt: IMPORTANT - Must be in ENGLISH, detailed, describing a scene (Midjourney style). ${imageTextInstruction}
 
     Output JSON Format:
     {
@@ -466,7 +613,17 @@ export const generateImage = async (prompt: string, userRole: string = 'user', s
     
     // 2. Enhance Prompt (Apply Style Tuner if available)
     let enhancedPrompt = "";
-    if (stylePrompt) {
+    
+    // --- XHS Note Style Logic ---
+    const isXHS = /handwritten note style/i.test(stylePrompt || '') || /xiaohongshu/i.test(stylePrompt || '') || /note/i.test(stylePrompt || '');
+    
+    if (isXHS) {
+        // Aesthetic rules for Red Note Style
+        enhancedPrompt = `${englishPrompt}. 
+        Style: Little Red Book (Xiaohongshu) note aesthetic. 
+        Visuals: Beige or white paper background, handwritten-like font notes overlay (if possible), highlighter marks, circled key points, clean photography, lifestyle vibe, vertical composition preferred. 
+        No ugly watermark. Realistic phone photography.`;
+    } else if (stylePrompt) {
         enhancedPrompt = `${englishPrompt}. Visual Style: ${stylePrompt}. Photorealistic, cinematic lighting.`;
     } else {
         enhancedPrompt = `${englishPrompt}, photorealistic, cinematic lighting, photography style`;
