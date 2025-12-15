@@ -950,6 +950,97 @@ export const generateCommentReply = async (
     return JSON.parse(cleanJsonText(response.text || '[]'));
 };
 
+// --- UTILITY: Text Overlay Application (New Feature) ---
+export const applyTextOverlay = async (imageUrl: string, text: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            reject(new Error("Canvas not supported"));
+            return;
+        }
+
+        const img = new Image();
+        img.crossOrigin = "anonymous"; // Essential for CORS
+        img.src = imageUrl;
+
+        img.onload = () => {
+            // Set canvas size to image size
+            canvas.width = img.width;
+            canvas.height = img.height;
+            
+            // Draw original image
+            ctx.drawImage(img, 0, 0);
+
+            // Configure Text Style
+            const fontSize = Math.floor(canvas.width * 0.08); // Responsive size (8% of width)
+            ctx.font = `bold ${fontSize}px sans-serif`; // Bold font
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            // Text Wrapping Logic
+            const maxWidth = canvas.width * 0.9;
+            const words = text.split(''); // Split by character for CJK support, or use intelligent segmenter
+            let line = '';
+            const lines = [];
+            
+            // Simple character-based wrapper for Chinese/English mix
+            for(let i = 0; i < text.length; i++) {
+                const char = text[i];
+                const testLine = line + char;
+                const metrics = ctx.measureText(testLine);
+                const testWidth = metrics.width;
+                if (testWidth > maxWidth && i > 0) {
+                    lines.push(line);
+                    line = char;
+                } else {
+                    line = testLine;
+                }
+            }
+            lines.push(line);
+
+            // Draw Overlay Background (Semi-transparent gradient at bottom)
+            // Or a centered band depending on style. Let's do a bottom band style for readability.
+            const totalTextHeight = lines.length * (fontSize * 1.2);
+            const padding = fontSize;
+            const bgY = canvas.height - totalTextHeight - (padding * 2);
+            
+            // Gradient Background for text legibility
+            const gradient = ctx.createLinearGradient(0, bgY - 50, 0, canvas.height);
+            gradient.addColorStop(0, "rgba(0, 0, 0, 0)");
+            gradient.addColorStop(0.3, "rgba(0, 0, 0, 0.6)");
+            gradient.addColorStop(1, "rgba(0, 0, 0, 0.9)");
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, bgY - 50, canvas.width, canvas.height - (bgY - 50));
+
+            // Draw Text
+            let y = canvas.height - totalTextHeight - padding + (fontSize/2); // Start drawing from bottom up
+            
+            lines.forEach(lineStr => {
+                // Shadow/Outline for better contrast
+                ctx.shadowColor = "rgba(0,0,0,0.8)";
+                ctx.shadowBlur = 15;
+                ctx.lineWidth = fontSize * 0.05;
+                ctx.strokeStyle = 'black';
+                ctx.strokeText(lineStr, canvas.width / 2, y);
+                
+                ctx.fillStyle = 'white'; // White text
+                ctx.fillText(lineStr, canvas.width / 2, y);
+                
+                y += fontSize * 1.2;
+            });
+
+            resolve(canvas.toDataURL('image/png'));
+        };
+
+        img.onerror = (e) => {
+            console.error("Image load failed for overlay", e);
+            reject(new Error("無法讀取圖片以合成文字 (跨域限制或圖片無效)"));
+        };
+    });
+};
+
 // --- UTILITY: Watermark Applicator ---
 export const applyWatermark = async (mainImageUrl: string, logoUrl: string): Promise<string> => {
     return new Promise((resolve, reject) => {

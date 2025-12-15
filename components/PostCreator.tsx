@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BrandSettings, Post, TrendingTopic, UserProfile, CtaItem, ViralType, ViralPlatform, TitleScore } from '../types';
-import { getTrendingTopics, generatePostDraft, generateImage, applyWatermark, generateViralContent, generateViralTitles, scoreViralTitles } from '../services/geminiService';
+import { getTrendingTopics, generatePostDraft, generateImage, applyWatermark, generateViralContent, generateViralTitles, scoreViralTitles, applyTextOverlay } from '../services/geminiService';
 import { publishPostToFacebook } from '../services/facebookService';
 import { checkAndUseQuota, getSystemConfig, logUserActivity } from '../services/authService';
 
@@ -564,6 +564,19 @@ export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, 
 
       let url = await generateImage(promptToSend, user.role, stylePrompt);
       
+      // --- NEW: Programmatic Text Overlay ---
+      // If user has entered Image Text, we render it manually on the canvas
+      // This bypasses AI's inability to spell correctly.
+      if (imageText && imageText.trim() !== '') {
+          try {
+              console.log("Applying manual text overlay:", imageText);
+              url = await applyTextOverlay(url, imageText);
+          } catch (overlayError) {
+              console.warn("Text overlay failed:", overlayError);
+              alert("文字合成失敗，已保留原始圖片。");
+          }
+      }
+
       if (currentSettings.logoUrl && postMode !== 'viral') {
           // Viral posts (especially XHS) usually don't want branded watermarks to look authentic
           try {
@@ -581,7 +594,7 @@ export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, 
           topic: topic,
           prmt: promptToSend,
           res: 'Generated Image URL',
-          params: JSON.stringify({ role: user.role, style: stylePrompt })
+          params: JSON.stringify({ role: user.role, style: stylePrompt, overlayText: imageText })
       });
 
     } catch (e: any) {
@@ -1003,6 +1016,9 @@ export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, 
                                     className="w-full bg-dark border border-gray-600 rounded p-2 text-white text-sm" 
                                     placeholder="例如：限時特價、New Arrival (建議使用英文)" 
                                 />
+                                <p className="text-[10px] text-gray-500 mt-1">
+                                    💡 將於圖片生成後自動合成文字，確保清晰可見。
+                                </p>
                             </div>
                         )}
                         
