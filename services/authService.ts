@@ -36,10 +36,10 @@ const getMockLogs = (): UsageLog[] => {
 
 const getQuotaForRole = (role: UserRole): number => {
   switch (role) {
-    case 'user': return 10;       // Free Tier
-    case 'starter': return 600;   // ~$15/mo
-    case 'pro': return 2000;      // ~$45/mo
-    case 'business': return 6000; // ~$99/mo
+    case 'user': return 10;        // Free Tier: Taste test only
+    case 'starter': return 500;    // Basic: ~15-20 posts/month
+    case 'pro': return 2500;       // Pro: Serious marketing & SEO
+    case 'business': return 10000; // Business: Heavy automation & Video
     case 'admin': return 99999;
     default: return 10;
   }

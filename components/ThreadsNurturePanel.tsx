@@ -50,7 +50,7 @@ const LoadingOverlay: React.FC<{ message: string, detail?: string }> = ({ messag
     const tips = [
         "💡 Threads 小技巧：演算法喜歡「引發討論」的內容，試著在文末用問句結尾。",
         "💡 經營心法：Threads 網友喜歡「真實感」與「廢文感」，過於完美的文案反而沒人看。",
-        "💡 省錢祕技：善用「擬真圖庫」模式，只要 2 點就能生成超像網友隨手拍的照片！",
+        "💡 省錢祕技：善用「擬真圖庫」模式，只要 3 點就能生成超像網友隨手拍的照片！",
         "💡 流量密碼：看到熱門時事要趕快跟風，AutoSocial 的「挖掘靈感」能幫你搶快。",
         "💡 安全建議：雖然我們有自動養號，但建議不要在短時間內連續發佈超過 5 篇貼文。"
     ];
@@ -228,12 +228,13 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   };
 
   const calculateCost = (count: number, mode: ImageSourceType) => {
-      const baseCost = 1; 
+      // Base generation cost = 2 (Increased from 1 for convenience value)
+      const baseCost = 2; 
       let extraCost = 0;
       
-      if (mode === 'ai') extraCost = 3;      
-      else if (mode === 'news') extraCost = 1;
-      else if (mode === 'stock') extraCost = 1; 
+      if (mode === 'ai') extraCost = 5;      // High cost
+      else if (mode === 'news') extraCost = 1; // Low cost
+      else if (mode === 'stock') extraCost = 3; // "Curated Style" value pricing
       
       return (baseCost + extraCost) * count;
   };
@@ -253,7 +254,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
 
       const totalCost = calculateCost(genCount, preSelectedImageMode);
       
-      if (!confirm(`確定為帳號「${targetAccount.username}」生成 ${genCount} 篇貼文？\n\n模式：${preSelectedImageMode === 'ai' ? 'AI繪圖' : preSelectedImageMode === 'stock' ? '擬真圖庫' : preSelectedImageMode === 'news' ? '新聞圖片' : '純文字'}\n總計消耗：${totalCost} 點配額`)) return;
+      if (!confirm(`確定為帳號「${targetAccount.username}」生成 ${genCount} 篇貼文？\n\n模式：${preSelectedImageMode === 'ai' ? 'AI繪圖 (5點)' : preSelectedImageMode === 'stock' ? '擬真圖庫 (3點)' : preSelectedImageMode === 'news' ? '新聞圖片 (1點)' : '純文字'}\n\n基礎生成費：2點/篇\n總計消耗：${totalCost} 點配額`)) return;
 
       const allowed = await checkAndUseQuota(user.user_id, totalCost);
       if (!allowed) return alert(`配額不足 (需 ${totalCost} 點)`);
@@ -370,9 +371,9 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       if (!user) return;
       
       const getExtraCost = (m: ImageSourceType) => {
-          if (m === 'ai') return 3;
+          if (m === 'ai') return 5;
           if (m === 'news') return 1;
-          if (m === 'stock') return 1; 
+          if (m === 'stock') return 3; 
           return 0;
       };
 
@@ -384,8 +385,8 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
           if (post.imageSourceType === 'ai' && !post.imageUrl) {
               costDiff = 0; 
           } else if (post.imageSourceType === 'ai' && post.imageUrl) {
-              if (!confirm("重新生成圖片將再次扣除 3 點。確定嗎？")) return;
-              costDiff = 3;
+              if (!confirm("重新生成圖片將再次扣除 5 點。確定嗎？")) return;
+              costDiff = 5;
           }
       }
 
@@ -754,9 +755,9 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                            className="w-full bg-dark border border-gray-600 rounded p-2 text-white"
                                        >
                                            <option value="none">📝 純文字 (0 點)</option>
-                                           <option value="stock">📷 擬真圖庫 (1 點)</option>
+                                           <option value="stock">📷 擬真圖庫 (3 點)</option>
                                            <option value="news">📰 新聞圖片 (1 點)</option>
-                                           <option value="ai">🎨 AI 繪圖 (3 點)</option>
+                                           <option value="ai">🎨 AI 繪圖 (5 點)</option>
                                        </select>
                                    </div>
                                </div>

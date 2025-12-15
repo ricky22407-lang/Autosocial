@@ -1,4 +1,5 @@
 
+
 // ==========================================
 // Core & API Types
 // ==========================================
@@ -76,7 +77,7 @@ export interface UserProfile {
 
 export interface UsageLog {
   uid: string;           // User ID
-  act: 'draft' | 'img' | 'seo' | 'threads' | 'viral' | 'score'; // Short action code
+  act: 'draft' | 'img' | 'seo' | 'threads' | 'viral' | 'score' | 'video'; // Short action code
   topic: string;         // Main topic/keyword
   prmt: string;          // The Prompt (Full)
   res: string;           // Result (Truncated to 500 chars)

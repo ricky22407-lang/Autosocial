@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BrandSettings, Post, TrendingTopic, UserProfile, CtaItem, ViralType, ViralPlatform, TitleScore } from '../types';
-import { getTrendingTopics, generatePostDraft, generateImage, applyWatermark, generateViralContent, generateViralTitles, scoreViralTitles, applyTextOverlay } from '../services/geminiService';
+import { getTrendingTopics, generatePostDraft, generateImage, generateVideo, applyWatermark, generateViralContent, generateViralTitles, scoreViralTitles, applyTextOverlay } from '../services/geminiService';
 import { publishPostToFacebook } from '../services/facebookService';
 import { checkAndUseQuota, getSystemConfig, logUserActivity } from '../services/authService';
 
@@ -95,7 +95,7 @@ export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, 
   const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
   
   const [mediaSource, setMediaSource] = useState<'ai' | 'upload'>('ai');
-  const [selectedMediaType, setSelectedMediaType] = useState<'image'>('image'); 
+  const [selectedMediaType, setSelectedMediaType] = useState<'image' | 'video'>('image'); 
   const [mediaUrl, setMediaUrl] = useState<string | undefined>(undefined);
   const [isGeneratingMedia, setIsGeneratingMedia] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -218,7 +218,7 @@ export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, 
                 setDraft(parsed.draft || { caption: '', firstComment: '', imagePrompt: '', videoPrompt: '' });
                 setMediaUrl(parsed.mediaUrl);
                 setMediaSource(parsed.mediaSource || 'ai');
-                setSelectedMediaType('image'); 
+                setSelectedMediaType(parsed.selectedMediaType || 'image'); 
                 setScheduleDate(parsed.scheduleDate || '');
                 setSyncInstagram(parsed.syncInstagram || false);
                 setIsDemoMode(parsed.isDemoMode || false);
@@ -288,6 +288,7 @@ export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, 
     if (isLoadingTopics) return; 
 
     if (!isDemoMode) {
+        // Trend Search is now 1 Point (Low cost infrastructure)
         const allowed = await checkAndUseQuota(user.user_id, 1);
         if (!allowed) {
             setTopicError('⚠️ 配額不足，無法搜尋。請升級方案或使用 Demo 模式。');
@@ -398,13 +399,15 @@ export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, 
         return;
     }
 
-    // Cost Calculation
-    const cost = postMode === 'viral' ? 2 : 1;
+    // Pricing Strategy Update:
+    // Standard Draft: 2 Points (Core Value)
+    // Viral Draft: 5 Points (High Value / Growth Hack)
+    const cost = postMode === 'viral' ? 5 : 2;
 
     try {
         const allowed = await checkAndUseQuota(user.user_id, cost);
         if (!allowed) {
-            alert(`⚠️ 您的 AI 使用配額已額滿 (需要 ${cost} 點)。`);
+            alert(`⚠️ 您的配額已額滿 (需要 ${cost} 點)。請升級方案以繼續使用。`);
             return;
         }
     } catch (e) {
@@ -519,8 +522,10 @@ export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, 
   const handleGenerateMedia = async () => {
     if (!user || isGeneratingMedia) return;
     
-    // Viral Image costs 5 (same as standard high quality)
-    const cost = 5; 
+    // Pricing:
+    // AI Image = 5 Points (High Quality)
+    // AI Video = 20 Points (Premium)
+    const cost = selectedMediaType === 'video' ? 20 : 5; 
     
     if (isDemoMode) {
         setIsGeneratingMedia(true);
@@ -532,11 +537,11 @@ export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, 
         return;
     }
 
-    if (!confirm(`確定生成圖片嗎？這將消耗 ${cost} 點配額。`)) return;
+    if (!confirm(`確定生成${selectedMediaType === 'video' ? '影片' : '圖片'}嗎？這將消耗 ${cost} 點配額。`)) return;
 
     const allowed = await checkAndUseQuota(user.user_id, cost);
     if (!allowed) {
-        alert(`配額不足。`);
+        alert(`配額不足 (需要 ${cost} 點)。請升級方案。`);
         return;
     }
     onQuotaUpdate();
@@ -552,37 +557,45 @@ export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, 
           return;
       }
 
-      const seed = Math.floor(Math.random() * 999999);
-      const variationSuffix = ` (random_seed: ${seed})`; 
-      const promptToSend = draft.imagePrompt + variationSuffix;
+      let url = '';
       
-      // Determine Style Prompt
-      let stylePrompt = currentSettings.brandStylePrompt;
-      if (postMode === 'viral' && viralPlatform === 'xhs') {
-          stylePrompt = "Little Red Book (Xiaohongshu) handwritten note style";
-      }
-
-      let url = await generateImage(promptToSend, user.role, stylePrompt);
-      
-      // --- NEW: Programmatic Text Overlay ---
-      // If user has entered Image Text, we render it manually on the canvas
-      // This bypasses AI's inability to spell correctly.
-      if (imageText && imageText.trim() !== '') {
-          try {
-              console.log("Applying manual text overlay:", imageText);
-              url = await applyTextOverlay(url, imageText);
-          } catch (overlayError) {
-              console.warn("Text overlay failed:", overlayError);
-              alert("文字合成失敗，已保留原始圖片。");
+      if (selectedMediaType === 'video') {
+          // --- Video Gen ---
+          url = await generateVideo(draft.videoPrompt || draft.imagePrompt);
+      } else {
+          // --- Image Gen ---
+          const seed = Math.floor(Math.random() * 999999);
+          const variationSuffix = ` (random_seed: ${seed})`; 
+          const promptToSend = draft.imagePrompt + variationSuffix;
+          
+          // Determine Style Prompt
+          let stylePrompt = currentSettings.brandStylePrompt;
+          if (postMode === 'viral' && viralPlatform === 'xhs') {
+              stylePrompt = "Little Red Book (Xiaohongshu) handwritten note style";
           }
-      }
 
-      if (currentSettings.logoUrl && postMode !== 'viral') {
-          // Viral posts (especially XHS) usually don't want branded watermarks to look authentic
-          try {
-              url = await applyWatermark(url, currentSettings.logoUrl);
-          } catch (wmError) {
-              console.warn("Auto watermark failed:", wmError);
+          url = await generateImage(promptToSend, user.role, stylePrompt);
+          
+          // --- NEW: Programmatic Text Overlay ---
+          // If user has entered Image Text, we render it manually on the canvas
+          // This bypasses AI's inability to spell correctly.
+          if (imageText && imageText.trim() !== '') {
+              try {
+                  console.log("Applying manual text overlay:", imageText);
+                  url = await applyTextOverlay(url, imageText);
+              } catch (overlayError) {
+                  console.warn("Text overlay failed:", overlayError);
+                  alert("文字合成失敗，已保留原始圖片。");
+              }
+          }
+
+          if (currentSettings.logoUrl && postMode !== 'viral') {
+              // Viral posts (especially XHS) usually don't want branded watermarks to look authentic
+              try {
+                  url = await applyWatermark(url, currentSettings.logoUrl);
+              } catch (wmError) {
+                  console.warn("Auto watermark failed:", wmError);
+              }
           }
       }
       
@@ -590,11 +603,11 @@ export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, 
 
       logUserActivity({
           uid: user.user_id,
-          act: 'img',
+          act: selectedMediaType === 'video' ? 'video' : 'img',
           topic: topic,
-          prmt: promptToSend,
-          res: 'Generated Image URL',
-          params: JSON.stringify({ role: user.role, style: stylePrompt, overlayText: imageText })
+          prmt: draft.imagePrompt,
+          res: 'Generated Media URL',
+          params: JSON.stringify({ role: user.role, overlayText: imageText })
       });
 
     } catch (e: any) {
@@ -636,7 +649,7 @@ export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, 
       caption: draft.caption,
       firstComment: draft.firstComment,
       mediaPrompt: mediaSource === 'ai' ? draft.imagePrompt : 'Manual Upload',
-      mediaType: selectedMediaType,
+      mediaType: selectedMediaType === 'video' ? 'video' : 'image',
       mediaUrl,
       status: schedule ? 'scheduled' : 'published',
       scheduledDate: schedule ? scheduleDate : undefined,
@@ -692,7 +705,7 @@ export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, 
   if (isLoadingTopics) return <LoadingOverlay message="AI 正在搜尋熱門話題" detail="正在分析新聞來源與社群趨勢..." />;
   if (isScoringTitles) return <LoadingOverlay message="AI 正在構思爆款標題" detail="正在預測點擊率並生成高誘因標題..." />;
   if (isGeneratingDraft) return <LoadingOverlay message="AI 正在撰寫文案" detail={`針對主題「${topic}」進行創意發想中...`} />;
-  if (isGeneratingMedia) return <LoadingOverlay message="AI 正在繪製圖片" detail="正在調用高效能繪圖模型..." />;
+  if (isGeneratingMedia) return <LoadingOverlay message="AI 正在生成多媒體素材" detail={selectedMediaType === 'video' ? "正在調用 Veo 模型生成短影音 (約需30-60秒)..." : "正在調用高效能繪圖模型..."} />;
   if (isPublishing) return <LoadingOverlay message="正在發佈貼文" detail={syncInstagram ? "正在同步發送至 Facebook 與 Instagram..." : "正在發送至 Facebook..."} />;
 
   if (step === 1) {
@@ -736,13 +749,13 @@ export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, 
                           onClick={() => setPostMode('standard')}
                           className={`flex-1 py-2 rounded-md font-bold transition-all ${postMode === 'standard' ? 'bg-primary text-white shadow' : 'text-gray-400 hover:text-white'}`}
                       >
-                          🏢 一般品牌經營
+                          🏢 一般品牌經營 (2點)
                       </button>
                       <button 
                           onClick={() => setPostMode('viral')}
                           className={`flex-1 py-2 rounded-md font-bold transition-all flex items-center justify-center gap-2 ${postMode === 'viral' ? 'bg-gradient-to-r from-pink-600 to-purple-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}
                       >
-                          🔥 營銷號 / 爆文模式 (Beta)
+                          🔥 爆文模式 (5點)
                       </button>
                   </div>
 
@@ -919,8 +932,8 @@ export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, 
                             }`}
                         >
                             {isDemoMode ? '下一步：Demo 生成' : 
-                             postMode === 'viral' ? '生成爆文 (消耗 2 配額)' : 
-                             '下一步：AI 生成 (消耗 1 配額)'}
+                             postMode === 'viral' ? '生成爆文 (消耗 5 配額)' : 
+                             '下一步：AI 生成 (消耗 2 配額)'}
                         </button>
                   </div>
                </div>
@@ -930,7 +943,7 @@ export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, 
                    <div className="flex items-center justify-between mb-4">
                        <h3 className="text-lg font-semibold text-gray-400">🔥 趨勢靈感</h3>
                        <button onClick={loadTrending} className="bg-secondary px-4 py-2 rounded text-sm text-white hover:bg-indigo-600 flex items-center gap-2">
-                           🔍 搜尋熱門話題
+                           🔍 搜尋熱門話題 (扣 1 點)
                        </button>
                    </div>
                    {topicError && <div className="text-red-400 text-sm mb-2">{topicError}</div>}
@@ -1000,14 +1013,18 @@ export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, 
                 {mediaSource === 'ai' ? (
                     <>
                         <div className="flex gap-2 mb-2">
-                            <label className={`flex-1 border border-blue-500 bg-blue-900/30 text-blue-200 rounded p-2 text-sm text-center cursor-pointer transition-colors`}>
+                            <label className={`flex-1 border ${selectedMediaType === 'image' ? 'border-blue-500 bg-blue-900/30 text-blue-200' : 'border-gray-600 text-gray-400'} rounded p-2 text-sm text-center cursor-pointer transition-colors`}>
                                 <input type="radio" className="hidden" checked={selectedMediaType==='image'} onChange={() => setSelectedMediaType('image')} />
                                 🖼️ AI 圖片 (5點)
+                            </label>
+                            <label className={`flex-1 border ${selectedMediaType === 'video' ? 'border-purple-500 bg-purple-900/30 text-purple-200' : 'border-gray-600 text-gray-400'} rounded p-2 text-sm text-center cursor-pointer transition-colors`}>
+                                <input type="radio" className="hidden" checked={selectedMediaType==='video'} onChange={() => setSelectedMediaType('video')} />
+                                🎥 AI 影片 (20點)
                             </label>
                         </div>
                         
                         {/* Direction D: Text on Image Input */}
-                        {postMode === 'standard' && (
+                        {postMode === 'standard' && selectedMediaType === 'image' && (
                             <div className="mb-3">
                                 <label className="block text-xs text-gray-400 mb-1">圖片內嵌文字 (選填)</label>
                                 <input 
@@ -1037,7 +1054,7 @@ export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, 
                         <textarea value={draft.imagePrompt} onChange={e => setDraft(prev => ({...prev, imagePrompt: e.target.value}))} className="w-full h-24 bg-dark border-gray-600 rounded p-3 text-white mb-2" placeholder="AI 提示詞..." />
                         
                         <button type="button" onClick={handleGenerateMedia} className={`w-full py-3 rounded font-bold text-white transition-all flex justify-center items-center gap-2 ${isDemoMode ? 'bg-yellow-600' : 'bg-secondary hover:bg-indigo-600'}`}>
-                            {isDemoMode ? `產生 Demo 素材` : `生成圖片 (扣5點)`}
+                            {isDemoMode ? `產生 Demo 素材` : `生成${selectedMediaType === 'video' ? '影片 (扣20點)' : '圖片 (扣5點)'}`}
                         </button>
                         
                         {mediaUrl && (
@@ -1069,7 +1086,11 @@ export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, 
                 <div className="bg-gray-100 min-h-[250px] flex items-center justify-center rounded overflow-hidden relative">
                     {mediaUrl ? (
                         <>
-                            <img src={mediaUrl} className="max-w-full max-h-[400px] object-cover" alt="Post Media" />
+                            {selectedMediaType === 'video' ? (
+                                <video src={mediaUrl} controls className="max-w-full max-h-[400px]" />
+                            ) : (
+                                <img src={mediaUrl} className="max-w-full max-h-[400px] object-cover" alt="Post Media" />
+                            )}
                             {(isPlaceholderMedia || isDemoMode) && (
                                 <div className="absolute top-2 right-2 bg-yellow-500 text-black text-xs font-bold px-2 py-1 rounded shadow-md z-10 flex items-center gap-1">
                                     {isDemoMode ? '🧪 Demo Mode' : '⚠️ 替代素材'}
@@ -1079,7 +1100,7 @@ export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, 
                     ) : (
                         <div className="text-gray-400 flex flex-col items-center">
                             {isGeneratingMedia ? <div className="loader border-gray-400 mb-2"></div> : null}
-                            <span>{isGeneratingMedia ? 'AI 繪圖中...' : '素材預覽區'}</span>
+                            <span>{isGeneratingMedia ? 'AI 算圖中...' : '素材預覽區'}</span>
                         </div>
                     )}
                 </div>
@@ -1095,7 +1116,7 @@ export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, 
             </div>
             
             {/* --- Tools & Actions --- */}
-            {mediaUrl && currentSettings.logoUrl && postMode === 'standard' && (
+            {mediaUrl && currentSettings.logoUrl && postMode === 'standard' && selectedMediaType === 'image' && (
                 <div className="mb-4">
                      <button 
                         onClick={handleApplyWatermark} 

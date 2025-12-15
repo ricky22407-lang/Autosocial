@@ -1,9 +1,10 @@
-
 import React, { useState, useEffect } from 'react';
 import { BrandSettings, AnalyticsData, TopPostData } from '../types';
 import { fetchPageAnalytics, fetchPageTopPosts } from '../services/facebookService';
 import { generateWeeklyReport } from '../services/geminiService';
-import { generatePostDraft } from '../services/geminiService'; // Reusing for generic call, better to have specific service
+import { generatePostDraft } from '../services/geminiService'; 
+import { checkAndUseQuota } from '../services/authService';
+import { getCurrentUser } from '../services/authService';
 
 interface Props {
   settings: BrandSettings;
@@ -55,7 +56,16 @@ const AnalyticsDashboard: React.FC<Props> = ({ settings }) => {
   };
 
   const handleAnalyzeCompetitors = async () => {
+      const user = getCurrentUser();
+      if (!user) return alert("請先登入");
       if (analyzingComp) return;
+
+      const COST = 5;
+      if (!confirm(`執行競品分析將消耗 ${COST} 點配額。確定執行？`)) return;
+
+      const allowed = await checkAndUseQuota(user.uid, COST);
+      if (!allowed) return alert("配額不足");
+
       setAnalyzingComp(true);
       try {
           // Use Generic Gemini call via a service wrapper in real app.
@@ -119,7 +129,7 @@ const AnalyticsDashboard: React.FC<Props> = ({ settings }) => {
                 disabled={analyzingComp || settings.competitors.length === 0}
                 className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-2 rounded font-bold disabled:opacity-50"
               >
-                  {analyzingComp ? 'AI 正在網路上搜尋並分析中...' : '🔍 開始 AI 分析 (消耗 3 配額)'}
+                  {analyzingComp ? 'AI 正在網路上搜尋並分析中...' : '🔍 開始 AI 分析 (消耗 5 配額)'}
               </button>
 
               {competitorAnalysis && (
