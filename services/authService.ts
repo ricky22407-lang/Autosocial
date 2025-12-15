@@ -13,9 +13,22 @@ const SESSION_KEY = 'autosocial_session_uid';
 const LOGS_KEY = 'autosocial_mock_logs'; // New: Persistent Mock Logs
 
 // Helpers
-const getDb = (key: string) => JSON.parse(localStorage.getItem(key) || '{}');
+const getDb = (key: string) => {
+    try {
+        return JSON.parse(localStorage.getItem(key) || '{}');
+    } catch (e) {
+        return {};
+    }
+};
 const saveDb = (key: string, data: any) => localStorage.setItem(key, JSON.stringify(data));
-const getLogsDb = (): UsageLog[] => JSON.parse(localStorage.getItem(LOGS_KEY) || '[]');
+const getLogsDb = (): UsageLog[] => {
+    try {
+        const data = JSON.parse(localStorage.getItem(LOGS_KEY) || '[]');
+        return Array.isArray(data) ? data : [];
+    } catch (e) {
+        return [];
+    }
+};
 
 // --- Auth Helper ---
 export const getCurrentUser = () => {
@@ -497,9 +510,10 @@ export const submitUserReport = async (report: Omit<UserReport, 'id'>) => {
     if (!isMock) {
         await db.collection('user_reports').add(report);
     } else {
-        const reports = getDb('autosocial_reports') || [];
-        reports.push({ id: Date.now().toString(), ...report });
-        saveDb('autosocial_reports', reports);
+        const reports = getDb('autosocial_reports');
+        const reportList = Array.isArray(reports) ? reports : []; // Ensure array
+        reportList.push({ id: Date.now().toString(), ...report });
+        saveDb('autosocial_reports', reportList);
         console.log("Mock Report Saved", report);
     }
 };
@@ -509,7 +523,8 @@ export const getUserReports = async (): Promise<UserReport[]> => {
         const snapshot = await db.collection('user_reports').orderBy('timestamp', 'desc').get();
         return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserReport));
     } else {
-        return getDb('autosocial_reports') || [];
+        const data = getDb('autosocial_reports');
+        return Array.isArray(data) ? data : []; // Ensure valid array for filter()
     }
 };
 
@@ -545,7 +560,11 @@ export const getDashboardStats = async (): Promise<DashboardStats> => {
 };
 
 export const getSystemConfig = (): SystemConfig => {
-    return JSON.parse(localStorage.getItem('sys_config') || '{"maintenanceMode": false, "dryRunMode": false}');
+    try {
+        return JSON.parse(localStorage.getItem('sys_config') || '{"maintenanceMode": false, "dryRunMode": false}');
+    } catch {
+        return { maintenanceMode: false, dryRunMode: false };
+    }
 };
 
 export const updateSystemConfig = (config: Partial<SystemConfig>) => {

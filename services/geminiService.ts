@@ -47,7 +47,24 @@ Threads in Taiwan is a mix of group therapy, trash talk, and stream-of-conscious
 
 const cleanJsonText = (text: string): string => {
     if (!text) return '{}';
-    return text.replace(/```json/g, '').replace(/```/g, '').trim();
+    // Remove markdown code blocks and potential noise
+    let clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    
+    // Find the first opening brace/bracket
+    const firstOpen = clean.search(/[\{\[]/);
+    
+    // Find the last closing brace/bracket
+    // Note: search() finds first match, so we use string manipulation for last
+    // We want the last valid closing character
+    const lastCloseCurly = clean.lastIndexOf('}');
+    const lastCloseSquare = clean.lastIndexOf(']');
+    const lastClose = Math.max(lastCloseCurly, lastCloseSquare);
+    
+    if (firstOpen !== -1 && lastClose !== -1 && lastClose > firstOpen) {
+        clean = clean.substring(firstOpen, lastClose + 1);
+    }
+    
+    return clean;
 };
 
 const decodeHtml = (html: string) => {
@@ -401,7 +418,13 @@ export const generateViralContent = async (
         }
     });
 
-    return JSON.parse(cleanJsonText(response.text || '{}'));
+    const clean = cleanJsonText(response.text || '{}');
+    try {
+        return JSON.parse(clean);
+    } catch (e: any) {
+        console.error("Viral Content Parse Error. Raw:", response.text, "Cleaned:", clean);
+        throw new Error(`生成失敗 (格式錯誤): ${e.message}`);
+    }
 };
 
 // --- TITLE SCORING SYSTEM ---
@@ -460,7 +483,13 @@ export const scoreViralTitles = async (titles: string[]): Promise<TitleScore[]> 
         }
     });
 
-    return JSON.parse(cleanJsonText(response.text || '[]'));
+    const clean = cleanJsonText(response.text || '[]');
+    try {
+        return JSON.parse(clean);
+    } catch (e: any) {
+        console.error("Score Titles Parse Error. Raw:", response.text, "Cleaned:", clean);
+        throw new Error(`評分失敗 (格式錯誤): ${e.message}`);
+    }
 };
 
 export const generatePostDraft = async (
