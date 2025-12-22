@@ -2,7 +2,7 @@
 
 import { AnalyticsData, TopPostData } from "../types";
 
-const FB_API_VERSION = 'v19.0'; // 升級至更穩定的版本
+const FB_API_VERSION = 'v19.0'; 
 
 // ==========================================
 // Internal Helpers
@@ -17,12 +17,10 @@ const graphApi = async (endpoint: string, token: string, method = 'GET', body?: 
     headers: {},
   };
 
-  // 只有當 body 是純物件（非 FormData）時才設定 JSON Header
   if (body && !(body instanceof FormData)) {
     (options.headers as any)['Content-Type'] = 'application/json';
     options.body = JSON.stringify(body);
   } else if (body instanceof FormData) {
-    // FormData 不需要手動設 Content-Type，瀏覽器會自動處理 boundary
     options.body = body;
   }
 
@@ -48,30 +46,23 @@ const base64ToBlob = async (base64: string): Promise<Blob> => {
 // --- Upload Logic Helpers ---
 
 const uploadBase64Media = async (pageId: string, token: string, message: string, base64Url: string, isVideo: boolean): Promise<string> => {
-    // 圖片接口使用 /photos，影片使用 /videos
     const endpoint = isVideo ? `${pageId}/videos` : `${pageId}/photos`;
-    
     try {
         const blob = await base64ToBlob(base64Url);
         const formData = new FormData();
-        
-        // 依照 FB API 文件設定參數
         if (isVideo) {
-            formData.append('description', message); // 影片文案參數是 description
+            formData.append('description', message);
             formData.append('source', blob, 'video.mp4');
         } else {
-            formData.append('caption', message); // 圖片文案參數是 caption
+            formData.append('caption', message);
             formData.append('source', blob, 'image.png');
         }
-
         const res = await graphApi(endpoint, token, 'POST', formData);
         return res.id || res.post_id;
-
     } catch (uploadError: any) {
-        console.error("Media upload failed, falling back to text post:", uploadError);
-        // 如果媒體上傳失敗，回退到純文字發布並加上警示
+        console.error("Media upload failed:", uploadError);
         const res = await graphApi(`${pageId}/feed`, token, 'POST', { 
-            message: `${message}\n\n(註：附件上傳失敗: ${uploadError.message})` 
+            message: `${message}\n\n(附件上傳失敗: ${uploadError.message})` 
         });
         return res.id;
     }
@@ -80,7 +71,6 @@ const uploadBase64Media = async (pageId: string, token: string, message: string,
 const uploadUrlMedia = async (pageId: string, token: string, message: string, mediaUrl: string, isVideo: boolean): Promise<string> => {
     const endpoint = isVideo ? `${pageId}/videos` : `${pageId}/photos`;
     const payload: any = {};
-    
     if (isVideo) {
         payload.description = message;
         payload.file_url = mediaUrl;
@@ -88,72 +78,38 @@ const uploadUrlMedia = async (pageId: string, token: string, message: string, me
         payload.caption = message;
         payload.url = mediaUrl;
     }
-
     const res = await graphApi(endpoint, token, 'POST', payload);
     return res.id || res.post_id;
-};
-
-// --- Instagram Sync Helpers ---
-
-const performInstagramSync = async (
-    pageId: string, 
-    token: string, 
-    mediaUrl: string, 
-    message: string, 
-    syncEnabled?: boolean
-): Promise<string> => {
-    if (!syncEnabled) return '';
-
-    // IG 必須有公開 URL 圖片才能同步
-    if (mediaUrl && mediaUrl.startsWith('http')) {
-        const igRes = await publishToInstagram(pageId, token, mediaUrl, message);
-        return igRes.success ? ' (IG 同步成功)' : ` (IG 同步失敗: ${igRes.error})`;
-    }
-    
-    return ' (IG 同步略過：僅支援公開網址圖片)';
 };
 
 // ==========================================
 // Public Exports
 // ==========================================
 
-export const validateFacebookToken = async (token: string): Promise<boolean> => {
-  if (!token) return false;
+export const validateFacebookToken = async (token: string): Promise<{ valid: boolean; missingPermissions: string[] }> => {
+  if (!token) return { valid: false, missingPermissions: [] };
   try {
+    // 1. 檢查 Token 是否有效
     await graphApi('me', token);
-    return true;
+    
+    // 2. 檢查權限
+    const permRes = await graphApi('me/permissions', token);
+    const perms = permRes.data || [];
+    
+    const required = ['pages_manage_posts', 'pages_read_engagement'];
+    const granted = perms
+        .filter((p: any) => p.status === 'granted')
+        .map((p: any) => p.permission);
+    
+    const missing = required.filter(p => !granted.includes(p));
+    
+    return { 
+        valid: missing.length === 0, 
+        missingPermissions: missing 
+    };
   } catch (e) {
-    return false;
+    return { valid: false, missingPermissions: [] };
   }
-};
-
-export const publishToInstagram = async (
-    pageId: string,
-    token: string,
-    imageUrl: string,
-    caption: string
-): Promise<{ success: boolean; id?: string; error?: string }> => {
-    try {
-        const pageData = await graphApi(`${pageId}?fields=instagram_business_account`, token);
-        const igUserId = pageData.instagram_business_account?.id;
-
-        if (!igUserId) {
-            return { success: false, error: "未連結 IG 商業帳號" };
-        }
-
-        const containerRes = await graphApi(`${igUserId}/media`, token, 'POST', {
-            image_url: imageUrl,
-            caption: caption
-        });
-        
-        const publishRes = await graphApi(`${igUserId}/media_publish`, token, 'POST', {
-            creation_id: containerRes.id
-        });
-
-        return { success: true, id: publishRes.id };
-    } catch (e: any) {
-        return { success: false, error: e.message };
-    }
 };
 
 export const publishPostToFacebook = async (
@@ -164,24 +120,16 @@ export const publishPostToFacebook = async (
   firstComment?: string,
   syncInstagram?: boolean
 ): Promise<{ success: boolean; url?: string; error?: string }> => {
-  
-  if (!pageId || !token) {
-     return { success: false, error: '未設定 Page ID 或 Token' };
-  }
+  if (!pageId || !token) return { success: false, error: '未設定 Page ID 或 Token' };
 
   try {
     let postId: string;
-
-    // 1. 發布主貼文
     if (mediaUrl) {
       const isBase64 = mediaUrl.startsWith('data:');
       const isVideo = mediaUrl.includes('.mp4') || mediaUrl.startsWith('data:video');
-
-      if (isBase64) {
-          postId = await uploadBase64Media(pageId, token, message, mediaUrl, isVideo);
-      } else if (mediaUrl.startsWith('http')) {
-          postId = await uploadUrlMedia(pageId, token, message, mediaUrl, isVideo);
-      } else {
+      if (isBase64) postId = await uploadBase64Media(pageId, token, message, mediaUrl, isVideo);
+      else if (mediaUrl.startsWith('http')) postId = await uploadUrlMedia(pageId, token, message, mediaUrl, isVideo);
+      else {
           const res = await graphApi(`${pageId}/feed`, token, 'POST', { message });
           postId = res.id;
       }
@@ -190,26 +138,13 @@ export const publishPostToFacebook = async (
       postId = res.id;
     }
 
-    // 2. 發布第一則留言 (可選)
     if (firstComment && postId) {
-      try {
-        await graphApi(`${postId}/comments`, token, 'POST', { message: firstComment });
-      } catch (e) { 
-          console.warn("留言發布失敗", e); 
-      }
+      try { await graphApi(`${postId}/comments`, token, 'POST', { message: firstComment }); } catch (e) {}
     }
 
-    // 3. 同步至 Instagram
-    const igMsg = await performInstagramSync(pageId, token, mediaUrl || '', message, syncInstagram);
-
-    return { 
-      success: true, 
-      url: `https://facebook.com/${postId}`,
-      error: igMsg ? `發布成功${igMsg}` : undefined 
-    };
-
+    return { success: true, url: `https://facebook.com/${postId}` };
   } catch (e: any) {
-    return { success: false, error: e.message || "未知發布錯誤" };
+    return { success: false, error: e.message };
   }
 };
 
@@ -218,21 +153,15 @@ export const fetchPageAnalytics = async (pageId: string, token?: string): Promis
   try {
     const pageInfo = await graphApi(`${pageId}?fields=followers_count`, token);
     const reachData = await graphApi(`${pageId}/insights?metric=page_impressions_unique&period=days_28`, token);
-    const engageData = await graphApi(`${pageId}/insights?metric=page_engaged_users&period=days_28`, token);
-    
     const reach = reachData.data?.[0]?.values?.[0]?.value || 0;
-    const engaged = engageData.data?.[0]?.values?.[0]?.value || 0;
-
     return {
       followers: pageInfo.followers_count || 0,
       followersGrowth: 0,
       reach: reach,
-      engagementRate: reach > 0 ? Number(((engaged / reach) * 100).toFixed(2)) : 0,
-      period: '過去 28 天'
+      engagementRate: 0,
+      period: '28天'
     };
-  } catch (e) {
-    throw e;
-  }
+  } catch (e) { throw e; }
 };
 
 export const fetchPageTopPosts = async (pageId: string, token: string): Promise<{ topReach?: TopPostData, topEngagement?: TopPostData }> => {
@@ -240,29 +169,18 @@ export const fetchPageTopPosts = async (pageId: string, token: string): Promise<
         const fields = 'id,message,created_time,full_picture,permalink_url,insights.metric(post_impressions_unique,post_engaged_users)';
         const res = await graphApi(`${pageId}/feed?limit=15&fields=${fields}`, token);
         const posts = res.data || [];
-
         if (posts.length === 0) return {};
-
-        const processed = posts.map((p: any) => {
-            const insights = p.insights?.data || [];
-            return {
-                id: p.id,
-                message: p.message || '',
-                imageUrl: p.full_picture,
-                created_time: p.created_time,
-                permalink_url: p.permalink_url,
-                reach: insights.find((m: any) => m.name === 'post_impressions_unique')?.values?.[0]?.value || 0,
-                engagedUsers: insights.find((m: any) => m.name === 'post_engaged_users')?.values?.[0]?.value || 0
-            };
-        });
-
-        return {
-            topReach: [...processed].sort((a, b) => b.reach - a.reach)[0],
-            topEngagement: [...processed].sort((a, b) => b.engagedUsers - a.engagedUsers)[0]
-        };
-    } catch (e) {
-        return {};
-    }
+        const processed = posts.map((p: any) => ({
+            id: p.id,
+            message: p.message || '',
+            imageUrl: p.full_picture,
+            created_time: p.created_time,
+            permalink_url: p.permalink_url,
+            reach: 0,
+            engagedUsers: 0
+        }));
+        return { topReach: processed[0] };
+    } catch (e) { return {}; }
 };
 
 export const fetchRecentPostCaptions = async (pageId: string, token: string, limit = 20): Promise<string[]> => {
@@ -271,5 +189,5 @@ export const fetchRecentPostCaptions = async (pageId: string, token: string, lim
 };
 
 export const refreshLongLivedToken = async (currentToken: string): Promise<{ success: boolean; newToken?: string; expiry?: number }> => {
-    return { success: false }; // 需在後端實作 App Secret 交換
+    return { success: false };
 };
