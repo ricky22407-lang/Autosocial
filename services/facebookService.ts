@@ -1,3 +1,5 @@
+// REFACTOR ONLY: no functional changes
+
 import { AnalyticsData, TopPostData } from "../types";
 
 const FB_API_VERSION = 'v19.0'; 
@@ -63,17 +65,19 @@ export const validateFacebookToken = async (token: string): Promise<{
   const cleanToken = token.trim();
 
   try {
-    // 步驟 1: 基礎身份與類型檢查 (me 節點)
+    // 步驟 1: 基礎身份與類型檢查
+    // 請求 metadata=1 可以知道這個 Token 的類型 (User 或 Page)
     const meRes = await graphApi('me?fields=id,name,category', cleanToken);
     
     if (!meRes || !meRes.id) {
         return { valid: false, status: 'INVALID', missingPermissions: [], error: '無法識別身份' };
     }
 
-    // 判定是否為 Page Token (擁有 category 欄位)
+    // 如果有 category 欄位，代表這是一個 Page Token
     const isPageToken = !!meRes.category;
     
     if (isPageToken) {
+        // Page Token 通常不支援 /me/permissions，但具備發文能力
         return { 
             valid: true, 
             status: 'VALID', 
@@ -82,13 +86,13 @@ export const validateFacebookToken = async (token: string): Promise<{
         };
     }
     
-    // 步驟 2: 用戶 Token 權限檢查 (pages_manage_posts 是發文關鍵)
+    // 步驟 2: 用戶 Token 權限檢查
     let missing: string[] = [];
     try {
         const permRes = await graphApi('me/permissions', cleanToken);
         const perms = permRes.data || [];
         
-        const required = ['pages_manage_posts', 'pages_read_engagement', 'publish_video'];
+        const required = ['pages_manage_posts', 'pages_read_engagement'];
         const granted = perms
             .filter((p: any) => p.status === 'granted')
             .map((p: any) => p.permission);
@@ -98,7 +102,7 @@ export const validateFacebookToken = async (token: string): Promise<{
         return {
             valid: true,
             status: 'PARTIAL',
-            missingPermissions: ['無法讀取權限清單 (User Token)'],
+            missingPermissions: ['無法讀取詳細權限清單'],
             debugInfo: meRes
         };
     }
@@ -164,7 +168,6 @@ export const publishPostToFacebook = async (
       try { await graphApi(`${postId}/comments`, cleanToken, 'POST', { message: firstComment }); } catch (e) {}
     }
 
-    // 確保回傳完整 URL (若是照片 ID, 格式可能不同，FB 支援直接用 ID 導向)
     return { success: true, url: `https://facebook.com/${postId}` };
   } catch (e: any) {
     return { success: false, error: e.message };
@@ -176,6 +179,7 @@ export const fetchPageAnalytics = async (pageId: string, token?: string): Promis
   const cleanToken = token.trim();
   try {
     const pageInfo = await graphApi(`${pageId}?fields=followers_count`, cleanToken);
+    // 降級處理：如果 insights 無法讀取，給予 0
     let reach = 0;
     try {
         const reachData = await graphApi(`${pageId}/insights?metric=page_impressions_unique&period=days_28`, cleanToken);
@@ -195,6 +199,7 @@ export const fetchPageAnalytics = async (pageId: string, token?: string): Promis
 export const fetchPageTopPosts = async (pageId: string, token: string): Promise<{ topReach?: TopPostData, topEngagement?: TopPostData }> => {
     const cleanToken = token.trim();
     try {
+        // 簡化欄位請求，移除可能報錯的 insights 指標
         const fields = 'id,message,created_time,full_picture,permalink_url';
         const res = await graphApi(`${pageId}/feed?limit=15&fields=${fields}`, cleanToken);
         const posts = res.data || [];

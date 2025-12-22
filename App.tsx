@@ -62,8 +62,6 @@ const App: React.FC = () => {
         setUserProfile(profile);
         setView(AppView.CREATE);
         loadLocalSettings();
-        
-        // 優先從雲端載入貼文紀錄
         const cloudPosts = await fetchUserPostsFromCloud(currentUser.uid);
         setPosts(cloudPosts);
       } else {
@@ -105,59 +103,46 @@ const App: React.FC = () => {
   const handlePostCreated = async (newPost: Post) => {
     if (!user || !userProfile) return;
     
-    // 強制執行排程上限檢查
     if (newPost.status === 'scheduled') {
         const scheduledCount = posts.filter(p => p.status === 'scheduled' && p.id !== newPost.id).length;
         const role = userProfile.role;
-        let limit = 3; // Free/User
+        let limit = 3; 
         if (role === 'pro') limit = 5;
         else if (role === 'business') limit = 10;
         else if (role === 'admin') limit = 100;
 
         if (scheduledCount >= limit) {
-            alert(`⚠️ 排程空間不足！\n您的會員方案 (${role.toUpperCase()}) 最多僅能儲存 ${limit} 篇雲端排程貼文。`);
+            alert(`⚠️ 排程空間不足！您的方案最多儲存 ${limit} 篇排程貼文。`);
             return;
         }
     }
     
     try {
-        // 先更新本地 UI 以防延遲
         setPosts(prev => {
             const exists = prev.find(p => p.id === newPost.id);
             if (exists) return prev.map(p => p.id === newPost.id ? newPost : p);
             return [newPost, ...prev];
         });
 
-        // 同步至 Firebase
         await syncPostToCloud(user.uid, newPost);
-        
-        // 重新拉取以確保資料一致性 (特別是 published 貼文瘦身後)
         const updatedPosts = await fetchUserPostsFromCloud(user.uid);
         setPosts(updatedPosts);
-        
         setEditingPost(null);
         setView(AppView.SCHEDULE);
     } catch (e: any) {
-        alert(`雲端同步失敗: ${e.message}`);
+        alert(`同步失敗: ${e.message}`);
     }
   };
 
-  const handleUpdatePosts = async (updated: Post[]) => {
+  const handleDeletePost = async (postId: string) => {
       if (!user) return;
-      // 處理刪除邏輯
-      const originalIds = posts.map(p => p.id);
-      const updatedIds = updated.map(p => p.id);
-      const deletedId = originalIds.find(id => !updatedIds.includes(id));
-      
-      if (deletedId) {
-          if (confirm("確定要從雲端永久刪除此貼文紀錄嗎？")) {
-              await deletePostFromCloud(user.uid, deletedId);
-              setPosts(updated);
+      if (confirm("確定要從雲端永久刪除此紀錄嗎？")) {
+          try {
+              await deletePostFromCloud(user.uid, postId);
+              setPosts(prev => prev.filter(p => p.id !== postId));
+          } catch (e) {
+              alert("刪除失敗");
           }
-      } else {
-          // 處理順序或個別貼文狀態變更 (例如行事曆拖拽)
-          setPosts(updated);
-          // 這裡通常只有一個貼文會被變更日期，實際應用可優化為僅同步變更項
       }
   };
 
@@ -198,17 +183,17 @@ const App: React.FC = () => {
           </div>
         </div>
         
-        <nav className="flex-1 p-4 space-y-1 overflow-y-auto custom-scrollbar">
+        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
           <button onClick={() => setView(AppView.CREATE)} className={`w-full text-left px-4 py-3 rounded transition-all ${view === AppView.CREATE ? 'bg-primary text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>✨ 建立貼文</button>
           <button onClick={() => setView(AppView.SCHEDULE)} className={`w-full text-left px-4 py-3 rounded transition-all ${view === AppView.SCHEDULE ? 'bg-primary text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>📅 排程與歷史</button>
           <button onClick={() => setView(AppView.SETTINGS)} className={`w-full text-left px-4 py-3 rounded transition-all ${view === AppView.SETTINGS ? 'bg-primary text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>⚙️ 品牌設定</button>
           
           <div className="pt-4 mt-4 border-t border-gray-700 space-y-1">
               <p className="px-4 text-[10px] text-gray-600 font-bold mb-2 tracking-widest uppercase">進階模組</p>
-              <button onClick={() => { if(hasAnalyticsAccess) setView(AppView.ANALYTICS); else alert("權限不足"); }} className={`w-full text-left px-4 py-3 rounded ${view === AppView.ANALYTICS ? 'bg-indigo-900 text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>📊 數據分析</button>
-              <button onClick={() => { if(hasAutomationAccess) setView(AppView.AUTOMATION); else alert("權限不足"); }} className={`w-full text-left px-4 py-3 rounded ${view === AppView.AUTOMATION ? 'bg-indigo-900 text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>🤖 自動化中心</button>
-              <button onClick={() => { if(hasSeoAccess) setView(AppView.SEO_ARTICLES); else alert("權限不足"); }} className={`w-full text-left px-4 py-3 rounded ${view === AppView.SEO_ARTICLES ? 'bg-indigo-900 text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>📝 SEO 文章</button>
-              <button onClick={() => { if(hasThreadsAccess) setView(AppView.THREADS_NURTURE); else alert("權限不足"); }} className={`w-full text-left px-4 py-3 rounded ${view === AppView.THREADS_NURTURE ? 'bg-indigo-900 text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>🧵 Threads 養號</button>
+              <button onClick={() => { if(hasAnalyticsAccess) setView(AppView.ANALYTICS); else alert("需 Starter 方案"); }} className={`w-full text-left px-4 py-3 rounded ${view === AppView.ANALYTICS ? 'bg-indigo-900 text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>📊 數據分析</button>
+              <button onClick={() => { if(hasAutomationAccess) setView(AppView.AUTOMATION); else alert("需 Business 方案"); }} className={`w-full text-left px-4 py-3 rounded ${view === AppView.AUTOMATION ? 'bg-indigo-900 text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>🤖 自動化中心</button>
+              <button onClick={() => { if(hasSeoAccess) setView(AppView.SEO_ARTICLES); else alert("需 Pro 方案"); }} className={`w-full text-left px-4 py-3 rounded ${view === AppView.SEO_ARTICLES ? 'bg-indigo-900 text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>📝 SEO 文章</button>
+              <button onClick={() => { if(hasThreadsAccess) setView(AppView.THREADS_NURTURE); else alert("需 Pro 方案"); }} className={`w-full text-left px-4 py-3 rounded ${view === AppView.THREADS_NURTURE ? 'bg-indigo-900 text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>🧵 Threads 養號</button>
               <button onClick={() => setView(AppView.REFERRAL)} className={`w-full text-left px-4 py-3 rounded text-green-400 font-bold ${view === AppView.REFERRAL ? 'bg-green-900/30' : 'hover:bg-gray-800'}`}>🎁 推薦獎勵</button>
           </div>
         </nav>
@@ -219,7 +204,7 @@ const App: React.FC = () => {
         </div>
       </aside>
 
-      <main className="flex-1 p-4 md:p-8 overflow-y-auto h-screen custom-scrollbar">
+      <main className="flex-1 p-4 md:p-8 overflow-y-auto h-screen">
         {view === AppView.CREATE && (
           <PostCreator 
             settings={settings} 
@@ -232,7 +217,17 @@ const App: React.FC = () => {
           />
         )}
         {view === AppView.SCHEDULE && (
-          <ScheduleList posts={posts} onUpdatePosts={handleUpdatePosts} onEditPost={handleEditPost} />
+          <ScheduleList posts={posts} onUpdatePosts={async (updated) => {
+              const originalIds = posts.map(p => p.id);
+              const updatedIds = updated.map(p => p.id);
+              const deletedId = originalIds.find(id => !updatedIds.includes(id));
+              if (deletedId) await handleDeletePost(deletedId);
+              else {
+                  const changed = updated.find((p, i) => JSON.stringify(p) !== JSON.stringify(posts.find(op => op.id === p.id)));
+                  if (changed && user) await syncPostToCloud(user.uid, changed);
+                  setPosts(updated);
+              }
+          }} onEditPost={handleEditPost} />
         )}
         {view === AppView.SETTINGS && <SettingsForm onSave={handleSaveSettings} initialSettings={settings} />}
         {view === AppView.ANALYTICS && <AnalyticsDashboard settings={settings} />}
@@ -243,7 +238,7 @@ const App: React.FC = () => {
         {view === AppView.ADMIN && isAdmin && <AdminPanel currentUser={userProfile!} />}
       </main>
       
-      <button onClick={() => setShowReportModal(true)} className="fixed bottom-4 right-4 bg-red-900/80 text-white p-2 rounded-full z-40 shadow-xl hover:scale-110 transition-transform">🐞</button>
+      <button onClick={() => setShowReportModal(true)} className="fixed bottom-4 right-4 bg-red-900/80 text-white p-2 rounded-full z-40 shadow-xl">🐞</button>
       {showReportModal && <ErrorReportModal user={userProfile} currentView={view} onClose={() => setShowReportModal(false)} />}
     </div>
   );

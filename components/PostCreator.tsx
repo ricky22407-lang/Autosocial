@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { BrandSettings, Post, TrendingTopic, UserProfile } from '../types';
-import { getTrendingTopics, generatePostDraft, generateImage, applyWatermark } from '../services/geminiService';
+import { BrandSettings, Post, TrendingTopic, UserProfile, ViralType, ViralPlatform } from '../types';
+import { getTrendingTopics, generatePostDraft, generateImage, applyWatermark, generateViralContent } from '../services/geminiService';
 import { publishPostToFacebook } from '../services/facebookService';
 import { checkAndUseQuota } from '../services/authService';
 
@@ -16,7 +16,7 @@ interface Props {
 
 const LoadingOverlay: React.FC<{ message: string }> = ({ message }) => (
     <div className="fixed inset-0 bg-dark/95 z-50 flex flex-col items-center justify-center p-8 backdrop-blur-md animate-fade-in text-center border border-gray-800">
-        <div className="loader mb-4 scale-150"></div>
+        <div className="loader mb-4 scale-150 border-t-primary"></div>
         <h2 className="text-2xl font-bold text-white mb-2">{message}</h2>
         <p className="text-gray-400">AI 正在努力處理中，請稍候...</p>
     </div>
@@ -25,6 +25,7 @@ const LoadingOverlay: React.FC<{ message: string }> = ({ message }) => (
 export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, onQuotaUpdate, editPost, onCancel, scheduledPostsCount = 0 }) => {
   const [step, setStep] = useState<1 | 2>(1);
   const [topic, setTopic] = useState('');
+  const [mode, setMode] = useState<'brand' | 'viral'>('brand');
   const [trendingTopics, setTrendingTopics] = useState<TrendingTopic[]>([]);
   const [isLoadingTrends, setIsLoadingTrends] = useState(false);
   
@@ -38,7 +39,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishResult, setPublishResult] = useState<{success: boolean, msg: string} | null>(null);
 
-  // 定義排程上限 (Role-based)
+  // 排程上限判定
   const role = user?.role || 'user';
   const limit = role === 'pro' ? 5 : (role === 'business' ? 10 : (role === 'admin' ? 100 : 3));
   const isLimitReached = !editPost && scheduledPostsCount >= limit;
@@ -59,7 +60,6 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
       if (!user) return;
       const allowed = await checkAndUseQuota(user.user_id, 1);
       if (!allowed) return alert("配額不足 (挖掘靈感需要 1 點)");
-      
       onQuotaUpdate();
       setIsLoadingTrends(true);
       try {
@@ -70,7 +70,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
       finally { setIsLoadingTrends(false); }
   };
 
-  // 2. 生成文案 - 扣 2 點
+  // 2. 生成內容 (區分品牌 vs 爆文) - 扣 2 點
   const handleNext = async (selectedTopic?: string) => {
     const finalTopic = selectedTopic || topic;
     if (!finalTopic || !user) return;
@@ -84,20 +84,33 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     setTopic(finalTopic);
     
     try {
-        const res = await generatePostDraft(finalTopic, settings, { 
-            length: '150-300字', 
-            ctaList: [], 
-            tempHashtags: '', 
-            includeEngagement: false 
-        }, undefined, user.role);
-        setDraft({ 
-            caption: res.caption, 
-            firstComment: res.ctaText || '', 
-            imagePrompt: res.imagePrompt 
-        });
-        
-        // 初次進入 Step 2 自動生成第一張圖
-        await handleGenMediaInternal(res.imagePrompt, true);
+        if (mode === 'brand') {
+            const res = await generatePostDraft(finalTopic, settings, { 
+                length: '150-300字', 
+                ctaList: [], 
+                tempHashtags: '', 
+                includeEngagement: false 
+            }, undefined, user.role);
+            setDraft({ 
+                caption: res.caption, 
+                firstComment: res.ctaText || '', 
+                imagePrompt: res.imagePrompt 
+            });
+        } else {
+            // 爆文模式 - 小紅書/營銷號風格
+            const res = await generateViralContent(finalTopic, {
+                audience: '社群大眾',
+                viralType: 'regret', // 預設使用後悔型 hook
+                platform: 'facebook',
+                versionCount: 1
+            }, settings);
+            setDraft({
+                caption: res.versions[0],
+                firstComment: '',
+                imagePrompt: res.imagePrompt
+            });
+        }
+        // 注意：這裡移除了自動生成圖片的調用，必須由 User 手動點擊。
     } catch (e: any) { 
         alert(`失敗: ${e.message}`); 
         setStep(1); 
@@ -106,24 +119,24 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     }
   };
 
-  // 3. 生成圖片 - 扣 5 點 (由按鈕觸發)
-  const handleManualGenMedia = async () => {
-    const allowed = await checkAndUseQuota(user!.user_id, 5);
-    if (!allowed) return alert("配額不足 (重新生成圖片需要 5 點)");
+  // 3. 生成圖片 - 首產 5 點 / 重刷 2 點
+  const handleGenMedia = async () => {
+    if (!user || isGeneratingMedia) return;
+    
+    // 判定是否為重刷 (已有圖片網址代表是重刷)
+    const cost = mediaUrl ? 2 : 5;
+    const allowed = await checkAndUseQuota(user.user_id, cost);
+    if (!allowed) return alert(`配額不足 (生成圖片需要 ${cost} 點)`);
+    
     onQuotaUpdate();
-    await handleGenMediaInternal(draft.imagePrompt);
-  };
-
-  const handleGenMediaInternal = async (prompt: string, skipCharge = false) => {
-    if (!user) return;
     setMediaUrl(undefined);
     setIsGeneratingMedia(true);
     try {
-      let url = await generateImage(prompt, user.role, settings.brandStylePrompt);
+      let url = await generateImage(draft.imagePrompt, user.role, settings.brandStylePrompt);
       if (settings.logoUrl) url = await applyWatermark(url, settings.logoUrl);
       setMediaUrl(url);
     } catch (e: any) { 
-        console.error("製圖失敗", e);
+        alert(`製圖失敗: ${e.message}`); 
     } finally { 
         setIsGeneratingMedia(false); 
     }
@@ -158,7 +171,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
             newPost.publishedUrl = res.url;
             newPost.status = 'published';
             await onPostCreated(newPost);
-            setPublishResult({ success: true, msg: "🚀 貼文已成功發佈到 Facebook！" });
+            setPublishResult({ success: true, msg: "🚀 貼文已成功發佈！" });
           } else {
             newPost.status = 'failed';
             newPost.errorLog = res.error;
@@ -173,19 +186,35 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     }
   };
 
-  if (isGeneratingDraft) return <LoadingOverlay message="AI 正在為您構思品牌文案..." />;
-  if (isGeneratingMedia) return <LoadingOverlay message="AI 正在為您繪製視覺素材..." />;
-  if (isPublishing) return <LoadingOverlay message="正在與 Facebook 伺服器同步中..." />;
+  if (isGeneratingDraft) return <LoadingOverlay message="AI 正在構思文案..." />;
+  if (isGeneratingMedia) return <LoadingOverlay message="AI 正在繪製視覺素材..." />;
+  if (isPublishing) return <LoadingOverlay message="正在與 Facebook 同步..." />;
 
-  // 第一階段：主題選擇
+  // 階段 1：話題與模式選擇
   if (step === 1) return (
       <div className="max-w-4xl mx-auto space-y-8 animate-fade-in pt-6">
           <div className="text-center space-y-2">
               <h2 className="text-3xl font-bold text-white">你想聊什麼話題？</h2>
-              <p className="text-gray-400 font-medium">輸入核心關鍵字，或讓 AI 幫您挖掘目前台灣最夯的話題。</p>
+              <p className="text-gray-400">輸入核心主題，AI 會根據您的品牌設定生成內容。</p>
           </div>
           
           <div className="bg-card p-6 rounded-2xl border border-gray-700 shadow-xl space-y-6">
+              {/* 模式切換 */}
+              <div className="flex p-1 bg-dark rounded-xl border border-gray-700">
+                  <button 
+                    onClick={() => setMode('brand')}
+                    className={`flex-1 py-3 rounded-lg font-bold transition-all flex items-center justify-center gap-2 ${mode === 'brand' ? 'bg-primary text-white shadow-lg' : 'text-gray-500 hover:text-gray-300'}`}
+                  >
+                    🏢 品牌發文 <span className="text-[10px] font-normal opacity-60">(專業感)</span>
+                  </button>
+                  <button 
+                    onClick={() => setMode('viral')}
+                    className={`flex-1 py-3 rounded-lg font-bold transition-all flex items-center justify-center gap-2 ${mode === 'viral' ? 'bg-orange-600 text-white shadow-lg' : 'text-gray-500 hover:text-gray-300'}`}
+                  >
+                    🔥 爆文模式 <span className="text-[10px] font-normal opacity-60">(營銷號/小紅書)</span>
+                  </button>
+              </div>
+
               <div className="flex gap-2">
                   <input 
                     value={topic} 
@@ -197,12 +226,12 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                     onClick={loadTrends} 
                     className="bg-gray-700 hover:bg-gray-600 px-6 rounded-xl text-white font-bold transition-all flex items-center gap-2"
                   >
-                    🔍 挖掘靈感 <span className="text-[10px] bg-blue-600 px-2 py-0.5 rounded shadow-sm">1點</span>
+                    🔍 靈感 <span className="text-[10px] bg-blue-600 px-2 py-0.5 rounded shadow-sm">1點</span>
                   </button>
               </div>
 
               {isLoadingTrends ? (
-                  <div className="flex justify-center py-6"><div className="loader"></div></div>
+                  <div className="flex justify-center py-6"><div className="loader border-t-primary"></div></div>
               ) : trendingTopics.length > 0 && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-64 overflow-y-auto p-2 border border-gray-800 rounded-xl bg-dark/30 custom-scrollbar">
                       {trendingTopics.map((t, i) => (
@@ -221,7 +250,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
               <button 
                 onClick={() => handleNext()} 
                 disabled={!topic} 
-                className="w-full py-4 rounded-xl font-bold text-white bg-primary shadow-lg hover:opacity-90 transition-all disabled:opacity-50 text-xl"
+                className={`w-full py-4 rounded-xl font-bold text-white shadow-lg hover:opacity-90 transition-all disabled:opacity-50 text-xl ${mode === 'viral' ? 'bg-orange-600' : 'bg-primary'}`}
               >
                 生成品牌文案 <span className="text-sm font-normal opacity-80">(2點)</span>
               </button>
@@ -229,14 +258,14 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
       </div>
   );
 
-  // 第二階段：編輯與發佈
+  // 階段 2：內容微調與發佈
   return (
     <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 animate-fade-in">
         <div className="space-y-6">
             <div className="bg-card p-6 rounded-2xl border border-gray-700 shadow-xl">
                 <div className="flex justify-between items-center mb-4">
-                    <h3 className="font-bold text-gray-300">✍️ 文案內容編輯</h3>
-                    <button onClick={() => setStep(1)} className="text-xs text-red-400 hover:underline">返回重選話題</button>
+                    <h3 className="font-bold text-gray-300">✍️ 文案編輯 ({mode === 'viral' ? '爆文模式' : '品牌模式'})</h3>
+                    <button onClick={() => setStep(1)} className="text-xs text-red-400 hover:underline">返回更換主題/模式</button>
                 </div>
                 <textarea 
                     value={draft.caption} 
@@ -244,12 +273,16 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                     className="w-full h-80 bg-dark border border-gray-600 rounded-xl p-4 text-white mb-6 resize-none focus:border-primary outline-none custom-scrollbar leading-relaxed" 
                 />
                 
-                <div className="space-y-2">
+                <div className="space-y-4">
                     <button 
-                        onClick={handleManualGenMedia} 
-                        className="w-full py-4 rounded-xl font-bold bg-indigo-600 text-white shadow-lg hover:bg-indigo-500 transition-all flex items-center justify-center gap-2"
+                        onClick={handleGenMedia} 
+                        className={`w-full py-4 rounded-xl font-bold text-white shadow-lg transition-all flex items-center justify-center gap-2 ${mediaUrl ? 'bg-indigo-900 border border-indigo-500' : 'bg-indigo-600'}`}
                     >
-                        🖼️ 重新繪製圖片素材 <span className="text-xs font-normal opacity-80">(5點)</span>
+                        {mediaUrl ? (
+                            <>🔄 重新繪製圖片素材 <span className="text-xs font-normal opacity-80">(半價 2點)</span></>
+                        ) : (
+                            <>🖼️ 生成 AI 圖片素材 <span className="text-xs font-normal opacity-80">(5點)</span></>
+                        )}
                     </button>
                 </div>
             </div>
@@ -257,7 +290,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
         
         <div className="space-y-6">
             <div className="bg-card p-6 rounded-2xl border border-gray-700 shadow-xl flex flex-col min-h-[500px]">
-                <h3 className="font-bold text-gray-300 mb-4">📱 貼文預覽 (Facebook)</h3>
+                <h3 className="font-bold text-gray-300 mb-4">📱 預覽</h3>
                 <div className="bg-white rounded-xl overflow-hidden flex-1 border border-gray-200 shadow-inner">
                     <div className="p-4 border-b flex items-center gap-2">
                         <div className="w-8 h-8 rounded-full bg-gray-200"></div>
@@ -266,6 +299,12 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                     <div className="p-4 overflow-y-auto max-h-[400px] custom-scrollbar">
                         <p className="text-black text-sm whitespace-pre-wrap mb-4">{draft.caption}</p>
                         {mediaUrl && <img src={mediaUrl} className="w-full h-auto rounded-lg shadow-md border border-gray-100" />}
+                        {!mediaUrl && (
+                            <div className="w-full aspect-square bg-gray-100 rounded-lg border-2 border-dashed border-gray-300 flex flex-col items-center justify-center text-gray-400">
+                                <span className="text-4xl mb-2">🖼️</span>
+                                <span className="text-xs">尚未生成圖片</span>
+                            </div>
+                        )}
                     </div>
                 </div>
 
@@ -296,7 +335,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                                 disabled={isLimitReached} 
                                 className={`flex-1 py-4 rounded-xl font-bold transition-all border-2 ${isLimitReached ? 'border-gray-700 text-gray-600 cursor-not-allowed' : 'border-primary text-primary hover:bg-primary/10'}`}
                             >
-                                {isLimitReached ? '排程空間已滿' : '存入雲端排程'}
+                                {isLimitReached ? '排程已滿' : '存入雲端排程'}
                             </button>
                             <button 
                                 onClick={() => handleFinalize(false)} 
