@@ -2,19 +2,11 @@
 
 import { AnalyticsData, TopPostData } from "../types";
 
-const FB_API_VERSION = 'v17.0'; 
+const FB_API_VERSION = 'v19.0'; // 升級至更穩定的版本
 
 // ==========================================
 // Internal Helpers
 // ==========================================
-
-const getHeaders = (method: string): HeadersInit => {
-  const headers: HeadersInit = {};
-  if (method !== 'GET' && method !== 'HEAD') {
-      (headers as any)['Content-Type'] = 'application/json';
-  }
-  return headers;
-};
 
 const graphApi = async (endpoint: string, token: string, method = 'GET', body?: any) => {
   const url = `https://graph.facebook.com/${FB_API_VERSION}/${endpoint}`;
@@ -22,16 +14,24 @@ const graphApi = async (endpoint: string, token: string, method = 'GET', body?: 
 
   const options: RequestInit = {
     method,
-    headers: getHeaders(method),
-    body: (method !== 'GET' && method !== 'HEAD' && body) ? JSON.stringify(body) : undefined
+    headers: {},
   };
+
+  // 只有當 body 是純物件（非 FormData）時才設定 JSON Header
+  if (body && !(body instanceof FormData)) {
+    (options.headers as any)['Content-Type'] = 'application/json';
+    options.body = JSON.stringify(body);
+  } else if (body instanceof FormData) {
+    // FormData 不需要手動設 Content-Type，瀏覽器會自動處理 boundary
+    options.body = body;
+  }
 
   try {
     const res = await fetch(fullUrl, options);
     const data = await res.json();
     
     if (data.error) {
-      throw new Error(`FB API Error: ${data.error.message}`);
+      throw new Error(`FB API Error: ${data.error.message} (Code: ${data.error.code})`);
     }
     return data;
   } catch (error: any) {
@@ -48,29 +48,30 @@ const base64ToBlob = async (base64: string): Promise<Blob> => {
 // --- Upload Logic Helpers ---
 
 const uploadBase64Media = async (pageId: string, token: string, message: string, base64Url: string, isVideo: boolean): Promise<string> => {
+    // 圖片接口使用 /photos，影片使用 /videos
     const endpoint = isVideo ? `${pageId}/videos` : `${pageId}/photos`;
     
     try {
         const blob = await base64ToBlob(base64Url);
         const formData = new FormData();
-        formData.append('access_token', token);
-        formData.append('message', message);
-        // FIX: Append filename to ensure FB API recognizes it
-        formData.append('source', blob, isVideo ? 'video.mp4' : 'image.png');
         
-        const uploadUrl = `https://graph.facebook.com/${FB_API_VERSION}/${endpoint}`;
-        const res = await fetch(uploadUrl, { method: 'POST', body: formData });
-        
-        const data = await res.json();
-        if (data.error) throw new Error(data.error.message);
-        
-        return data.id || data.post_id;
+        // 依照 FB API 文件設定參數
+        if (isVideo) {
+            formData.append('description', message); // 影片文案參數是 description
+            formData.append('source', blob, 'video.mp4');
+        } else {
+            formData.append('caption', message); // 圖片文案參數是 caption
+            formData.append('source', blob, 'image.png');
+        }
+
+        const res = await graphApi(endpoint, token, 'POST', formData);
+        return res.id || res.post_id;
 
     } catch (uploadError: any) {
-        console.error("Media upload failed:", uploadError);
-        // Fallback: Post as text with error note
+        console.error("Media upload failed, falling back to text post:", uploadError);
+        // 如果媒體上傳失敗，回退到純文字發布並加上警示
         const res = await graphApi(`${pageId}/feed`, token, 'POST', { 
-            message: `${message}\n\n(註：圖片上傳失敗 - ${uploadError.message})` 
+            message: `${message}\n\n(註：附件上傳失敗: ${uploadError.message})` 
         });
         return res.id;
     }
@@ -78,10 +79,15 @@ const uploadBase64Media = async (pageId: string, token: string, message: string,
 
 const uploadUrlMedia = async (pageId: string, token: string, message: string, mediaUrl: string, isVideo: boolean): Promise<string> => {
     const endpoint = isVideo ? `${pageId}/videos` : `${pageId}/photos`;
-    const payload: any = { message };
+    const payload: any = {};
     
-    if (isVideo) payload.file_url = mediaUrl;
-    else payload.url = mediaUrl;
+    if (isVideo) {
+        payload.description = message;
+        payload.file_url = mediaUrl;
+    } else {
+        payload.caption = message;
+        payload.url = mediaUrl;
+    }
 
     const res = await graphApi(endpoint, token, 'POST', payload);
     return res.id || res.post_id;
@@ -98,12 +104,13 @@ const performInstagramSync = async (
 ): Promise<string> => {
     if (!syncEnabled) return '';
 
+    // IG 必須有公開 URL 圖片才能同步
     if (mediaUrl && mediaUrl.startsWith('http')) {
         const igRes = await publishToInstagram(pageId, token, mediaUrl, message);
         return igRes.success ? ' (IG 同步成功)' : ` (IG 同步失敗: ${igRes.error})`;
     }
     
-    return ' (IG 同步略過：需為公開圖片網址)';
+    return ' (IG 同步略過：僅支援公開網址圖片)';
 };
 
 // ==========================================
@@ -127,36 +134,25 @@ export const publishToInstagram = async (
     caption: string
 ): Promise<{ success: boolean; id?: string; error?: string }> => {
     try {
-        // 1. Get Linked IG Business Account ID
         const pageData = await graphApi(`${pageId}?fields=instagram_business_account`, token);
         const igUserId = pageData.instagram_business_account?.id;
 
         if (!igUserId) {
-            return { success: false, error: "此粉專未連結 Instagram 商業帳號" };
+            return { success: false, error: "未連結 IG 商業帳號" };
         }
 
-        // 2. Validate URL (IG Graph API restriction)
-        if (!imageUrl.startsWith('http')) {
-            return { success: false, error: "IG 同步僅支援公開網址圖片 (Base64 不支援)" };
-        }
-
-        // 3. Create Media Container
         const containerRes = await graphApi(`${igUserId}/media`, token, 'POST', {
             image_url: imageUrl,
             caption: caption
         });
-        const containerId = containerRes.id;
-
-        // 4. Publish Container
+        
         const publishRes = await graphApi(`${igUserId}/media_publish`, token, 'POST', {
-            creation_id: containerId
+            creation_id: containerRes.id
         });
 
         return { success: true, id: publishRes.id };
-
     } catch (e: any) {
-        console.warn("IG Publish Failed:", e);
-        return { success: false, error: e.message || "IG 發佈失敗" };
+        return { success: false, error: e.message };
     }
 };
 
@@ -167,7 +163,7 @@ export const publishPostToFacebook = async (
   mediaUrl?: string,
   firstComment?: string,
   syncInstagram?: boolean
-): Promise<{ success: boolean; url?: string; error?: string; igResult?: string }> => {
+): Promise<{ success: boolean; url?: string; error?: string }> => {
   
   if (!pageId || !token) {
      return { success: false, error: '未設定 Page ID 或 Token' };
@@ -176,143 +172,104 @@ export const publishPostToFacebook = async (
   try {
     let postId: string;
 
-    // 1. Publish Main Post
+    // 1. 發布主貼文
     if (mediaUrl) {
       const isBase64 = mediaUrl.startsWith('data:');
-      const isVideoUrl = mediaUrl.includes('.mp4') || mediaUrl.startsWith('data:video');
+      const isVideo = mediaUrl.includes('.mp4') || mediaUrl.startsWith('data:video');
 
       if (isBase64) {
-          postId = await uploadBase64Media(pageId, token, message, mediaUrl, isVideoUrl);
+          postId = await uploadBase64Media(pageId, token, message, mediaUrl, isVideo);
       } else if (mediaUrl.startsWith('http')) {
-          postId = await uploadUrlMedia(pageId, token, message, mediaUrl, isVideoUrl);
+          postId = await uploadUrlMedia(pageId, token, message, mediaUrl, isVideo);
       } else {
-          // Fallback if mediaUrl is malformed but exists
           const res = await graphApi(`${pageId}/feed`, token, 'POST', { message });
           postId = res.id;
       }
     } else {
-      // Text Only
       const res = await graphApi(`${pageId}/feed`, token, 'POST', { message });
       postId = res.id;
     }
 
-    // 2. Publish First Comment (Best Effort)
+    // 2. 發布第一則留言 (可選)
     if (firstComment && postId) {
       try {
         await graphApi(`${postId}/comments`, token, 'POST', { message: firstComment });
       } catch (e) { 
-          console.warn("Failed to post first comment", e); 
+          console.warn("留言發布失敗", e); 
       }
     }
 
-    // 3. Sync to Instagram
+    // 3. 同步至 Instagram
     const igMsg = await performInstagramSync(pageId, token, mediaUrl || '', message, syncInstagram);
 
     return { 
       success: true, 
       url: `https://facebook.com/${postId}`,
-      error: igMsg ? `FB 成功${igMsg}` : undefined 
+      error: igMsg ? `發布成功${igMsg}` : undefined 
     };
 
   } catch (e: any) {
-    return { success: false, error: e.message || "發布失敗" };
+    return { success: false, error: e.message || "未知發布錯誤" };
   }
 };
 
 export const fetchPageAnalytics = async (pageId: string, token?: string): Promise<AnalyticsData | null> => {
   if (!pageId || !token) return null; 
-
   try {
-    const pageInfo = await graphApi(`${pageId}?fields=followers_count`, token, 'GET');
-    const followers = pageInfo.followers_count || 0;
+    const pageInfo = await graphApi(`${pageId}?fields=followers_count`, token);
+    const reachData = await graphApi(`${pageId}/insights?metric=page_impressions_unique&period=days_28`, token);
+    const engageData = await graphApi(`${pageId}/insights?metric=page_engaged_users&period=days_28`, token);
     
-    // Fetch Insights
-    let reach = 0;
-    let engagedUsers = 0;
-
-    const getMetric = async (metric: string) => {
-        try {
-            const data = await graphApi(`${pageId}/insights?metric=${metric}&period=days_28`, token, 'GET');
-            return data.data?.[0]?.values?.[0]?.value || 0;
-        } catch { return 0; }
-    };
-
-    reach = await getMetric('page_impressions_unique');
-    engagedUsers = await getMetric('page_engaged_users');
-    
-    const engagementRate = reach > 0 ? ((engagedUsers / reach) * 100).toFixed(2) : 0;
+    const reach = reachData.data?.[0]?.values?.[0]?.value || 0;
+    const engaged = engageData.data?.[0]?.values?.[0]?.value || 0;
 
     return {
-      followers,
-      followersGrowth: 0, 
+      followers: pageInfo.followers_count || 0,
+      followersGrowth: 0,
       reach: reach,
-      engagementRate: Number(engagementRate),
-      period: '過去 28 天 (API 真實數據)'
+      engagementRate: reach > 0 ? Number(((engaged / reach) * 100).toFixed(2)) : 0,
+      period: '過去 28 天'
     };
-  } catch (e: any) {
-    console.error("Analytics fetch failed details:", e);
-    throw new Error(e.message || "無法取得數據");
+  } catch (e) {
+    throw e;
   }
 };
 
 export const fetchPageTopPosts = async (pageId: string, token: string): Promise<{ topReach?: TopPostData, topEngagement?: TopPostData }> => {
     try {
         const fields = 'id,message,created_time,full_picture,permalink_url,insights.metric(post_impressions_unique,post_engaged_users)';
-        const feedUrl = `${pageId}/feed?limit=15&fields=${fields}`;
-        
-        const res = await graphApi(feedUrl, token, 'GET');
+        const res = await graphApi(`${pageId}/feed?limit=15&fields=${fields}`, token);
         const posts = res.data || [];
 
         if (posts.length === 0) return {};
 
-        const processedPosts: TopPostData[] = posts.map((p: any) => {
+        const processed = posts.map((p: any) => {
             const insights = p.insights?.data || [];
-            const reachMetric = insights.find((m: any) => m.name === 'post_impressions_unique');
-            const engageMetric = insights.find((m: any) => m.name === 'post_engaged_users');
-
             return {
                 id: p.id,
-                message: p.message || '(無文字內容)',
+                message: p.message || '',
                 imageUrl: p.full_picture,
                 created_time: p.created_time,
                 permalink_url: p.permalink_url,
-                reach: reachMetric?.values?.[0]?.value || 0,
-                engagedUsers: engageMetric?.values?.[0]?.value || 0,
-                type: 'reach' 
+                reach: insights.find((m: any) => m.name === 'post_impressions_unique')?.values?.[0]?.value || 0,
+                engagedUsers: insights.find((m: any) => m.name === 'post_engaged_users')?.values?.[0]?.value || 0
             };
         });
 
-        // Helper for sorting
-        const getSorted = (list: TopPostData[], key: 'reach' | 'engagedUsers') => 
-            [...list].sort((a, b) => b[key] - a[key])[0];
-
-        const topReachPost = getSorted(processedPosts, 'reach');
-        if (topReachPost) topReachPost.type = 'reach';
-
-        const topEngagePost = getSorted(processedPosts, 'engagedUsers');
-        if (topEngagePost) topEngagePost.type = 'engagement';
-
-        return { topReach: topReachPost, topEngagement: topEngagePost };
-
+        return {
+            topReach: [...processed].sort((a, b) => b.reach - a.reach)[0],
+            topEngagement: [...processed].sort((a, b) => b.engagedUsers - a.engagedUsers)[0]
+        };
     } catch (e) {
         return {};
     }
 };
 
-export const refreshLongLivedToken = async (currentToken: string): Promise<{ success: boolean; newToken?: string; expiry?: number }> => {
-    // Placeholder as implemented in original
-    return { success: false };
+export const fetchRecentPostCaptions = async (pageId: string, token: string, limit = 20): Promise<string[]> => {
+    const res = await graphApi(`${pageId}/feed?fields=message&limit=${limit}`, token);
+    return (res.data || []).map((p: any) => p.message).filter(Boolean);
 };
 
-export const fetchRecentPostCaptions = async (pageId: string, token: string, limit: number = 20): Promise<string[]> => {
-    try {
-        const res = await graphApi(`${pageId}/feed?fields=message&limit=${limit}`, token, 'GET');
-        const posts = res.data || [];
-        return posts
-            .map((p: any) => p.message)
-            .filter((m: any) => m && typeof m === 'string' && m.length > 20);
-    } catch (e: any) {
-        console.error("Failed to fetch recent captions:", e);
-        throw new Error("無法讀取粉專貼文，請檢查權限");
-    }
+export const refreshLongLivedToken = async (currentToken: string): Promise<{ success: boolean; newToken?: string; expiry?: number }> => {
+    return { success: false }; // 需在後端實作 App Secret 交換
 };
