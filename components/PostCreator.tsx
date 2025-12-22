@@ -11,6 +11,7 @@ interface Props {
   onQuotaUpdate: () => void;
   editPost?: Post | null;
   onCancel?: () => void;
+  scheduledPostsCount?: number; // 新增：傳入當前排程總數
 }
 
 const LoadingOverlay: React.FC<{ message: string, detail?: string }> = ({ message, detail }) => {
@@ -48,41 +49,27 @@ const LoadingOverlay: React.FC<{ message: string, detail?: string }> = ({ messag
 
 const DRAFT_KEY = 'autosocial_post_draft';
 
-export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, onPostCreated, onQuotaUpdate, editPost, onCancel }) => {
+export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, onPostCreated, onQuotaUpdate, editPost, onCancel, scheduledPostsCount = 0 }) => {
   const [currentSettings, setCurrentSettings] = useState<BrandSettings>(initialSettings);
-  const [brandProfiles, setBrandProfiles] = useState<{id: string, name: string, settings: BrandSettings}[]>([]);
-  const [selectedProfileId, setSelectedProfileId] = useState<string>('default');
-
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [topic, setTopic] = useState('');
   const [postMode, setPostMode] = useState<'standard' | 'viral'>('standard');
   const [selectedTopicData, setSelectedTopicData] = useState<TrendingTopic | null>(null);
 
   const role = user?.role || 'user';
-  const isFreeTier = role === 'user';
   const isStarterPlus = ['starter', 'pro', 'business', 'admin'].includes(role);
-  const [isDemoMode, setIsDemoMode] = useState(false);
 
   const [captionLength, setCaptionLength] = useState<string>('150-300字');
   const [ctaList, setCtaList] = useState<CtaItem[]>([{ text: '👉 點擊了解', url: '' }]);
-  const [ctaPlacement, setCtaPlacement] = useState<'caption' | 'comment'>('caption');
-  const [includeEngagement, setIncludeEngagement] = useState(false);
   const [imageText, setImageText] = useState('');
   
   const [viralType, setViralType] = useState<ViralType>('regret');
   const [viralPlatform, setViralPlatform] = useState<ViralPlatform>('facebook');
   const [targetAudience, setTargetAudience] = useState('');
-  const [titleCandidates, setTitleCandidates] = useState<TitleScore[]>([]);
-  const [isScoringTitles, setIsScoringTitles] = useState(false);
-  const [viralDrafts, setViralDrafts] = useState<string[]>([]);
-
-  const [trendingTopics, setTrendingTopics] = useState<TrendingTopic[]>([]);
-  const [isLoadingTopics, setIsLoadingTopics] = useState(false);
   
   const [draft, setDraft] = useState({ caption: '', firstComment: '', imagePrompt: '', videoPrompt: '' });
   const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
   
-  const [mediaSource, setMediaSource] = useState<'ai' | 'upload'>('ai');
   const [selectedMediaType, setSelectedMediaType] = useState<'image' | 'video'>('image'); 
   const [mediaUrl, setMediaUrl] = useState<string | undefined>(undefined);
   const [isGeneratingMedia, setIsGeneratingMedia] = useState(false);
@@ -92,6 +79,16 @@ export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, 
   
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishResult, setPublishResult] = useState<{success: boolean, msg: string} | null>(null);
+
+  // 計算排程上限
+  const getScheduleLimit = () => {
+      if (role === 'pro') return 5;
+      if (role === 'business') return 10;
+      if (role === 'admin') return 100;
+      return 3;
+  };
+  const limit = getScheduleLimit();
+  const isLimitReached = !editPost && scheduledPostsCount >= limit;
 
   useEffect(() => {
     if (editPost) {
@@ -111,13 +108,12 @@ export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, 
     }
   }, [editPost]);
 
-  // 暫存草稿至 LocalStorage (僅限編輯中，不包含大圖數據以防溢位)
   useEffect(() => {
       if (!topic && step === 1) return;
       if (editPost) return;
-      const stateToSave = { step, topic, postMode, draft, mediaSource, selectedMediaType, scheduleDate, syncInstagram };
+      const stateToSave = { step, topic, postMode, draft, selectedMediaType, scheduleDate, syncInstagram };
       localStorage.setItem(DRAFT_KEY, JSON.stringify(stateToSave));
-  }, [step, topic, postMode, draft, mediaSource, selectedMediaType, scheduleDate, syncInstagram]);
+  }, [step, topic, postMode, draft, selectedMediaType, scheduleDate, syncInstagram]);
 
   const handleNextToDraft = async (overrideTopic?: string) => {
     const effectiveTopic = overrideTopic || topic;
@@ -133,7 +129,7 @@ export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, 
           const viralRes = await generateViralContent(effectiveTopic, { audience: targetAudience || 'General', viralType, platform: viralPlatform, versionCount: 1 }, currentSettings);
           setDraft({ caption: viralRes.versions[0], firstComment: '', imagePrompt: viralRes.imagePrompt, videoPrompt: viralRes.imagePrompt });
       } else {
-          const generated = await generatePostDraft(effectiveTopic, currentSettings, { length: captionLength, ctaList: ctaList.filter(l => l.url), tempHashtags: '', includeEngagement, imageText }, selectedTopicData || undefined, user.role);
+          const generated = await generatePostDraft(effectiveTopic, currentSettings, { length: captionLength, ctaList: ctaList.filter(l => l.url), tempHashtags: '', includeEngagement: false, imageText }, undefined, user.role);
           setDraft({ caption: generated.caption, firstComment: generated.ctaText || '', imagePrompt: generated.imagePrompt, videoPrompt: generated.videoPrompt });
       }
     } catch (e: any) { alert(`生成失敗: ${e.message}`); setStep(1); }
@@ -176,16 +172,14 @@ export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, 
         };
 
         if (schedule) {
-          // 排程：直接交給雲端存儲
           await onPostCreated(newPost);
           setPublishResult({ success: true, msg: "貼文已排入雲端排程系統！" });
           localStorage.removeItem(DRAFT_KEY);
         } else {
-          // 立即發佈
           const result = await publishPostToFacebook(currentSettings.facebookPageId, currentSettings.facebookToken, draft.caption, mediaUrl, draft.firstComment, syncInstagram);
           if (result.success) {
             newPost.publishedUrl = result.url; newPost.status = 'published';
-            await onPostCreated(newPost); // 同步雲端 (此處會自動清理大圖)
+            await onPostCreated(newPost);
             setPublishResult({ success: true, msg: "發佈成功！雲端空間已自動清理暫存大圖。" });
             localStorage.removeItem(DRAFT_KEY);
           } else {
@@ -243,13 +237,25 @@ export const PostCreator: React.FC<Props> = ({ settings: initialSettings, user, 
             ) : (
                 <div className="space-y-4">
                     <div className="bg-dark p-3 rounded border border-gray-600">
-                        <label className="block text-xs text-gray-500 mb-1">排程日期與時間</label>
+                        <div className="flex justify-between items-center mb-1">
+                            <label className="block text-xs text-gray-500">排程日期與時間</label>
+                            <span className={`text-[10px] px-1.5 rounded-full font-bold ${isLimitReached ? 'bg-red-900 text-red-200' : 'bg-blue-900 text-blue-200'}`}>
+                                排程空間: {scheduledPostsCount}/{limit}
+                            </span>
+                        </div>
                         <input type="datetime-local" value={scheduleDate} onChange={e => setScheduleDate(e.target.value)} className="w-full bg-transparent text-white outline-none" />
                     </div>
                     <div className="flex gap-4">
-                        <button onClick={() => handleFinalize(true)} className="flex-1 border border-primary text-primary py-3 rounded font-bold hover:bg-primary/10">存入雲端排程</button>
+                        <button 
+                            onClick={() => handleFinalize(true)} 
+                            disabled={isLimitReached}
+                            className={`flex-1 border py-3 rounded font-bold transition-colors ${isLimitReached ? 'border-gray-700 text-gray-600 cursor-not-allowed' : 'border-primary text-primary hover:bg-primary/10'}`}
+                        >
+                            {isLimitReached ? '排程空間已滿' : '存入雲端排程'}
+                        </button>
                         <button onClick={() => handleFinalize(false)} className="flex-1 bg-primary text-white py-3 rounded font-bold hover:bg-blue-600">立即發佈</button>
                     </div>
+                    {isLimitReached && <p className="text-[10px] text-red-400 text-center">⚠️ 您已達到方案排程上限，請刪除舊貼文或升級方案。</p>}
                 </div>
             )}
         </div>

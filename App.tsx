@@ -71,7 +71,6 @@ const App: React.FC = () => {
         setUserProfile(profile);
         setView(AppView.CREATE);
         
-        // 初始化載入
         loadLocalSettings();
         const cloudPosts = await fetchUserPostsFromCloud(currentUser.uid);
         setPosts(cloudPosts);
@@ -113,23 +112,35 @@ const App: React.FC = () => {
   };
 
   /**
-   * 建立/更新貼文：同步至雲端 Firestore
+   * 建立/更新貼文：同步至雲端 Firestore 並檢查排程限制
    */
   const handlePostCreated = async (newPost: Post) => {
-    if (!user) return;
+    if (!user || !userProfile) return;
+    
+    // 排程上限檢查邏輯
+    if (newPost.status === 'scheduled') {
+        const scheduledCount = posts.filter(p => p.status === 'scheduled' && p.id !== newPost.id).length;
+        const role = userProfile.role;
+        
+        let limit = 3; // Default for free/starter
+        if (role === 'pro') limit = 5;
+        else if (role === 'business') limit = 10;
+        else if (role === 'admin') limit = 100;
+
+        if (scheduledCount >= limit) {
+            alert(`⚠️ 排程空間不足！\n您的方案 (${role.toUpperCase()}) 最多僅能儲存 ${limit} 篇雲端排程貼文。\n\n請刪除舊排程或升級方案以解鎖更多空間。`);
+            return;
+        }
+    }
     
     try {
-        // 先更新本地 UI 提供即時反饋
         setPosts(prev => {
             const exists = prev.find(p => p.id === newPost.id);
             if (exists) return prev.map(p => p.id === newPost.id ? newPost : p);
             return [newPost, ...prev];
         });
 
-        // 同步到 Firebase (這裡會處理已發布貼文的圖片清理)
         await syncPostToCloud(user.uid, newPost);
-        
-        // 重新從雲端拉取一次最新狀態 (確保 UI 與資料庫一致，特別是瘦身後的數據)
         const updatedPosts = await fetchUserPostsFromCloud(user.uid);
         setPosts(updatedPosts);
         
@@ -158,7 +169,6 @@ const App: React.FC = () => {
   };
   // #endregion
 
-  // Fix: Declare isBusinessPlus, isProPlus, and isStarterPlus before they are used to compute feature access flags.
   const role = userProfile?.role || 'user';
   const isAdmin = role === 'admin';
   const isBusinessPlus = ['business', 'admin'].includes(role);
@@ -209,17 +219,23 @@ const App: React.FC = () => {
 
       <main className="flex-1 p-4 md:p-8 overflow-y-auto h-screen">
         {view === AppView.CREATE && (
-          <PostCreator settings={settings} user={userProfile} onPostCreated={handlePostCreated} onQuotaUpdate={refreshProfile} editPost={editingPost} onCancel={() => setEditingPost(null)} />
+          <PostCreator 
+            settings={settings} 
+            user={userProfile} 
+            onPostCreated={handlePostCreated} 
+            onQuotaUpdate={refreshProfile} 
+            editPost={editingPost} 
+            onCancel={() => setEditingPost(null)}
+            scheduledPostsCount={posts.filter(p => p.status === 'scheduled').length}
+          />
         )}
         {view === AppView.SCHEDULE && (
           <ScheduleList posts={posts} onUpdatePosts={async (updated) => {
-              // 找出被刪除的貼文
               const originalIds = posts.map(p => p.id);
               const updatedIds = updated.map(p => p.id);
               const deletedId = originalIds.find(id => !updatedIds.includes(id));
               if (deletedId) await handleDeletePost(deletedId);
               else {
-                  // 更新狀態 (例如從行事曆拖拽更改日期)
                   const changed = updated.find((p, i) => JSON.stringify(p) !== JSON.stringify(posts.find(op => op.id === p.id)));
                   if (changed && user) await syncPostToCloud(user.uid, changed);
                   setPosts(updated);
