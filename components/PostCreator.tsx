@@ -15,14 +15,12 @@ interface Props {
 }
 
 const LoadingOverlay: React.FC<{ message: string }> = ({ message }) => (
-    <div className="fixed inset-0 bg-dark/90 z-50 flex flex-col items-center justify-center p-8 backdrop-blur-md animate-fade-in">
+    <div className="fixed inset-0 bg-dark/95 z-50 flex flex-col items-center justify-center p-8 backdrop-blur-md animate-fade-in text-center border border-gray-800">
         <div className="loader mb-4 scale-150"></div>
-        <h2 className="text-xl font-bold text-white">{message}</h2>
-        <p className="text-gray-400 mt-2">AI 正在處理中...</p>
+        <h2 className="text-2xl font-bold text-white mb-2">{message}</h2>
+        <p className="text-gray-400">AI 正在努力處理中，請稍候...</p>
     </div>
 );
-
-const DRAFT_KEY = 'autosocial_post_draft';
 
 export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, onQuotaUpdate, editPost, onCancel, scheduledPostsCount = 0 }) => {
   const [step, setStep] = useState<1 | 2>(1);
@@ -40,6 +38,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishResult, setPublishResult] = useState<{success: boolean, msg: string} | null>(null);
 
+  // 定義排程上限 (Role-based)
   const role = user?.role || 'user';
   const limit = role === 'pro' ? 5 : (role === 'business' ? 10 : (role === 'admin' ? 100 : 3));
   const isLimitReached = !editPost && scheduledPostsCount >= limit;
@@ -59,12 +58,12 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   const loadTrends = async () => {
       if (!user) return;
       const allowed = await checkAndUseQuota(user.user_id, 1);
-      if (!allowed) return alert("配額不足 (需要 1 點)");
+      if (!allowed) return alert("配額不足 (挖掘靈感需要 1 點)");
       
       onQuotaUpdate();
       setIsLoadingTrends(true);
       try {
-          const industry = settings.industry || '熱門話題';
+          const industry = settings.industry || '台灣熱門話題';
           const trends = await getTrendingTopics(industry);
           setTrendingTopics(trends);
       } catch (e) { console.error(e); }
@@ -77,7 +76,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     if (!finalTopic || !user) return;
     
     const allowed = await checkAndUseQuota(user.user_id, 2);
-    if (!allowed) return alert("配額不足 (需要 2 點)");
+    if (!allowed) return alert("配額不足 (生成文案需要 2 點)");
     
     onQuotaUpdate();
     setStep(2);
@@ -96,6 +95,9 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
             firstComment: res.ctaText || '', 
             imagePrompt: res.imagePrompt 
         });
+        
+        // 初次進入 Step 2 自動生成第一張圖
+        await handleGenMediaInternal(res.imagePrompt, true);
     } catch (e: any) { 
         alert(`失敗: ${e.message}`); 
         setStep(1); 
@@ -104,21 +106,24 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     }
   };
 
-  // 3. 生成圖片 - 扣 5 點
-  const handleGenMedia = async () => {
-    if (!user || isGeneratingMedia) return;
-    const allowed = await checkAndUseQuota(user.user_id, 5);
-    if (!allowed) return alert("配額不足 (需要 5 點)");
-    
+  // 3. 生成圖片 - 扣 5 點 (由按鈕觸發)
+  const handleManualGenMedia = async () => {
+    const allowed = await checkAndUseQuota(user!.user_id, 5);
+    if (!allowed) return alert("配額不足 (重新生成圖片需要 5 點)");
     onQuotaUpdate();
+    await handleGenMediaInternal(draft.imagePrompt);
+  };
+
+  const handleGenMediaInternal = async (prompt: string, skipCharge = false) => {
+    if (!user) return;
     setMediaUrl(undefined);
     setIsGeneratingMedia(true);
     try {
-      let url = await generateImage(draft.imagePrompt, user.role, settings.brandStylePrompt);
+      let url = await generateImage(prompt, user.role, settings.brandStylePrompt);
       if (settings.logoUrl) url = await applyWatermark(url, settings.logoUrl);
       setMediaUrl(url);
     } catch (e: any) { 
-        alert(`製圖失敗: ${e.message}`); 
+        console.error("製圖失敗", e);
     } finally { 
         setIsGeneratingMedia(false); 
     }
@@ -126,7 +131,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
 
   const handleFinalize = async (schedule: boolean) => {
     if (!user || isPublishing) return;
-    if (schedule && !scheduleDate) return alert("請選擇日期時間");
+    if (schedule && !scheduleDate) return alert("請選擇預計發佈時間");
     setIsPublishing(true);
     try {
         const newPost: Post = {
@@ -153,7 +158,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
             newPost.publishedUrl = res.url;
             newPost.status = 'published';
             await onPostCreated(newPost);
-            setPublishResult({ success: true, msg: "🚀 貼文已成功發佈！" });
+            setPublishResult({ success: true, msg: "🚀 貼文已成功發佈到 Facebook！" });
           } else {
             newPost.status = 'failed';
             newPost.errorLog = res.error;
@@ -168,15 +173,16 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     }
   };
 
-  if (isGeneratingDraft) return <LoadingOverlay message="AI 正在構思高轉換文案..." />;
-  if (isGeneratingMedia) return <LoadingOverlay message="AI 正在為您繪製專屬圖片..." />;
-  if (isPublishing) return <LoadingOverlay message="正在同步雲端發佈系統..." />;
+  if (isGeneratingDraft) return <LoadingOverlay message="AI 正在為您構思品牌文案..." />;
+  if (isGeneratingMedia) return <LoadingOverlay message="AI 正在為您繪製視覺素材..." />;
+  if (isPublishing) return <LoadingOverlay message="正在與 Facebook 伺服器同步中..." />;
 
+  // 第一階段：主題選擇
   if (step === 1) return (
       <div className="max-w-4xl mx-auto space-y-8 animate-fade-in pt-6">
           <div className="text-center space-y-2">
               <h2 className="text-3xl font-bold text-white">你想聊什麼話題？</h2>
-              <p className="text-gray-400">輸入核心主題，或讓 AI 幫你挖掘目前最夯的話題。</p>
+              <p className="text-gray-400 font-medium">輸入核心關鍵字，或讓 AI 幫您挖掘目前台灣最夯的話題。</p>
           </div>
           
           <div className="bg-card p-6 rounded-2xl border border-gray-700 shadow-xl space-y-6">
@@ -184,28 +190,28 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                   <input 
                     value={topic} 
                     onChange={e => setTopic(e.target.value)} 
-                    className="flex-1 bg-dark border border-gray-600 rounded-xl p-4 text-white outline-none focus:border-primary" 
+                    className="flex-1 bg-dark border border-gray-600 rounded-xl p-4 text-white outline-none focus:border-primary text-lg" 
                     placeholder="例如：夏季保養心法、今日新聞重點..." 
                   />
                   <button 
                     onClick={loadTrends} 
                     className="bg-gray-700 hover:bg-gray-600 px-6 rounded-xl text-white font-bold transition-all flex items-center gap-2"
                   >
-                    🔍 挖掘靈感 <span className="text-[10px] bg-blue-600 px-1 rounded">1點</span>
+                    🔍 挖掘靈感 <span className="text-[10px] bg-blue-600 px-2 py-0.5 rounded shadow-sm">1點</span>
                   </button>
               </div>
 
               {isLoadingTrends ? (
                   <div className="flex justify-center py-6"><div className="loader"></div></div>
               ) : trendingTopics.length > 0 && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-64 overflow-y-auto p-2 border border-gray-800 rounded-xl bg-dark/30">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-64 overflow-y-auto p-2 border border-gray-800 rounded-xl bg-dark/30 custom-scrollbar">
                       {trendingTopics.map((t, i) => (
                           <div 
                             key={i} 
                             onClick={() => handleNext(t.title)} 
-                            className="bg-dark/50 border border-gray-700 p-3 rounded-lg cursor-pointer hover:border-primary hover:bg-primary/10 transition-all"
+                            className="bg-dark/50 border border-gray-700 p-3 rounded-lg cursor-pointer hover:border-primary hover:bg-primary/10 transition-all group"
                           >
-                              <h4 className="font-bold text-blue-400 text-sm mb-1 line-clamp-1">{t.title}</h4>
+                              <h4 className="font-bold text-blue-400 text-sm mb-1 line-clamp-1 group-hover:text-white">{t.title}</h4>
                               <p className="text-xs text-gray-500 line-clamp-1">{t.description}</p>
                           </div>
                       ))}
@@ -215,54 +221,58 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
               <button 
                 onClick={() => handleNext()} 
                 disabled={!topic} 
-                className="w-full py-4 rounded-xl font-bold text-white bg-primary shadow-lg hover:opacity-90 transition-all disabled:opacity-50"
+                className="w-full py-4 rounded-xl font-bold text-white bg-primary shadow-lg hover:opacity-90 transition-all disabled:opacity-50 text-xl"
               >
-                生成品牌文案 <span className="text-xs font-normal">(2點)</span>
+                生成品牌文案 <span className="text-sm font-normal opacity-80">(2點)</span>
               </button>
           </div>
       </div>
   );
 
+  // 第二階段：編輯與發佈
   return (
     <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 animate-fade-in">
         <div className="space-y-6">
             <div className="bg-card p-6 rounded-2xl border border-gray-700 shadow-xl">
                 <div className="flex justify-between items-center mb-4">
-                    <h3 className="font-bold text-gray-300">✍️ 文案編輯</h3>
-                    <button onClick={() => setStep(1)} className="text-xs text-red-400 hover:underline">返回重選主題</button>
+                    <h3 className="font-bold text-gray-300">✍️ 文案內容編輯</h3>
+                    <button onClick={() => setStep(1)} className="text-xs text-red-400 hover:underline">返回重選話題</button>
                 </div>
                 <textarea 
                     value={draft.caption} 
                     onChange={e => setDraft({...draft, caption: e.target.value})} 
-                    className="w-full h-80 bg-dark border border-gray-600 rounded-xl p-4 text-white mb-6 resize-none focus:border-primary outline-none" 
+                    className="w-full h-80 bg-dark border border-gray-600 rounded-xl p-4 text-white mb-6 resize-none focus:border-primary outline-none custom-scrollbar leading-relaxed" 
                 />
-                <button 
-                    onClick={handleGenMedia} 
-                    className="w-full py-4 rounded-xl font-bold bg-indigo-600 text-white shadow-lg hover:bg-indigo-500 transition-all"
-                >
-                    🖼️ 重新生成圖片素材 <span className="text-xs font-normal">(5點)</span>
-                </button>
+                
+                <div className="space-y-2">
+                    <button 
+                        onClick={handleManualGenMedia} 
+                        className="w-full py-4 rounded-xl font-bold bg-indigo-600 text-white shadow-lg hover:bg-indigo-500 transition-all flex items-center justify-center gap-2"
+                    >
+                        🖼️ 重新繪製圖片素材 <span className="text-xs font-normal opacity-80">(5點)</span>
+                    </button>
+                </div>
             </div>
         </div>
         
         <div className="space-y-6">
             <div className="bg-card p-6 rounded-2xl border border-gray-700 shadow-xl flex flex-col min-h-[500px]">
-                <h3 className="font-bold text-gray-300 mb-4">📱 預覽</h3>
+                <h3 className="font-bold text-gray-300 mb-4">📱 貼文預覽 (Facebook)</h3>
                 <div className="bg-white rounded-xl overflow-hidden flex-1 border border-gray-200 shadow-inner">
                     <div className="p-4 border-b flex items-center gap-2">
                         <div className="w-8 h-8 rounded-full bg-gray-200"></div>
                         <div className="h-2 w-24 bg-gray-200 rounded"></div>
                     </div>
-                    <div className="p-4 overflow-y-auto max-h-[400px]">
+                    <div className="p-4 overflow-y-auto max-h-[400px] custom-scrollbar">
                         <p className="text-black text-sm whitespace-pre-wrap mb-4">{draft.caption}</p>
-                        {mediaUrl && <img src={mediaUrl} className="w-full h-auto rounded-lg shadow-md" />}
+                        {mediaUrl && <img src={mediaUrl} className="w-full h-auto rounded-lg shadow-md border border-gray-100" />}
                     </div>
                 </div>
 
                 {publishResult ? (
-                    <div className={`mt-6 p-4 rounded-xl text-center font-bold ${publishResult.success ? 'bg-green-900/50 text-green-200' : 'bg-red-900/50 text-red-200'}`}>
+                    <div className={`mt-6 p-4 rounded-xl text-center font-bold border ${publishResult.success ? 'bg-green-900/50 text-green-200 border-green-700' : 'bg-red-900/50 text-red-200 border-red-700'}`}>
                         {publishResult.msg}
-                        <button onClick={() => setPublishResult(null)} className="block w-full mt-2 text-xs underline">繼續編輯</button>
+                        <button onClick={() => setPublishResult(null)} className="block w-full mt-2 text-xs underline">繼續編輯貼文</button>
                     </div>
                 ) : (
                     <div className="mt-6 space-y-4">
@@ -286,11 +296,11 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                                 disabled={isLimitReached} 
                                 className={`flex-1 py-4 rounded-xl font-bold transition-all border-2 ${isLimitReached ? 'border-gray-700 text-gray-600 cursor-not-allowed' : 'border-primary text-primary hover:bg-primary/10'}`}
                             >
-                                {isLimitReached ? '排程已滿' : '存入雲端排程'}
+                                {isLimitReached ? '排程空間已滿' : '存入雲端排程'}
                             </button>
                             <button 
                                 onClick={() => handleFinalize(false)} 
-                                className="flex-1 bg-primary text-white py-4 rounded-xl font-bold shadow-xl hover:bg-blue-600 transition-all transform active:scale-95"
+                                className="flex-1 bg-primary text-white py-4 rounded-xl font-bold shadow-xl hover:bg-blue-600 transition-all transform active:scale-95 text-lg"
                             >
                                 立即發佈
                             </button>
