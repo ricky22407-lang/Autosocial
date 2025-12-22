@@ -65,15 +65,28 @@ export const validateFacebookToken = async (token: string): Promise<{
   const cleanToken = token.trim();
 
   try {
-    // 步驟 1: 基礎身份識別 - 簡化欄位請求，避免權限不足導致連 id 都拿不到
-    // 這是最安全的請求方式
-    const meRes = await graphApi('me?fields=id,name', cleanToken);
+    // 步驟 1: 基礎身份與類型檢查
+    // 請求 metadata=1 可以知道這個 Token 的類型 (User 或 Page)
+    const meRes = await graphApi('me?fields=id,name,category', cleanToken);
     
     if (!meRes || !meRes.id) {
-        return { valid: false, status: 'INVALID', missingPermissions: [], error: '無法從 Token 讀取身份資訊' };
+        return { valid: false, status: 'INVALID', missingPermissions: [], error: '無法識別身份' };
+    }
+
+    // 如果有 category 欄位，代表這是一個 Page Token
+    const isPageToken = !!meRes.category;
+    
+    if (isPageToken) {
+        // Page Token 通常不支援 /me/permissions，但具備發文能力
+        return { 
+            valid: true, 
+            status: 'VALID', 
+            missingPermissions: [], 
+            debugInfo: { ...meRes, type: 'Page Token' } 
+        };
     }
     
-    // 步驟 2: 權限深度檢查
+    // 步驟 2: 用戶 Token 權限檢查
     let missing: string[] = [];
     try {
         const permRes = await graphApi('me/permissions', cleanToken);
@@ -86,13 +99,10 @@ export const validateFacebookToken = async (token: string): Promise<{
         
         missing = required.filter(p => !granted.includes(p));
     } catch (permErr) {
-        console.warn("Could not check permissions array, token might be restricted:", permErr);
-        // 如果連權限清單都不能讀取，我們不判定為失效，而是判定為「部分有效 (PARTIAL)」
-        // 因為 Page Token 有時候不允許讀取自己的 permissions 節點
         return {
             valid: true,
             status: 'PARTIAL',
-            missingPermissions: ['無法自動驗證詳細權限 (請手動確認包含發文權限)'],
+            missingPermissions: ['無法讀取詳細權限清單'],
             debugInfo: meRes
         };
     }
@@ -105,19 +115,9 @@ export const validateFacebookToken = async (token: string): Promise<{
     };
 
   } catch (e: any) {
-    console.error("Validation logic caught error:", e);
-    
     let errorMsg = e.message || '連線失敗';
     if (e.code === 190) errorMsg = 'Token 已失效或已過期。';
-    if (e.code === 100) errorMsg = '不支援的請求或 Token 格式錯誤。';
-    
-    return { 
-        valid: false, 
-        status: 'INVALID', 
-        missingPermissions: [], 
-        error: errorMsg,
-        debugInfo: e.fbError || { message: e.message }
-    };
+    return { valid: false, status: 'INVALID', missingPermissions: [], error: errorMsg, debugInfo: e.fbError };
   }
 };
 
@@ -179,8 +179,13 @@ export const fetchPageAnalytics = async (pageId: string, token?: string): Promis
   const cleanToken = token.trim();
   try {
     const pageInfo = await graphApi(`${pageId}?fields=followers_count`, cleanToken);
-    const reachData = await graphApi(`${pageId}/insights?metric=page_impressions_unique&period=days_28`, cleanToken);
-    const reach = reachData.data?.[0]?.values?.[0]?.value || 0;
+    // 降級處理：如果 insights 無法讀取，給予 0
+    let reach = 0;
+    try {
+        const reachData = await graphApi(`${pageId}/insights?metric=page_impressions_unique&period=days_28`, cleanToken);
+        reach = reachData.data?.[0]?.values?.[0]?.value || 0;
+    } catch (e) { console.warn("Analytics reach fetch failed", e); }
+
     return {
       followers: pageInfo.followers_count || 0,
       followersGrowth: 0,
@@ -194,7 +199,8 @@ export const fetchPageAnalytics = async (pageId: string, token?: string): Promis
 export const fetchPageTopPosts = async (pageId: string, token: string): Promise<{ topReach?: TopPostData, topEngagement?: TopPostData }> => {
     const cleanToken = token.trim();
     try {
-        const fields = 'id,message,created_time,full_picture,permalink_url,insights.metric(post_impressions_unique,post_engaged_users)';
+        // 簡化欄位請求，移除可能報錯的 insights 指標
+        const fields = 'id,message,created_time,full_picture,permalink_url';
         const res = await graphApi(`${pageId}/feed?limit=15&fields=${fields}`, cleanToken);
         const posts = res.data || [];
         if (posts.length === 0) return {};
@@ -215,8 +221,4 @@ export const fetchRecentPostCaptions = async (pageId: string, token: string, lim
     const cleanToken = token.trim();
     const res = await graphApi(`${pageId}/feed?fields=message&limit=${limit}`, cleanToken);
     return (res.data || []).map((p: any) => p.message).filter(Boolean);
-};
-
-export const refreshLongLivedToken = async (currentToken: string): Promise<{ success: boolean; newToken?: string; expiry?: number }> => {
-    return { success: false };
 };
