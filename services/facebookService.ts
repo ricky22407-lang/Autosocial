@@ -9,7 +9,6 @@ const FB_API_VERSION = 'v19.0';
 // ==========================================
 
 const graphApi = async (endpoint: string, token: string, method = 'GET', body?: any) => {
-  // 強制處理 Token 空格問題，這是最常見的失效原因
   const cleanToken = token.trim();
   const url = `https://graph.facebook.com/${FB_API_VERSION}/${endpoint}`;
   const fullUrl = `${url}${url.includes('?') ? '&' : '?'}access_token=${cleanToken}`;
@@ -33,7 +32,7 @@ const graphApi = async (endpoint: string, token: string, method = 'GET', body?: 
     if (data.error) {
       const err = new Error(data.error.message || 'FB API Error');
       (err as any).code = data.error.code;
-      (err as any).fbError = data.error; // 儲存完整錯誤以便偵錯
+      (err as any).fbError = data.error;
       throw err;
     }
     return data;
@@ -66,15 +65,15 @@ export const validateFacebookToken = async (token: string): Promise<{
   const cleanToken = token.trim();
 
   try {
-    // 步驟 1: 基礎身份識別 - 只要這一步過，Token 就是「有效的」
-    // 如果是永久 Page Token，me 會直接代表該 Page
-    const meRes = await graphApi('me?fields=id,name,category', cleanToken);
+    // 步驟 1: 基礎身份識別 - 簡化欄位請求，避免權限不足導致連 id 都拿不到
+    // 這是最安全的請求方式
+    const meRes = await graphApi('me?fields=id,name', cleanToken);
     
     if (!meRes || !meRes.id) {
-        return { valid: false, status: 'INVALID', missingPermissions: [], error: '無法從 Token 讀取專頁資訊' };
+        return { valid: false, status: 'INVALID', missingPermissions: [], error: '無法從 Token 讀取身份資訊' };
     }
     
-    // 步驟 2: 權限深度檢查 (僅作為功能建議，不影響有效性判定)
+    // 步驟 2: 權限深度檢查
     let missing: string[] = [];
     try {
         const permRes = await graphApi('me/permissions', cleanToken);
@@ -87,11 +86,17 @@ export const validateFacebookToken = async (token: string): Promise<{
         
         missing = required.filter(p => !granted.includes(p));
     } catch (permErr) {
-        console.warn("Could not check permissions array, might be a restricted system token:", permErr);
-        // 如果連權限清單都不能讀取，但 me 讀得到，通常是因為 Token 等級很高或很特殊
+        console.warn("Could not check permissions array, token might be restricted:", permErr);
+        // 如果連權限清單都不能讀取，我們不判定為失效，而是判定為「部分有效 (PARTIAL)」
+        // 因為 Page Token 有時候不允許讀取自己的 permissions 節點
+        return {
+            valid: true,
+            status: 'PARTIAL',
+            missingPermissions: ['無法自動驗證詳細權限 (請手動確認包含發文權限)'],
+            debugInfo: meRes
+        };
     }
     
-    // 只要 meRes.id 存在，就是有效 Token
     return { 
         valid: true, 
         status: missing.length === 0 ? 'VALID' : 'PARTIAL', 
@@ -103,18 +108,15 @@ export const validateFacebookToken = async (token: string): Promise<{
     console.error("Validation logic caught error:", e);
     
     let errorMsg = e.message || '連線失敗';
-    
-    // 針對 FB 錯誤碼進行精準解釋
-    if (e.code === 190) errorMsg = 'Token 已失效、已更改密碼或已過期。';
-    if (e.code === 100) errorMsg = 'Token 格式不正確，請確保複製完整。';
-    if (e.fbError?.error_subcode === 463) errorMsg = 'Token 已過期，請重新產生。';
+    if (e.code === 190) errorMsg = 'Token 已失效或已過期。';
+    if (e.code === 100) errorMsg = '不支援的請求或 Token 格式錯誤。';
     
     return { 
         valid: false, 
         status: 'INVALID', 
         missingPermissions: [], 
         error: errorMsg,
-        debugInfo: e.fbError
+        debugInfo: e.fbError || { message: e.message }
     };
   }
 };
@@ -137,7 +139,6 @@ export const publishPostToFacebook = async (
       const isBase64 = mediaUrl.startsWith('data:');
       const isVideo = mediaUrl.includes('.mp4') || mediaUrl.startsWith('data:video');
       
-      // 這裡也要確保傳入的是 cleanToken
       if (isBase64) {
           const blob = await base64ToBlob(mediaUrl);
           const formData = new FormData();
@@ -173,7 +174,6 @@ export const publishPostToFacebook = async (
   }
 };
 
-// ...其餘 function 保持不變，但確保內部的 token 都經過 trim()
 export const fetchPageAnalytics = async (pageId: string, token?: string): Promise<AnalyticsData | null> => {
   if (!pageId || !token) return null; 
   const cleanToken = token.trim();

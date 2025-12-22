@@ -23,7 +23,7 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
   const [tokenStatus, setTokenStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid' | 'partial'>('idle');
   const [missingPerms, setMissingPerms] = useState<string[]>([]);
   const [validationError, setValidationError] = useState('');
-  const [debugData, setDebugData] = useState<any>(null); // 新增偵錯資料顯示
+  const [debugData, setDebugData] = useState<any>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isAnalyzingTone, setIsAnalyzingTone] = useState(false);
 
@@ -95,9 +95,9 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
             setValidationError(res.error || 'Token 無效或連線錯誤');
             setDebugData(res.debugInfo);
         }
-    } catch (e) {
+    } catch (e: any) {
         setTokenStatus('invalid');
-        setValidationError('發生未知網路錯誤');
+        setValidationError(e.message || '發生未知網路錯誤');
     }
   };
 
@@ -200,14 +200,14 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
             {/* 驗證反饋區 */}
             {(tokenStatus === 'valid' || tokenStatus === 'partial') && debugData && (
                 <div className="mt-2 p-3 bg-green-900/10 border border-green-900/50 rounded">
-                    <p className="text-green-400 text-xs font-bold">✅ 已連結：{debugData.name}</p>
-                    <p className="text-[10px] text-gray-500 mt-1">類別：{debugData.category}</p>
+                    <p className="text-green-400 text-xs font-bold">✅ 已連結：{debugData.name || 'Facebook 物件'}</p>
                     {tokenStatus === 'partial' && (
                         <div className="mt-2 border-t border-green-900/20 pt-2">
-                             <p className="text-yellow-500 text-[10px] font-bold">⚠️ 提醒：缺少部分發文權限</p>
+                             <p className="text-yellow-500 text-[10px] font-bold">⚠️ 提示：</p>
                              <ul className="list-disc list-inside text-[9px] text-gray-400">
-                                {missingPerms.map(p => <li key={p}>{p}</li>)}
+                                {missingPerms.map((p, i) => <li key={i}>{p}</li>)}
                              </ul>
+                             <p className="text-[8px] text-gray-500 mt-1 italic">註：若此 Token 是 Page Token，可略過此警告直接儲存並嘗試發文。</p>
                         </div>
                     )}
                 </div>
@@ -218,7 +218,9 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
                     <p className="text-red-400 text-xs font-bold">❌ 驗證失敗</p>
                     <p className="text-[11px] text-red-300 mt-1">{validationError}</p>
                     {debugData && (
-                        <p className="text-[9px] text-gray-500 mt-2 font-mono break-all">技術錯誤: {JSON.stringify(debugData)}</p>
+                        <div className="mt-2 p-2 bg-black/20 rounded font-mono text-[9px] text-gray-500 break-all">
+                            Error Details: {JSON.stringify(debugData)}
+                        </div>
                     )}
                 </div>
             )}
