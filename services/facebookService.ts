@@ -29,7 +29,10 @@ const graphApi = async (endpoint: string, token: string, method = 'GET', body?: 
     const data = await res.json();
     
     if (data.error) {
-      throw new Error(`FB API Error: ${data.error.message} (Code: ${data.error.code})`);
+      const err = new Error(data.error.message || 'FB API Error');
+      (err as any).code = data.error.code;
+      (err as any).subcode = data.error.error_subcode;
+      throw err;
     }
     return data;
   } catch (error: any) {
@@ -86,13 +89,21 @@ const uploadUrlMedia = async (pageId: string, token: string, message: string, me
 // Public Exports
 // ==========================================
 
-export const validateFacebookToken = async (token: string): Promise<{ valid: boolean; missingPermissions: string[] }> => {
-  if (!token) return { valid: false, missingPermissions: [] };
+export const validateFacebookToken = async (token: string): Promise<{ valid: boolean; status: 'VALID' | 'INVALID' | 'PARTIAL'; missingPermissions: string[]; error?: string }> => {
+  if (!token || token.trim() === '') {
+    return { valid: false, status: 'INVALID', missingPermissions: [], error: '請輸入 Token' };
+  }
+
   try {
-    // 1. 檢查 Token 是否有效
-    await graphApi('me', token);
+    // 1. 檢查 Token 是否有效且可連接
+    // 使用 me?fields=id,name 是最基本的檢查
+    const meRes = await graphApi('me?fields=id,name', token);
     
-    // 2. 檢查權限
+    if (!meRes || !meRes.id) {
+        return { valid: false, status: 'INVALID', missingPermissions: [], error: 'Token 無法識別身份' };
+    }
+    
+    // 2. 檢查權限清單
     const permRes = await graphApi('me/permissions', token);
     const perms = permRes.data || [];
     
@@ -103,12 +114,24 @@ export const validateFacebookToken = async (token: string): Promise<{ valid: boo
     
     const missing = required.filter(p => !granted.includes(p));
     
+    if (missing.length === 0) {
+        return { valid: true, status: 'VALID', missingPermissions: [] };
+    } else {
+        return { valid: false, status: 'PARTIAL', missingPermissions: missing };
+    }
+  } catch (e: any) {
+    console.error("Validation logic caught error:", e);
+    // 處理常見 FB 錯誤代碼
+    let errorMsg = e.message || '連線失敗';
+    if (e.code === 190) errorMsg = 'Token 已過期或已被更改，請重新取得。';
+    if (e.code === 100) errorMsg = '無效的參數或 Token 格式錯誤。';
+    
     return { 
-        valid: missing.length === 0, 
-        missingPermissions: missing 
+        valid: false, 
+        status: 'INVALID', 
+        missingPermissions: [], 
+        error: errorMsg 
     };
-  } catch (e) {
-    return { valid: false, missingPermissions: [] };
   }
 };
 
