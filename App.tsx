@@ -100,24 +100,19 @@ const App: React.FC = () => {
     localStorage.setItem('autosocial_settings', JSON.stringify(newSettings));
   };
 
-  /**
-   * 建立/更新貼文：同步至雲端並執行「方案排程上限」檢查
-   */
   const handlePostCreated = async (newPost: Post) => {
     if (!user || !userProfile) return;
     
-    // 排程上限檢查
     if (newPost.status === 'scheduled') {
         const scheduledCount = posts.filter(p => p.status === 'scheduled' && p.id !== newPost.id).length;
         const role = userProfile.role;
-        
         let limit = 3; 
         if (role === 'pro') limit = 5;
         else if (role === 'business') limit = 10;
         else if (role === 'admin') limit = 100;
 
         if (scheduledCount >= limit) {
-            alert(`⚠️ 排程空間不足！\n您的方案 (${role.toUpperCase()}) 最多僅能儲存 ${limit} 篇雲端排程貼文。\n\n請刪除舊貼文或升級方案。`);
+            alert(`⚠️ 排程空間不足！您的方案最多儲存 ${limit} 篇排程貼文。`);
             return;
         }
     }
@@ -156,7 +151,6 @@ const App: React.FC = () => {
       setView(AppView.CREATE);
   };
 
-  // 權限檢查邏輯
   const role = userProfile?.role || 'user';
   const isAdmin = role === 'admin';
   const isStarterPlus = ['starter', 'pro', 'business', 'admin'].includes(role);
@@ -168,13 +162,12 @@ const App: React.FC = () => {
   const hasSeoAccess = isProPlus || userProfile?.unlockedFeatures?.includes('SEO');
   const hasThreadsAccess = isProPlus || userProfile?.unlockedFeatures?.includes('THREADS');
 
-  if (loadingAuth) return <div className="h-screen flex items-center justify-center bg-dark text-white">載入中...</div>;
+  if (loadingAuth) return <div className="h-screen flex items-center justify-center bg-dark text-white text-xl animate-pulse">AutoSocial AI 啟動中...</div>;
   if (view === AppView.LOGIN) return <Login onLoginSuccess={() => {}} />;
 
   return (
     <div className="min-h-screen bg-dark text-gray-200 flex flex-col md:flex-row relative">
-      {/* 側邊導航欄 - 已恢復所有遺失功能 */}
-      <aside className="w-full md:w-64 bg-card border-r border-gray-700 flex flex-col">
+      <aside className="w-full md:w-64 bg-card border-r border-gray-700 flex flex-col shadow-2xl z-30">
         <div className="p-6 border-b border-gray-700">
           <h1 className="text-2xl font-bold text-blue-400 cursor-pointer" onClick={() => setView(AppView.CREATE)}>AutoSocial AI</h1>
           <div className="mt-2 text-[10px] text-gray-400">
@@ -190,29 +183,28 @@ const App: React.FC = () => {
           </div>
         </div>
         
-        <nav className="flex-1 p-4 space-y-1 overflow-y-auto custom-scrollbar">
-          <button onClick={() => setView(AppView.CREATE)} className={`w-full text-left px-4 py-3 rounded transition-colors ${view === AppView.CREATE ? 'bg-primary text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>✨ 建立貼文</button>
-          <button onClick={() => setView(AppView.SCHEDULE)} className={`w-full text-left px-4 py-3 rounded transition-colors ${view === AppView.SCHEDULE ? 'bg-primary text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>📅 排程與歷史</button>
-          <button onClick={() => setView(AppView.SETTINGS)} className={`w-full text-left px-4 py-3 rounded transition-colors ${view === AppView.SETTINGS ? 'bg-primary text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>⚙️ 品牌設定</button>
+        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+          <button onClick={() => setView(AppView.CREATE)} className={`w-full text-left px-4 py-3 rounded transition-all ${view === AppView.CREATE ? 'bg-primary text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>✨ 建立貼文</button>
+          <button onClick={() => setView(AppView.SCHEDULE)} className={`w-full text-left px-4 py-3 rounded transition-all ${view === AppView.SCHEDULE ? 'bg-primary text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>📅 排程與歷史</button>
+          <button onClick={() => setView(AppView.SETTINGS)} className={`w-full text-left px-4 py-3 rounded transition-all ${view === AppView.SETTINGS ? 'bg-primary text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>⚙️ 品牌設定</button>
           
           <div className="pt-4 mt-4 border-t border-gray-700 space-y-1">
               <p className="px-4 text-[10px] text-gray-600 font-bold mb-2 tracking-widest uppercase">進階模組</p>
-              <button onClick={() => { if(hasAnalyticsAccess) setView(AppView.ANALYTICS); else alert("需要 Starter 以上方案"); }} className={`w-full text-left px-4 py-3 rounded transition-colors ${view === AppView.ANALYTICS ? 'bg-indigo-900 text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>📊 數據分析</button>
-              <button onClick={() => { if(hasAutomationAccess) setView(AppView.AUTOMATION); else alert("需要 Business 以上方案"); }} className={`w-full text-left px-4 py-3 rounded transition-colors ${view === AppView.AUTOMATION ? 'bg-indigo-900 text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>🤖 自動化中心</button>
-              <button onClick={() => { if(hasSeoAccess) setView(AppView.SEO_ARTICLES); else alert("需要 Pro 以上方案"); }} className={`w-full text-left px-4 py-3 rounded transition-colors ${view === AppView.SEO_ARTICLES ? 'bg-indigo-900 text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>📝 SEO 文章</button>
-              <button onClick={() => { if(hasThreadsAccess) setView(AppView.THREADS_NURTURE); else alert("需要 Pro 以上方案"); }} className={`w-full text-left px-4 py-3 rounded transition-colors ${view === AppView.THREADS_NURTURE ? 'bg-indigo-900 text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>🧵 Threads 養號</button>
-              <button onClick={() => setView(AppView.REFERRAL)} className={`w-full text-left px-4 py-3 rounded transition-colors text-green-400 font-bold ${view === AppView.REFERRAL ? 'bg-green-900/30' : 'hover:bg-gray-800'}`}>🎁 推薦獎勵</button>
+              <button onClick={() => { if(hasAnalyticsAccess) setView(AppView.ANALYTICS); else alert("需 Starter 方案"); }} className={`w-full text-left px-4 py-3 rounded ${view === AppView.ANALYTICS ? 'bg-indigo-900 text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>📊 數據分析</button>
+              <button onClick={() => { if(hasAutomationAccess) setView(AppView.AUTOMATION); else alert("需 Business 方案"); }} className={`w-full text-left px-4 py-3 rounded ${view === AppView.AUTOMATION ? 'bg-indigo-900 text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>🤖 自動化中心</button>
+              <button onClick={() => { if(hasSeoAccess) setView(AppView.SEO_ARTICLES); else alert("需 Pro 方案"); }} className={`w-full text-left px-4 py-3 rounded ${view === AppView.SEO_ARTICLES ? 'bg-indigo-900 text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>📝 SEO 文章</button>
+              <button onClick={() => { if(hasThreadsAccess) setView(AppView.THREADS_NURTURE); else alert("需 Pro 方案"); }} className={`w-full text-left px-4 py-3 rounded ${view === AppView.THREADS_NURTURE ? 'bg-indigo-900 text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>🧵 Threads 養號</button>
+              <button onClick={() => setView(AppView.REFERRAL)} className={`w-full text-left px-4 py-3 rounded text-green-400 font-bold ${view === AppView.REFERRAL ? 'bg-green-900/30' : 'hover:bg-gray-800'}`}>🎁 推薦獎勵</button>
           </div>
         </nav>
 
         <div className="p-4 border-t border-gray-700 space-y-2">
-          {isAdmin && <button onClick={() => setView(AppView.ADMIN)} className={`w-full text-left px-4 py-2 text-sm rounded ${view === AppView.ADMIN ? 'bg-red-900 text-white' : 'text-red-400 hover:bg-red-900/20'}`}>👮 管理員後台</button>}
+          {isAdmin && <button onClick={() => setView(AppView.ADMIN)} className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-red-900/20 rounded">👮 管理員後台</button>}
           <button onClick={handleLogout} className="w-full text-left px-4 py-2 text-sm text-gray-500 hover:text-red-400 transition-colors">🚪 登出系統</button>
         </div>
       </aside>
 
-      {/* 主內容區 - 確保所有視圖都被渲染 */}
-      <main className="flex-1 p-4 md:p-8 overflow-y-auto h-screen custom-scrollbar">
+      <main className="flex-1 p-4 md:p-8 overflow-y-auto h-screen">
         {view === AppView.CREATE && (
           <PostCreator 
             settings={settings} 
@@ -246,7 +238,7 @@ const App: React.FC = () => {
         {view === AppView.ADMIN && isAdmin && <AdminPanel currentUser={userProfile!} />}
       </main>
       
-      <button onClick={() => setShowReportModal(true)} className="fixed bottom-4 right-4 bg-red-900/80 text-white p-2 rounded-full z-40 shadow-xl hover:scale-110 transition-transform">🐞</button>
+      <button onClick={() => setShowReportModal(true)} className="fixed bottom-4 right-4 bg-red-900/80 text-white p-2 rounded-full z-40 shadow-xl">🐞</button>
       {showReportModal && <ErrorReportModal user={userProfile} currentView={view} onClose={() => setShowReportModal(false)} />}
     </div>
   );
