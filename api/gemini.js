@@ -23,7 +23,7 @@ module.exports = async function (req, res) {
       return res.status(400).json({ error: 'Missing Request Body' });
   }
 
-  // --- Multi-Key Manager & Failover Logic ---
+  // --- Multi-Key Manager & Load Balancing Logic ---
   class KeyManager {
       constructor() {
           // Load Gemini keys from possible env vars
@@ -38,7 +38,12 @@ module.exports = async function (req, res) {
           // Load OpenAI Key for Ultimate Fallback
           this.openAIKey = process.env.OPENAI_API_KEY;
 
-          this.currentIndex = 0;
+          // RANDOM START INDEX (Load Balancing)
+          // Instead of starting at 0, we start at a random index. 
+          // This ensures that concurrent users hit different keys, preventing a bottleneck on Key #1.
+          this.currentIndex = this.geminiKeys.length > 0 
+              ? Math.floor(Math.random() * this.geminiKeys.length) 
+              : 0;
       }
 
       getCurrentKey() {
@@ -46,14 +51,31 @@ module.exports = async function (req, res) {
           return this.geminiKeys[this.currentIndex];
       }
       
+      getCurrentKeySlotIndex() {
+          return this.currentIndex + 1; // 1-based index for logging
+      }
+      
       getOpenAIKey() {
           return this.openAIKey;
       }
 
+      // Check specifically which slots are configured (for UI monitoring)
+      getKeyConfigStatus() {
+          return [
+              !!(process.env.API_KEY && process.env.API_KEY !== 'undefined'),
+              !!(process.env.API_KEY_2 && process.env.API_KEY_2 !== 'undefined'),
+              !!(process.env.API_KEY_3 && process.env.API_KEY_3 !== 'undefined'),
+              !!(process.env.API_KEY_4 && process.env.API_KEY_4 !== 'undefined'),
+              !!(process.env.API_KEY_5 && process.env.API_KEY_5 !== 'undefined')
+          ];
+      }
+
       switchToNextKey() {
-          if (this.currentIndex < this.geminiKeys.length - 1) {
-              this.currentIndex++;
-              console.warn(`[KeyManager] ⚠️ Gemini API Limit Hit. Switching to Backup Key #${this.currentIndex + 1}`);
+          // Circular switching (Round Robin fallback)
+          if (this.geminiKeys.length > 1) {
+              const oldIndex = this.currentIndex;
+              this.currentIndex = (this.currentIndex + 1) % this.geminiKeys.length;
+              console.warn(`[KeyManager] ⚠️ Switching Key: Slot ${oldIndex + 1} -> Slot ${this.currentIndex + 1}`);
               return true;
           }
           return false;
@@ -89,14 +111,15 @@ module.exports = async function (req, res) {
       return data.data[0].b64_json;
   }
 
-  // Retry Wrapper with Exponential Backoff
-  async function executeWithRetry(operation, retryCount = 0) {
+  // Retry Wrapper with Exponential Backoff & Key Rotation
+  async function executeWithRetry(operation, retryCount = 0, keysTried = 1) {
       if (!keyManager.getCurrentKey()) {
           throw new Error("Server Configuration Error: API_KEY is missing in environment variables.");
       }
 
-      const maxRetries = 1; // Lower retries to speed up fallback
-
+      // Max retries per key = 1 (Fast Failover). 
+      // Max total keys tried = Total available keys.
+      
       try {
           const apiKey = keyManager.getCurrentKey();
           
@@ -114,31 +137,33 @@ module.exports = async function (req, res) {
 
       } catch (error) {
           const msg = error.message || '';
-          console.warn(`[API Error] ${msg}`);
+          console.warn(`[API Error Slot ${keyManager.getCurrentKeySlotIndex()}] ${msg}`);
           
           // Identify Quota/Overload Errors
           // 429: Too Many Requests, 503: Service Unavailable
-          // Also catch "exhausted" which is common in Gemini
           const isQuotaError = msg.includes('429') || msg.includes('Quota') || msg.includes('exhausted') || msg.includes('503') || msg.includes('403');
           
           if (isQuotaError) {
-              if (retryCount < maxRetries) {
-                  // Exponential Backoff: 1s, 2s
-                  const waitTime = Math.pow(2, retryCount) * 1000;
-                  console.warn(`[API] Quota Error (Attempt ${retryCount + 1}). Waiting ${waitTime}ms to retry...`);
-                  await delay(waitTime);
-                  return executeWithRetry(operation, retryCount + 1);
+              // Strategy: If current key fails, try next key IMMEDIATELY without waiting too long.
+              // We only wait if we have exhausted all keys.
+              
+              if (keysTried < keyManager.geminiKeys.length) {
+                  // Switch to next available key
+                  keyManager.switchToNextKey();
+                  return executeWithRetry(operation, 0, keysTried + 1);
               } else {
-                  // If all retries on this key failed, try switching key
-                  if (keyManager.switchToNextKey()) {
-                      // Reset retries for the new key
-                      return executeWithRetry(operation, 0);
+                  // All keys exhausted. Now we wait and retry on current (last) key.
+                  if (retryCount < 1) {
+                      const waitTime = 2000;
+                      console.warn(`[API] All keys exhausted. Waiting ${waitTime}ms to retry...`);
+                      await delay(waitTime);
+                      return executeWithRetry(operation, retryCount + 1, keysTried);
                   } else {
-                      // Throw distinct error to trigger next model in waterfall
-                      throw new Error("KEY_EXHAUSTED");
+                      throw new Error("ALL_KEYS_EXHAUSTED");
                   }
               }
           } else {
+              // Non-quota error (e.g. invalid prompt, filter), throw immediately
               throw error;
           }
       }
@@ -149,6 +174,16 @@ module.exports = async function (req, res) {
     
     if (!action) {
         return res.status(400).json({ error: "Missing 'action' in request body" });
+    }
+
+    // --- Action: getServiceStatus (NEW) ---
+    if (action === 'getServiceStatus') {
+        const status = keyManager.getKeyConfigStatus();
+        return res.status(200).json({ 
+            keyStatus: status,
+            totalConfigured: status.filter(s => s).length,
+            hasOpenAI: !!keyManager.getOpenAIKey()
+        });
     }
 
     // --- Action: fetchRss ---
@@ -217,16 +252,15 @@ module.exports = async function (req, res) {
     else if (action === 'generateImages') {
       const { prompt, safetySettings } = payload;
       
-      // Helper: Generate via generateContent (For Nano/Banana/Flash-Image models)
-      // This uses .generateContent(), not .generateImages()
+      // Helper: Generate via generateContent
       const generateViaContent = async (ai, modelName) => {
-          console.log(`[Image Gen] Attempting with ${modelName} (generateContent)...`);
+          console.log(`[Image Gen] Attempting with ${modelName}...`);
           const response = await ai.models.generateContent({
               model: modelName,
               contents: { parts: [{ text: prompt }] },
               config: { 
                   imageConfig: { aspectRatio: "1:1" },
-                  safetySettings: safetySettings // Injected from payload (for No Limit)
+                  safetySettings: safetySettings 
               }
           });
           
@@ -243,58 +277,52 @@ module.exports = async function (req, res) {
           return { base64: b64 };
       };
 
-      // Helper: Generate via generateImages (For Imagen models)
-      // This strictly follows the user provided documentation for Imagen 4.0/3.0
+      // Helper: Generate via generateImages
       const generateViaImagen = async (ai, modelName) => {
-          console.log(`[Image Gen] Attempting with ${modelName} (generateImages)...`);
+          console.log(`[Image Gen] Attempting with ${modelName}...`);
           const response = await ai.models.generateImages({
               model: modelName,
               prompt: prompt,
               config: { 
                   numberOfImages: 1,
-                  // Imagen requires explicit Aspect Ratio or defaults to 1:1
                   aspectRatio: "1:1",
-                  safetySettings: safetySettings // Injected from payload (for No Limit)
+                  safetySettings: safetySettings 
               }
           });
 
-          // response.generatedImages is the array
           const imgBytes = response.generatedImages?.[0]?.image?.imageBytes;
-          
           if (!imgBytes) throw new Error(`No image bytes received from ${modelName}`);
           return { base64: imgBytes };
       };
 
       // === WATERFALL STRATEGY ===
-      // PRIORITY 1: Imagen 3.0 (Stable & Common)
+      // PRIORITY 1: Imagen 3.0
       try {
           const result = await executeWithRetry(async (ai) => {
               return await generateViaImagen(ai, 'imagen-3.0-generate-002');
           });
           return res.status(200).json(result);
       } catch (errorImagen3) {
-          console.warn(`[Image Gen] Imagen 3.0 failed (${errorImagen3.message}). Trying Gemini 2.5 Flash Image...`);
+          console.warn(`[Image Gen] Imagen 3.0 failed. Trying Gemini 2.5 Flash Image...`);
           
-          // PRIORITY 2: Gemini 2.5 Flash Image (Content Gen Model)
+          // PRIORITY 2: Gemini 2.5 Flash Image
           try {
              const result = await executeWithRetry(async (ai) => {
                  return await generateViaContent(ai, 'gemini-2.5-flash-image');
              });
              return res.status(200).json(result);
           } catch (errorFlash) {
-             console.warn(`[Image Gen] Gemini Flash failed (${errorFlash.message}). Checking OpenAI...`);
+             console.warn(`[Image Gen] Gemini Flash failed. Checking OpenAI...`);
              
-             // PRIORITY 3: OpenAI DALL-E 3 (Ultimate Fallback)
+             // PRIORITY 3: OpenAI DALL-E 3
              if (keyManager.getOpenAIKey()) {
                  try {
                      const openAIBase64 = await generateOpenAIImage(prompt);
                      return res.status(200).json({ base64: openAIBase64 });
                  } catch (openAIError) {
-                     console.error("[Image Gen] All Backends Failed (including OpenAI).");
-                     return res.status(500).json({ error: "Backend Image Generation Failed (Gemini & OpenAI exhausted)." });
+                     return res.status(500).json({ error: "Backend Image Generation Failed (All Models Exhausted)." });
                  }
              } else {
-                 console.error("[Image Gen] All Gemini models failed and no OpenAI Key configured.");
                  return res.status(500).json({ error: "Backend Image Generation Failed (Gemini exhausted, no OpenAI key)." });
              }
           }
@@ -332,7 +360,6 @@ module.exports = async function (req, res) {
 
   } catch (error) {
     console.error('[API Error]:', error);
-    // Ensure we return JSON error even for 500
     return res.status(500).json({ 
         error: error.message || 'Internal Server Error'
     });

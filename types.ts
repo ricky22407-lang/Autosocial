@@ -1,9 +1,4 @@
 
-
-// ==========================================
-// Core & API Types
-// ==========================================
-
 export interface ApiResponse<T = any> {
   success: boolean;
   data?: T;
@@ -16,78 +11,46 @@ export interface ApiResponse<T = any> {
 }
 
 export enum ErrorCode {
-  // Auth
   UNAUTHORIZED = 'AUTH_001',
   FORBIDDEN = 'AUTH_002',
   TOKEN_EXPIRED = 'AUTH_003',
-  
-  // Resources
   NOT_FOUND = 'RES_001',
   VALIDATION_ERROR = 'RES_002',
-  
-  // Business Logic
   QUOTA_EXCEEDED = 'BIZ_001',
   FEATURE_LOCKED = 'BIZ_002',
-  
-  // External APIs
   FACEBOOK_API_ERROR = 'EXT_FB_001',
   AI_API_ERROR = 'EXT_AI_001',
-  
-  // System
   INTERNAL_ERROR = 'SYS_001',
   MAINTENANCE_MODE = 'SYS_002'
 }
 
-// ==========================================
-// Domain: User & Membership
-// ==========================================
-
-// Tier Structure:
-// user (Free): 10 Credits. FB Text Only.
-// starter: 500 Credits. FB Schedule, AI Image, Basic Analytics.
-// pro: 2000 Credits. Threads Nurture, SEO, Adv Analytics.
-// business: 5000+ Credits. AutoPilot, Multi-Account.
-// admin: Unlimited.
 export type UserRole = 'user' | 'starter' | 'pro' | 'business' | 'admin';
 
 export interface UserProfile {
   user_id: string;
   email: string;
   role: UserRole;
-  // Use flat properties to match authService implementation
   quota_total: number;
   quota_used: number;
-  quota_reset_date: number; // Timestamp
-  
+  quota_reset_date: number;
   isSuspended: boolean;
-  unlockedFeatures: string[]; 
-  
-  // Referral System
-  referralCode?: string; // My code to invite others
-  referredBy?: string;   // Who invited me
+  unlockedFeatures: string[]; // ['SEO', 'THREADS', 'AUTOMATION', 'ANALYTICS']
+  referralCode?: string;
+  referredBy?: string;
   referralCount?: number;
-
   created_at: number;
   updated_at: number;
 }
 
-// ==========================================
-// Domain: Usage Logging (New)
-// ==========================================
-
 export interface UsageLog {
-  uid: string;           // User ID
-  act: 'draft' | 'img' | 'seo' | 'threads' | 'viral' | 'score' | 'video'; // Short action code
-  topic: string;         // Main topic/keyword
-  prmt: string;          // The Prompt (Full)
-  res: string;           // Result (Truncated to 500 chars)
-  params?: string;       // JSON string of settings (e.g., tone, style) - kept small
-  ts: number;            // Timestamp
+  uid: string;
+  act: 'draft' | 'img' | 'seo' | 'threads' | 'viral' | 'score' | 'video';
+  topic: string;
+  prmt: string;
+  res: string;
+  params?: string;
+  ts: number;
 }
-
-// ==========================================
-// Domain: Brand & Settings
-// ==========================================
 
 export interface ReferenceFile {
   name: string;
@@ -96,54 +59,42 @@ export interface ReferenceFile {
 
 export interface ThreadsAccount {
   id: string;
-  username: string; // Friendly name for UI
-  userId: string;   // Threads User ID
-  token: string;    // Threads Access Token
+  username: string;
+  userId: string;
+  token: string;
   isActive: boolean;
-  personaPrompt?: string; // New: Specific persona for this account
+  personaPrompt?: string;
 }
 
 export interface ThreadsAutoPilotConfig {
   enabled: boolean;
   frequency: 'daily' | 'weekly';
-  postWeekDays: number[]; // 0-6
+  postWeekDays: number[];
   postTime: string;
   imageMode: 'ai_url' | 'stock_url' | 'none';
-  targetAccountIds?: string[]; // New: Specific accounts to nurture
+  targetAccountIds?: string[];
   lastRunAt?: number;
-  // Removed deprecated autoLikeEnabled
 }
 
 export interface BrandSettings {
-  // Identity
   industry: string;
-  brandType: 'enterprise' | 'personal'; // New: Strategy Selector
+  brandType: 'enterprise' | 'personal';
   services: string;
   website: string;
   productInfo: string;
-  productContext?: string; // New: Deeply analyzed product knowledge base (TXT analysis result)
+  productContext?: string;
   brandTone: string;
   persona: string;
-  logoUrl?: string; // New: Base64 or URL for Watermark
-  
-  // Style Tuner (New)
-  brandStylePrompt?: string; // Stores the analyzed visual style prompt
-  
-  // API Config (Sensitive data should be handled carefully)
+  logoUrl?: string;
+  brandStylePrompt?: string;
   facebookPageId: string;
   facebookToken: string;
   tokenExpiry?: number;
-  
-  // Threads Config (New)
   threadsAccounts?: ThreadsAccount[];
-  threadsAutoPilot?: ThreadsAutoPilotConfig; // New
-
-  // Content Strategy
+  threadsAutoPilot?: ThreadsAutoPilotConfig;
   competitors: string[];
   fixedHashtags: string;
   referenceFiles: ReferenceFile[];
-  
-  // Modules
   autoReply: AutoReplyConfig;
   autoPilot: AutoPilotConfig;
 }
@@ -162,17 +113,13 @@ export interface AutoReplyConfig {
 export interface AutoPilotConfig {
   enabled: boolean;
   frequency: 'daily' | 'weekly';
-  postWeekDays?: number[]; // Changed to array for multiple days. 0 (Sun) - 6 (Sat)
+  postWeekDays?: number[];
   postTime: string;
   source: 'trending' | 'competitor' | 'keywords';
   keywords: string[];
   mediaTypePreference: 'image' | 'video' | 'mixed';
   lastRunAt?: number;
 }
-
-// ==========================================
-// Domain: Content & Post
-// ==========================================
 
 export interface CtaItem {
   text: string;
@@ -193,27 +140,22 @@ export interface Post {
   firstComment?: string;
   errorLog?: string;
   createdAt: number;
-  syncInstagram?: boolean; // New: Sync to IG
+  syncInstagram?: boolean;
 }
 
 export interface TrendingTopic {
   title: string;
   description: string;
   url?: string;
-  imageUrl?: string; // New: Source image from RSS/News
+  imageUrl?: string;
 }
 
-// New: Global Cache Structure
 export interface CachedTrendData {
-  id: string;        // Key: YYYY-MM-DD_Industry
+  id: string;
   topics: TrendingTopic[];
   createdAt: number;
   industry: string;
 }
-
-// ==========================================
-// Domain: Viral / Marketing (New)
-// ==========================================
 
 export type ViralType = 'regret' | 'expose' | 'counter' | 'identity' | 'result';
 export type ViralPlatform = 'facebook' | 'threads' | 'xhs';
@@ -232,13 +174,9 @@ export interface TitleScore {
 }
 
 export interface ViralPostDraft {
-  versions: string[]; // 3 versions
+  versions: string[];
   imagePrompt: string;
 }
-
-// ==========================================
-// Domain: Analytics
-// ==========================================
 
 export interface AnalyticsData {
   followers: number;
@@ -264,18 +202,14 @@ export interface TopPostData {
   reach: number;
   engagedUsers: number;
   permalink_url: string;
-  type: 'reach' | 'engagement'; // Label for UI
+  type: 'reach' | 'engagement';
 }
-
-// ==========================================
-// Domain: Admin & System
-// ==========================================
 
 export interface AdminKey {
   key: string;
   type: 'RESET_QUOTA' | 'UPGRADE_ROLE' | 'UNLOCK_FEATURE';
   targetRole?: UserRole;
-  targetFeature?: 'ANALYTICS' | 'AUTOMATION' | 'SEO' | 'THREADS'; // Added THREADS
+  targetFeature?: 'ANALYTICS' | 'AUTOMATION' | 'SEO' | 'THREADS'; // restored feature unlock
   createdBy: string;
   createdAt: number;
   expiresAt: number;
@@ -316,7 +250,6 @@ export interface DashboardStats {
   errorCountToday: number;
 }
 
-// Frontend Routing Enum
 export enum AppView {
   LOGIN = 'LOGIN',
   SETTINGS = 'SETTINGS',
@@ -326,6 +259,6 @@ export enum AppView {
   AUTOMATION = 'AUTOMATION',
   SEO_ARTICLES = 'SEO_ARTICLES',
   THREADS_NURTURE = 'THREADS_NURTURE',
-  REFERRAL = 'REFERRAL', // New View
+  REFERRAL = 'REFERRAL',
   ADMIN = 'ADMIN'
 }

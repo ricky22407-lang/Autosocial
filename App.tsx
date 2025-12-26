@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { AppView, BrandSettings, Post, UserProfile } from './types';
 
@@ -13,6 +14,7 @@ import AdminPanel from './components/AdminPanel';
 import SeoArticleGenerator from './components/SeoArticleGenerator';
 import ReferralPanel from './components/ReferralPanel'; 
 import ErrorReportModal from './components/ErrorReportModal'; 
+import KeyRedemptionModal from './components/KeyRedemptionModal';
 // #endregion
 
 // #region Services & Auth Import
@@ -53,6 +55,7 @@ const App: React.FC = () => {
   const [posts, setPosts] = useState<Post[]>([]);
   const [editingPost, setEditingPost] = useState<Post | null>(null);
   const [showReportModal, setShowReportModal] = useState(false);
+  const [showKeyModal, setShowKeyModal] = useState(false);
 
   useEffect(() => {
     const unsubscribe = subscribeAuth(async (currentUser) => {
@@ -205,14 +208,18 @@ const App: React.FC = () => {
               <p className="text-[10px] text-gray-600 font-black tracking-[0.2em] uppercase">進階管理模組</p>
           </div>
           
-          <NavItem viewId={AppView.ANALYTICS} label="數據分析中心" active={view === AppView.ANALYTICS} onClick={() => hasAnalyticsAccess ? setView(AppView.ANALYTICS) : alert("需升級至 Starter 方案")} disabled={!hasAnalyticsAccess} badge={!hasAnalyticsAccess ? "LOCK" : ""} />
-          <NavItem viewId={AppView.AUTOMATION} label="全自動化中心" active={view === AppView.AUTOMATION} onClick={() => hasAutomationAccess ? setView(AppView.AUTOMATION) : alert("需升級至 Business 方案")} disabled={!hasAutomationAccess} badge={!hasAutomationAccess ? "LOCK" : ""} />
-          <NavItem viewId={AppView.SEO_ARTICLES} label="SEO 文章生成" active={view === AppView.SEO_ARTICLES} onClick={() => hasSeoAccess ? setView(AppView.SEO_ARTICLES) : alert("需升級至 Pro 方案")} disabled={!hasSeoAccess} badge={!hasSeoAccess ? "LOCK" : ""} />
-          <NavItem viewId={AppView.THREADS_NURTURE} label="Threads 養號系統" active={view === AppView.THREADS_NURTURE} onClick={() => hasThreadsAccess ? setView(AppView.THREADS_NURTURE) : alert("需升級至 Pro 方案")} disabled={!hasThreadsAccess} badge={!hasThreadsAccess ? "LOCK" : ""} />
+          <NavItem viewId={AppView.ANALYTICS} label="數據分析中心" active={view === AppView.ANALYTICS} onClick={() => hasAnalyticsAccess ? setView(AppView.ANALYTICS) : alert("需升級至 Starter 方案或輸入解鎖金鑰")} disabled={!hasAnalyticsAccess} badge={!hasAnalyticsAccess ? "LOCK" : ""} />
+          <NavItem viewId={AppView.AUTOMATION} label="全自動化中心" active={view === AppView.AUTOMATION} onClick={() => hasAutomationAccess ? setView(AppView.AUTOMATION) : alert("需升級至 Business 方案或輸入解鎖金鑰")} disabled={!hasAutomationAccess} badge={!hasAutomationAccess ? "LOCK" : ""} />
+          <NavItem viewId={AppView.SEO_ARTICLES} label="SEO 文章生成" active={view === AppView.SEO_ARTICLES} onClick={() => hasSeoAccess ? setView(AppView.SEO_ARTICLES) : alert("需升級至 Pro 方案或輸入解鎖金鑰")} disabled={!hasSeoAccess} badge={!hasSeoAccess ? "LOCK" : ""} />
+          <NavItem viewId={AppView.THREADS_NURTURE} label="Threads 養號系統" active={view === AppView.THREADS_NURTURE} onClick={() => hasThreadsAccess ? setView(AppView.THREADS_NURTURE) : alert("需升級至 Pro 方案或輸入解鎖金鑰")} disabled={!hasThreadsAccess} badge={!hasThreadsAccess ? "LOCK" : ""} />
           <NavItem viewId={AppView.REFERRAL} label="好友推薦計畫" active={view === AppView.REFERRAL} onClick={setView} />
         </nav>
 
         <div className="p-4 border-t border-gray-800 bg-dark/20 space-y-2">
+          <button onClick={() => setShowKeyModal(true)} className="w-full text-left px-4 py-2 text-xs rounded transition-colors font-bold bg-yellow-900/20 text-yellow-400 hover:bg-yellow-900/40 border border-yellow-800/50 mb-2">
+              🔑 兌換金鑰 (Redeem)
+          </button>
+          
           {isAdmin && (
             <button onClick={() => setView(AppView.ADMIN)} className={`w-full text-left px-4 py-2 text-xs rounded transition-colors font-bold ${view === AppView.ADMIN ? 'bg-red-900 text-white' : 'text-red-400 hover:bg-red-900/10'}`}>
               管理員後台
@@ -259,7 +266,10 @@ const App: React.FC = () => {
       </main>
       
       <button onClick={() => setShowReportModal(true)} className="fixed bottom-6 right-6 bg-red-600 hover:bg-red-500 text-white w-10 h-10 rounded-full z-40 shadow-2xl transition-transform active:scale-90 flex items-center justify-center font-bold text-lg">!</button>
+      
+      {/* Modals */}
       {showReportModal && <ErrorReportModal user={userProfile} currentView={view} onClose={() => setShowReportModal(false)} />}
+      {showKeyModal && userProfile && <KeyRedemptionModal user={userProfile} onClose={() => setShowKeyModal(false)} onSuccess={refreshProfile} />}
     </div>
   );
 };

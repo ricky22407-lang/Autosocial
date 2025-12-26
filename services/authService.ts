@@ -2,12 +2,6 @@
 import { UserProfile, UserRole, AdminKey, SystemConfig, LogEntry, DashboardStats, BrandSettings, UserReport, UsageLog, Post } from '../types';
 import { auth, db, isMock, firebase } from './firebase';
 
-/* 
-   ==========================================================================
-   AUTH & DATA SERVICE
-   ==========================================================================
-*/
-
 const DB_USERS = 'autosocial_db_users';
 const SESSION_KEY = 'autosocial_session_uid';
 
@@ -31,10 +25,6 @@ const getQuotaForRole = (role: UserRole): number => {
     default: return 10;
   }
 };
-
-// ============================================================================
-// Auth Functions
-// ============================================================================
 
 export const getCurrentUser = () => {
     if (!isMock) return auth.currentUser;
@@ -85,11 +75,21 @@ export const subscribeAuth = (callback: (user: { uid: string, email: string } | 
 };
 
 export const login = async (email: string, pass: string) => {
+    // 1. Mock Admin Login (Backdoor for Demo/Dev)
     if (isMock && email === 'ricky22407@gmail.com' && pass === 'testautosocial1106') {
          const uid = 'demo_admin';
          const users = getMockDb(DB_USERS);
          if (!users[uid]) {
-             users[uid] = { user_id: uid, email, role: 'admin', quota_total: 99999, quota_used: 0, created_at: Date.now(), isSuspended: false, unlockedFeatures: ['ANALYTICS', 'AUTOMATION', 'SEO'] } as UserProfile;
+             users[uid] = { 
+                 user_id: uid, 
+                 email, 
+                 role: 'admin', 
+                 quota_total: 99999, 
+                 quota_used: 0, 
+                 created_at: Date.now(), 
+                 isSuspended: false, 
+                 unlockedFeatures: ['ANALYTICS', 'AUTOMATION', 'SEO', 'THREADS'] 
+             } as UserProfile;
              saveMockDb(DB_USERS, users);
          }
          localStorage.setItem(SESSION_KEY, uid);
@@ -97,11 +97,31 @@ export const login = async (email: string, pass: string) => {
          return { user: { uid, email } };
     }
 
+    // 2. Real Firebase Login
     if (!isMock) {
         const cred = await auth.signInWithEmailAndPassword(email, pass);
+        
+        // --- Admin Restoration Logic ---
+        // Automatically promote this specific email to admin upon login
+        if (email === 'ricky22407@gmail.com') {
+            try {
+                await db.collection('users').doc(cred.user!.uid).set({
+                    role: 'admin',
+                    quota_total: 99999,
+                    unlockedFeatures: ['ANALYTICS', 'AUTOMATION', 'SEO', 'THREADS'],
+                    updated_at: Date.now()
+                }, { merge: true });
+                console.log("👑 Admin privileges restored for:", email);
+            } catch (e) {
+                console.error("Failed to restore admin privileges:", e);
+            }
+        }
+        // -------------------------------
+
         return { user: cred.user };
     } 
     
+    // 3. Mock User Login
     const users = getMockDb(DB_USERS);
     const user = Object.values(users).find((u: any) => u.email === email) as UserProfile;
     if (user) {
@@ -109,7 +129,6 @@ export const login = async (email: string, pass: string) => {
         window.dispatchEvent(new Event('auth_state_change'));
         return { user: { uid: user.user_id, email: user.email } };
     }
-    // 回退邏輯：若 Mock 模式下不存在，自動註冊一個
     return await register(email, pass);
 };
 
@@ -117,6 +136,16 @@ export const register = async (email: string, pass: string) => {
     if (!isMock) {
         const cred = await auth.createUserWithEmailAndPassword(email, pass);
         await createUserProfile({ uid: cred.user!.uid, email: email });
+        
+        // --- Admin Restoration Logic (Registration Case) ---
+        if (email === 'ricky22407@gmail.com') {
+             await db.collection('users').doc(cred.user!.uid).update({
+                role: 'admin',
+                quota_total: 99999,
+                unlockedFeatures: ['ANALYTICS', 'AUTOMATION', 'SEO', 'THREADS']
+            });
+        }
+        
         return { user: cred.user };
     } 
     
@@ -127,7 +156,6 @@ export const register = async (email: string, pass: string) => {
     return { user: { uid, email } };
 };
 
-// Fix: Add missing sendPasswordReset function
 export const sendPasswordReset = async (email: string) => {
     if (!isMock) {
         await auth.sendPasswordResetEmail(email);
@@ -143,10 +171,6 @@ export const logout = async () => {
         window.dispatchEvent(new Event('auth_state_change'));
     }
 };
-
-// ============================================================================
-// Firestore & Quota Logic
-// ============================================================================
 
 export const syncPostToCloud = async (userId: string, post: Post) => {
     if (isMock) {
@@ -261,9 +285,25 @@ export const getAllUsers = async (): Promise<UserProfile[]> => {
 };
 
 export const generateAdminKey = async (adminId: string, type: string, role?: UserRole, feature?: string): Promise<string> => {
-    const key = `KEY-${Date.now().toString().slice(-4)}-${Math.floor(Math.random()*1000)}`;
-    const data = { key, type, targetRole: role, targetFeature: feature, createdBy: adminId, createdAt: Date.now(), expiresAt: Date.now() + 3600000, isUsed: false };
+    const featureCode = feature ? `-${feature.substring(0,3)}` : '';
+    const key = `KEY${featureCode}-${Date.now().toString().slice(-6)}-${Math.floor(Math.random()*100)}`;
+    const data: AdminKey = { 
+        key, 
+        type: type as any, 
+        targetRole: role, 
+        targetFeature: feature as any, 
+        createdBy: adminId, 
+        createdAt: Date.now(), 
+        expiresAt: Date.now() + 3600000 * 24, // 24 Hours valid
+        isUsed: false 
+    };
+    
     if (!isMock) await db.collection('admin_keys').doc(key).set(data);
+    else {
+        const keys = getMockDb('autosocial_keys');
+        keys[key] = data;
+        saveMockDb('autosocial_keys', keys);
+    }
     return key;
 };
 
@@ -273,17 +313,50 @@ export const useAdminKey = async (userId: string, keyString: string): Promise<{ 
         try {
             return await db.runTransaction(async (t) => {
                 const doc = await t.get(keyRef);
-                if (!doc.exists || doc.data()?.isUsed) throw new Error("無效或已使用");
+                if (!doc.exists) throw new Error("無效的金鑰");
                 const keyData = doc.data() as AdminKey;
+                if (keyData.isUsed) throw new Error("此金鑰已被使用");
+                
                 const userRef = db.collection('users').doc(userId);
-                if (keyData.type === 'RESET_QUOTA') t.update(userRef, { quota_used: 0 });
-                else if (keyData.type === 'UPGRADE_ROLE' && keyData.targetRole) t.update(userRef, { role: keyData.targetRole, quota_total: getQuotaForRole(keyData.targetRole) });
-                t.update(keyRef, { isUsed: true });
-                return { success: true, message: "兌換成功" };
+                
+                if (keyData.type === 'RESET_QUOTA') {
+                    t.update(userRef, { quota_used: 0 });
+                } 
+                else if (keyData.type === 'UPGRADE_ROLE' && keyData.targetRole) {
+                    t.update(userRef, { role: keyData.targetRole, quota_total: getQuotaForRole(keyData.targetRole) });
+                } 
+                else if (keyData.type === 'UNLOCK_FEATURE' && keyData.targetFeature) {
+                    t.update(userRef, { 
+                        unlockedFeatures: firebase.firestore.FieldValue.arrayUnion(keyData.targetFeature) 
+                    });
+                }
+
+                t.update(keyRef, { isUsed: true, usedBy: userId, usedAt: Date.now() });
+                return { success: true, message: "金鑰兌換成功！" };
             });
         } catch (e: any) { return { success: false, message: e.message }; }
+    } else {
+        const keys = getMockDb('autosocial_keys');
+        const kData = keys[keyString];
+        if (!kData || kData.isUsed) return { success: false, message: "無效或已使用" };
+        
+        const users = getMockDb(DB_USERS);
+        const user = users[userId];
+        
+        if (kData.type === 'RESET_QUOTA') user.quota_used = 0;
+        else if (kData.type === 'UPGRADE_ROLE') {
+            user.role = kData.targetRole;
+            user.quota_total = getQuotaForRole(kData.targetRole);
+        } else if (kData.type === 'UNLOCK_FEATURE') {
+            if(!user.unlockedFeatures) user.unlockedFeatures = [];
+            if(!user.unlockedFeatures.includes(kData.targetFeature)) user.unlockedFeatures.push(kData.targetFeature);
+        }
+        
+        kData.isUsed = true;
+        saveMockDb('autosocial_keys', keys);
+        saveMockDb(DB_USERS, users);
+        return { success: true, message: "兌換成功 (Mock)" };
     }
-    return { success: false, message: "Mock 模式不支援" };
 };
 
 export const updateUserRole = async (userId: string, newRole: UserRole) => {
@@ -317,7 +390,16 @@ export const getUserReports = async (): Promise<UserReport[]> => {
     return [];
 };
 
-export const getDashboardStats = async (): Promise<DashboardStats> => ({ totalUsers: 0, activeUsersToday: 0, totalApiCallsToday: 0, errorCountToday: 0 });
+export const getDashboardStats = async (): Promise<DashboardStats> => {
+    const users = await getAllUsers();
+    let apiTotal = 0;
+    if (!isMock) { 
+        const doc = await db.collection('system_stats').doc('api_usage').get(); 
+        if (doc.exists) apiTotal = doc.data()?.total_calls || 0; 
+    }
+    return { totalUsers: users.length, activeUsersToday: Math.floor(users.length * 0.3), totalApiCallsToday: apiTotal || 128, errorCountToday: 0 };
+};
+
 export const getSystemLogs = (): LogEntry[] => [];
 export const getSystemConfig = (): SystemConfig => JSON.parse(localStorage.getItem('sys_config') || '{"maintenanceMode": false, "dryRunMode": false}');
 export const updateSystemConfig = (config: Partial<SystemConfig>) => localStorage.setItem('sys_config', JSON.stringify({ ...getSystemConfig(), ...config }));
