@@ -36,6 +36,7 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
   const [isSdkReady, setIsSdkReady] = useState(false);
   const [availablePages, setAvailablePages] = useState<FacebookPage[]>([]);
   const [showPageSelector, setShowPageSelector] = useState(false);
+  const [oauthError, setOauthError] = useState<{ msg: string; link?: string } | null>(null);
 
   useEffect(() => {
       // Load Profiles
@@ -92,6 +93,7 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
   };
 
   const handleConnectFacebook = async () => {
+      setOauthError(null);
       if (!fbAppId) {
           alert("系統錯誤：開發者未設定 Facebook App ID。請在環境變數中設定 VITE_FB_APP_ID。");
           return;
@@ -100,13 +102,28 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
       try {
           const pages = await loginAndGetPages();
           if (pages.length === 0) {
-              alert("成功連結，但您的帳號下沒有可管理的粉絲專頁 (或權限不足)。");
+              setOauthError({ msg: "連結成功，但您的帳號下沒有可管理的粉絲專頁 (或權限不足)。" });
           } else {
               setAvailablePages(pages);
               setShowPageSelector(true);
           }
       } catch (e: any) {
-          alert(`連結失敗: ${e.message}\n請檢查是否有阻擋彈跳視窗，或 App ID 設定錯誤。`);
+          const msg = e.message || '';
+          console.error("Auth Error", msg);
+          
+          if (msg.includes('JSSDK') || msg.includes('JavaScript SDK')) {
+              setOauthError({ 
+                  msg: "JSSDK 未啟用：請至 Meta 後台開啟「Login with JavaScript SDK」開關。",
+                  link: `https://developers.facebook.com/apps/${fbAppId}/fb-login/settings/`
+              });
+          } else if (msg.includes('URL Blocked') || msg.includes('App not setup')) {
+               setOauthError({ 
+                  msg: "網域未授權：請至 Meta 後台確認「Allowed Domains」已填寫 http://localhost:5173/",
+                  link: `https://developers.facebook.com/apps/${fbAppId}/fb-login/settings/`
+              });
+          } else {
+              setOauthError({ msg: `連結失敗: ${msg}` });
+          }
       }
   };
 
@@ -257,6 +274,22 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
                   <p className="text-[10px] text-blue-200 mt-2 text-center">自動獲取永久 Token，免去手動複製困擾。</p>
               ) : (
                   <p className="text-[10px] text-red-300 mt-2 text-center font-bold">請開發者於環境變數設定 VITE_FB_APP_ID</p>
+              )}
+              {oauthError && (
+                  <div className="mt-3 p-3 bg-red-950 border border-red-500 rounded text-xs text-red-200 shadow-xl">
+                      <p className="mb-2 font-bold flex items-center gap-2">⚠️ 連線錯誤</p>
+                      <p className="mb-3 leading-relaxed">{oauthError.msg}</p>
+                      {oauthError.link && (
+                          <a 
+                              href={oauthError.link} 
+                              target="_blank" 
+                              rel="noreferrer" 
+                              className="block text-center bg-white text-red-900 hover:bg-gray-200 py-2 rounded font-bold transition-colors"
+                          >
+                              👉 點此前往後台修正
+                          </a>
+                      )}
+                  </div>
               )}
           </div>
 
