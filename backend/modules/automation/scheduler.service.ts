@@ -1,4 +1,3 @@
-
 import * as admin from 'firebase-admin';
 import { ContentService } from '../content/content.service';
 import { FacebookService } from '../facebook/fb.service';
@@ -29,7 +28,7 @@ export class SchedulerService {
     console.log(`[AutoPilot] User: ${userId}, Topic: ${topic}`);
 
     // 3. Generate Content (Draft)
-    const draft = await this.contentService.generateDraft(topic, settings, "150-300字");
+    const draft = await this.contentService.generateDraft(topic, settings, { length: "150-300字" });
 
     // 4. Generate Media
     let mediaUrl = '';

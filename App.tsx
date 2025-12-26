@@ -21,6 +21,24 @@ import KeyRedemptionModal from './components/KeyRedemptionModal';
 import { subscribeAuth, logout, getUserProfile, fetchUserPostsFromCloud, syncPostToCloud, deletePostFromCloud } from './services/authService';
 // #endregion
 
+// #region Icons
+const Icons = {
+  Create: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>,
+  Schedule: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>,
+  Settings: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
+  Analytics: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2z" /></svg>,
+  Automation: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>,
+  Seo: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>,
+  Threads: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" /></svg>,
+  Referral: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" /></svg>,
+  Key: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>,
+  Admin: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>,
+  Logout: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>,
+  Menu: <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>,
+  Close: <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+};
+// #endregion
+
 const defaultSettings: BrandSettings = {
   industry: '',
   brandType: 'enterprise',
@@ -184,7 +202,7 @@ const App: React.FC = () => {
     >
       {active && <div className="absolute inset-0 bg-primary/5 shadow-[0_0_20px_rgba(0,242,234,0.1)]"></div>}
       <div className="flex items-center gap-3 relative z-10">
-          <span className="text-lg opacity-80">{icon}</span>
+          <span className={`transition-transform duration-300 ${active ? 'scale-110' : 'group-hover:scale-110'}`}>{icon}</span>
           <span className="text-[14px] font-medium tracking-wide">{label}</span>
       </div>
       {badge && <span className="text-[9px] bg-black/50 border border-gray-700 px-1.5 py-0.5 rounded uppercase tracking-tighter text-gray-400 font-bold">{badge}</span>}
@@ -200,7 +218,7 @@ const App: React.FC = () => {
             AUTO<span className="text-neon-cyan">SOCIAL</span>
           </h1>
           <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="text-white p-2">
-             {isSidebarOpen ? '✕' : '☰'}
+             {isSidebarOpen ? Icons.Close : Icons.Menu}
           </button>
       </div>
 
@@ -242,37 +260,37 @@ const App: React.FC = () => {
         </div>
         
         <nav className="flex-1 py-4 space-y-1 overflow-y-auto custom-scrollbar">
-          <NavItem viewId={AppView.CREATE} label="內容創作" icon="✍️" active={view === AppView.CREATE} onClick={setView} />
-          <NavItem viewId={AppView.SCHEDULE} label="排程與歷史" icon="📅" active={view === AppView.SCHEDULE} onClick={setView} />
-          <NavItem viewId={AppView.SETTINGS} label="品牌設定" icon="⚙️" active={view === AppView.SETTINGS} onClick={setView} />
+          <NavItem viewId={AppView.CREATE} label="內容創作" icon={Icons.Create} active={view === AppView.CREATE} onClick={setView} />
+          <NavItem viewId={AppView.SCHEDULE} label="排程與歷史" icon={Icons.Schedule} active={view === AppView.SCHEDULE} onClick={setView} />
+          <NavItem viewId={AppView.SETTINGS} label="品牌設定" icon={Icons.Settings} active={view === AppView.SETTINGS} onClick={setView} />
           
           <div className="mt-6 mb-2 px-6">
               <p className="text-[10px] text-gray-500 font-black tracking-[0.2em] uppercase">INTELLIGENCE</p>
           </div>
           
-          <NavItem viewId={AppView.ANALYTICS} label="數據分析" icon="📊" active={view === AppView.ANALYTICS} onClick={() => hasAnalyticsAccess ? setView(AppView.ANALYTICS) : alert("需升級至 Starter 方案")} disabled={!hasAnalyticsAccess} badge={!hasAnalyticsAccess ? "LOCKED" : ""} />
-          <NavItem viewId={AppView.AUTOMATION} label="全自動化" icon="🤖" active={view === AppView.AUTOMATION} onClick={() => hasAutomationAccess ? setView(AppView.AUTOMATION) : alert("需升級至 Business 方案")} disabled={!hasAutomationAccess} badge={!hasAutomationAccess ? "LOCKED" : ""} />
-          <NavItem viewId={AppView.SEO_ARTICLES} label="SEO 文章" icon="📝" active={view === AppView.SEO_ARTICLES} onClick={() => hasSeoAccess ? setView(AppView.SEO_ARTICLES) : alert("需升級至 Pro 方案")} disabled={!hasSeoAccess} badge={!hasSeoAccess ? "LOCKED" : ""} />
-          <NavItem viewId={AppView.THREADS_NURTURE} label="Threads 農場" icon="🧵" active={view === AppView.THREADS_NURTURE} onClick={() => hasThreadsAccess ? setView(AppView.THREADS_NURTURE) : alert("需升級至 Pro 方案")} disabled={!hasThreadsAccess} badge={!hasThreadsAccess ? "LOCKED" : ""} />
+          <NavItem viewId={AppView.ANALYTICS} label="數據分析" icon={Icons.Analytics} active={view === AppView.ANALYTICS} onClick={() => hasAnalyticsAccess ? setView(AppView.ANALYTICS) : alert("需升級至 Starter 方案")} disabled={!hasAnalyticsAccess} badge={!hasAnalyticsAccess ? "LOCKED" : ""} />
+          <NavItem viewId={AppView.AUTOMATION} label="全自動化" icon={Icons.Automation} active={view === AppView.AUTOMATION} onClick={() => hasAutomationAccess ? setView(AppView.AUTOMATION) : alert("需升級至 Business 方案")} disabled={!hasAutomationAccess} badge={!hasAutomationAccess ? "LOCKED" : ""} />
+          <NavItem viewId={AppView.SEO_ARTICLES} label="SEO 文章" icon={Icons.Seo} active={view === AppView.SEO_ARTICLES} onClick={() => hasSeoAccess ? setView(AppView.SEO_ARTICLES) : alert("需升級至 Pro 方案")} disabled={!hasSeoAccess} badge={!hasSeoAccess ? "LOCKED" : ""} />
+          <NavItem viewId={AppView.THREADS_NURTURE} label="Threads 農場" icon={Icons.Threads} active={view === AppView.THREADS_NURTURE} onClick={() => hasThreadsAccess ? setView(AppView.THREADS_NURTURE) : alert("需升級至 Pro 方案")} disabled={!hasThreadsAccess} badge={!hasThreadsAccess ? "LOCKED" : ""} />
           
           <div className="mt-6 mb-2 px-6">
               <p className="text-[10px] text-gray-500 font-black tracking-[0.2em] uppercase">GROWTH</p>
           </div>
-          <NavItem viewId={AppView.REFERRAL} label="推薦計畫" icon="🎁" active={view === AppView.REFERRAL} onClick={setView} />
+          <NavItem viewId={AppView.REFERRAL} label="推薦計畫" icon={Icons.Referral} active={view === AppView.REFERRAL} onClick={setView} />
         </nav>
 
         <div className="p-4 bg-black/20 space-y-2 border-t border-white/5">
-          <button onClick={() => setShowKeyModal(true)} className="w-full text-left px-4 py-3 text-xs rounded-lg transition-all font-bold bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 border border-yellow-500/20 flex items-center gap-2">
-              <span>🔑</span> 兌換序號 (Redeem)
+          <button onClick={() => setShowKeyModal(true)} className="w-full text-left px-4 py-3 text-xs rounded-lg transition-all font-bold bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 border border-yellow-500/20 flex items-center gap-2 group">
+              <span className="opacity-80 group-hover:scale-110 transition-transform">{Icons.Key}</span> 兌換序號 (Redeem)
           </button>
           
           {isAdmin && (
-            <button onClick={() => setView(AppView.ADMIN)} className={`w-full text-left px-4 py-3 text-xs rounded-lg transition-all font-bold flex items-center gap-2 ${view === AppView.ADMIN ? 'bg-red-600 text-white shadow-lg' : 'text-red-400 hover:bg-red-900/20 border border-red-900/30'}`}>
-              <span>👮</span> 管理員後台
+            <button onClick={() => setView(AppView.ADMIN)} className={`w-full text-left px-4 py-3 text-xs rounded-lg transition-all font-bold flex items-center gap-2 group ${view === AppView.ADMIN ? 'bg-red-600 text-white shadow-lg' : 'text-red-400 hover:bg-red-900/20 border border-red-900/30'}`}>
+              <span className="opacity-80 group-hover:scale-110 transition-transform">{Icons.Admin}</span> 管理員後台
             </button>
           )}
-          <button onClick={handleLogout} className="w-full text-left px-4 py-3 text-xs text-gray-500 hover:text-white transition-colors flex items-center gap-2">
-            <span>🚪</span> 登出系統
+          <button onClick={handleLogout} className="w-full text-left px-4 py-3 text-xs text-gray-500 hover:text-white transition-colors flex items-center gap-2 group hover:bg-white/5 rounded-lg">
+            <span className="opacity-80 group-hover:scale-110 transition-transform">{Icons.Logout}</span> 登出系統
           </button>
         </div>
       </aside>
