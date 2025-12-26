@@ -1,5 +1,5 @@
 
-import { BrandSettings, TrendingTopic, CachedTrendData, CtaItem, ViralType, ViralPlatform, TitleScore, ViralPostDraft } from "../types";
+import { BrandSettings, TrendingTopic, CachedTrendData, CtaItem, ViralType, ViralPlatform, TitleScore, ViralPostDraft, ThreadsAccount } from "../types";
 import { db, firebase, isMock } from "./firebase";
 import * as Prompts from "./promptTemplates";
 
@@ -231,20 +231,25 @@ const fetchRealtimeRss = async (keyword: string): Promise<TrendingTopic[]> => {
     } catch (e) { return []; }
 };
 
-export const analyzeBrandTone = async (posts: string[]): Promise<{ tone: string, persona: string }> => {
+// Updated: Returns pure string style guide
+export const analyzeBrandTone = async (posts: string[]): Promise<string> => {
     if (!posts || posts.length === 0) throw new Error("無貼文可分析");
     const response = await callBackend('generateContent', {
         model: "gemini-2.5-flash",
         contents: Prompts.buildAnalysisPrompt(posts.join('\n\n---\n\n')),
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-                type: Type.OBJECT,
-                properties: { tone: { type: Type.STRING }, persona: { type: Type.STRING } }
-            }
-        }
+        // No JSON schema, we want a descriptive text block
     });
-    return JSON.parse(cleanJsonText(response.text || '{}'));
+    return response.text || "Style analysis failed.";
+};
+
+// New: Analyze Threads Style Specifically
+export const analyzeThreadsStyle = async (posts: string[]): Promise<string> => {
+    if (!posts || posts.length === 0) throw new Error("無貼文可分析");
+    const response = await callBackend('generateContent', {
+        model: "gemini-2.5-flash",
+        contents: Prompts.buildThreadsAnalysisPrompt(posts.join('\n\n---\n\n'))
+    });
+    return response.text || "Threads style analysis failed.";
 };
 
 export const analyzeProductFile = async (text: string): Promise<string> => {
@@ -420,9 +425,35 @@ export const generateWeeklyReport = async (analytics: any, settings: BrandSettin
     return response.text || "報告生成失敗";
 };
 
+// UPDATED: Now supports accountType and styleGuide overrides
 export const generateThreadsBatch = async (topic: string, count: number, settings: BrandSettings, personas: string[] = []): Promise<any[]> => {
-    const personaConstraint = personas.length > 0 ? `[CHARACTER SOUL] Persona: ${personas.join('\n')}. React emotionally.` : '[CHARACTER SOUL] Random authentic Taiwanese netizen.';
-    const prompt = `${Prompts.SYSTEM_INSTRUCTION_THREADS}\n${personaConstraint}\nTask: Generate ${count} distinct Threads posts about: "${topic}". For imagePrompt use DETAILED ENGLISH suitable for Midjourney. Output JSON Array: [{ "caption": "...", "imagePrompt": "...", "imageQuery": "..." }]`;
+    // Determine the context from available personas or settings
+    // If multiple personas passed (from AutoPilot), we usually take the first one or ignore if styleGuide exists.
+    
+    // We need to access the *current* account context. 
+    // Since this function is generic, we'll try to find if a specific styleGuide was passed in 'personas' 
+    // or rely on the caller to handle specific account logic.
+    // NOTE: 'personas' argument is legacy. We should rely on how the prompt is built.
+    
+    // Strategy: We will assume the Caller has already selected the account and passed its specific style guide via 'personas' array 
+    // OR we will update the prompt template to accept generic params. 
+    // To minimize breaking changes, we'll assume the prompt construction happens here.
+    
+    // BUT wait, 'settings' contains global settings. 
+    // We need the specific account's config (personal vs brand).
+    // Let's assume the UI passes the correct "Instruction" string in the 'personas' [0] slot if it's customized.
+    
+    let systemInstruction = Prompts.getThreadsSystemInstruction('personal'); // Default
+    
+    // If the caller passed a specific instruction string (from ThreadsNurturePanel), use it.
+    if (personas.length > 0 && personas[0].includes('[MODE:')) {
+        systemInstruction = personas[0];
+    } else {
+        // Fallback to generic personal
+        systemInstruction = Prompts.getThreadsSystemInstruction('personal');
+    }
+
+    const prompt = `${systemInstruction}\nTask: Generate ${count} distinct Threads posts about: "${topic}". For imagePrompt use DETAILED ENGLISH suitable for Midjourney. Output JSON Array: [{ "caption": "...", "imagePrompt": "...", "imageQuery": "..." }]`;
 
     const response = await callBackend('generateContent', {
         model: "gemini-2.5-flash", 

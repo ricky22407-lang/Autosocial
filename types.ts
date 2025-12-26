@@ -63,7 +63,11 @@ export interface ThreadsAccount {
   userId: string;
   token: string;
   isActive: boolean;
-  personaPrompt?: string;
+  // New Fields for Style Learning
+  accountType: 'personal' | 'brand'; // Personal = Chaos/Authentic, Brand = Safe/Professional
+  styleGuide?: string; // AI learned style DNA
+  safetyFilter?: boolean; // For Brands to avoid controversy
+  personaPrompt?: string; // Manual override
 }
 
 export interface ThreadsAutoPilotConfig {
@@ -86,13 +90,14 @@ export interface BrandSettings {
   brandTone: string;
   persona: string;
   logoUrl?: string;
-  brandStylePrompt?: string;
+  brandStylePrompt?: string; // For Image Generation Style
+  brandStyleGuide?: string; // NEW: For Text Generation Style (AI Analyzed)
   facebookPageId: string;
   facebookToken: string;
   tokenExpiry?: number;
   threadsAccounts?: ThreadsAccount[];
   threadsAutoPilot?: ThreadsAutoPilotConfig;
-  competitors: string[];
+  // competitors: string[]; // REMOVED
   fixedHashtags: string;
   referenceFiles: ReferenceFile[];
   autoReply: AutoReplyConfig;
@@ -115,7 +120,7 @@ export interface AutoPilotConfig {
   frequency: 'daily' | 'weekly';
   postWeekDays?: number[];
   postTime: string;
-  source: 'trending' | 'competitor' | 'keywords';
+  source: 'trending' | 'keywords'; // Removed 'competitor'
   keywords: string[];
   mediaTypePreference: 'image' | 'video' | 'mixed';
   lastRunAt?: number;
@@ -184,14 +189,6 @@ export interface AnalyticsData {
   reach: number;
   engagementRate: number;
   period: string;
-}
-
-export interface CompetitorData {
-    name: string;
-    sentiment: 'Positive' | 'Neutral' | 'Negative';
-    recentTopic: string;
-    engagementLevel: 'High' | 'Medium' | 'Low';
-    summary: string;
 }
 
 export interface TopPostData {

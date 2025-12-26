@@ -1,5 +1,4 @@
 
-
 import { ThreadsAccount } from "../types";
 
 const THREADS_API_BASE = 'https://graph.threads.net/v1.0';
@@ -141,5 +140,28 @@ export const refreshThreadsToken = async (token: string): Promise<{ success: boo
         throw new Error("API 回傳格式未知");
     } catch (e: any) {
         return { success: false, error: e.message };
+    }
+};
+
+/**
+ * Validate Threads Token & ID
+ */
+export const validateThreadsToken = async (userId: string, token: string): Promise<{ valid: boolean; username?: string; error?: string }> => {
+    try {
+        const url = `${THREADS_API_BASE}/${userId}?fields=id,username&access_token=${token}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        
+        if (data.error) {
+            return { valid: false, error: data.error.message };
+        }
+        
+        if (data.id) {
+            return { valid: true, username: data.username };
+        }
+        
+        return { valid: false, error: "無法識別用戶資訊" };
+    } catch (e: any) {
+        return { valid: false, error: e.message };
     }
 };

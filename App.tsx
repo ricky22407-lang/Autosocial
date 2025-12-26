@@ -32,7 +32,6 @@ const defaultSettings: BrandSettings = {
   facebookPageId: '',
   facebookToken: '',
   threadsAccounts: [], 
-  competitors: [],
   referenceFiles: [],
   fixedHashtags: '',
   autoReply: { enabled: false, defaultResponse: '', rules: [] },

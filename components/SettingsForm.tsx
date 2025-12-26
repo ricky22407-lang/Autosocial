@@ -1,8 +1,10 @@
+
 import React, { useState, useEffect } from 'react';
 import { BrandSettings, ReferenceFile } from '../types';
-import { validateFacebookToken } from '../services/facebookService';
+import { validateFacebookToken, fetchRecentPostCaptions } from '../services/facebookService';
 import { analyzeBrandTone, analyzeProductFile } from '../services/geminiService';
 import { getCurrentUser, updateUserSettings } from '../services/authService';
+import TokenTutorialModal from './TokenTutorialModal';
 
 interface Props {
   onSave: (settings: BrandSettings) => void;
@@ -26,9 +28,7 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
   const [debugData, setDebugData] = useState<any>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isAnalyzingTone, setIsAnalyzingTone] = useState(false);
-
-  // Competitor/File input states
-  const [compInput, setCompInput] = useState('');
+  const [showTutorial, setShowTutorial] = useState(false);
 
   useEffect(() => {
       const savedProfiles = localStorage.getItem('autosocial_brand_profiles');
@@ -56,7 +56,7 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
       setFormData({
           ...initialSettings,
           ...settings,
-          competitors: settings.competitors || [],
+          // competitors: settings.competitors || [], // Removed
           referenceFiles: settings.referenceFiles || []
       });
       setTokenStatus('idle');
@@ -92,7 +92,9 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
     setDebugData(null);
 
     try {
+        // Only Verify Validity & Permissions
         const res = await validateFacebookToken(formData.facebookToken);
+        
         if (res.valid) {
             setTokenStatus(res.status === 'VALID' ? 'valid' : 'partial');
             setMissingPerms(res.missingPermissions);
@@ -108,15 +110,33 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
     }
   };
 
-  const handleAddCompetitor = () => {
-      if (compInput.trim()) {
-          setFormData(prev => ({ ...prev, competitors: [...(prev.competitors || []), compInput.trim()] }));
-          setCompInput('');
+  const handleAutoAnalyzeStyle = async () => {
+      if (!formData.facebookPageId || !formData.facebookToken) {
+          alert("請先填寫並驗證 Facebook Page ID 與 Token");
+          return;
       }
-  };
-
-  const removeCompetitor = (idx: number) => {
-      setFormData(prev => ({ ...prev, competitors: (prev.competitors || []).filter((_, i) => i !== idx) }));
+      
+      setIsAnalyzingTone(true);
+      try {
+          // 1. Fetch recent posts
+          const posts = await fetchRecentPostCaptions(formData.facebookPageId, formData.facebookToken, 15);
+          if (posts.length < 3) {
+              alert("貼文數量過少，無法有效分析 (至少需要 3 篇)。");
+              setIsAnalyzingTone(false);
+              return;
+          }
+          
+          // 2. AI Analyze
+          const styleGuide = await analyzeBrandTone(posts);
+          
+          // 3. Update Form
+          setFormData(prev => ({ ...prev, brandStyleGuide: styleGuide }));
+          alert("✅ 分析完成！已更新「品牌風格指南」。\nAI 將依據此風格撰寫貼文。");
+      } catch (e: any) {
+          alert(`分析失敗: ${e.message}`);
+      } finally {
+          setIsAnalyzingTone(false);
+      }
   };
 
   const handleRefFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -195,7 +215,12 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
           </div>
 
           <div>
-            <label className="block text-sm text-gray-400 mb-1">Facebook Access Token</label>
+            <label className="block text-sm text-gray-400 mb-1 flex justify-between">
+                <span>Facebook Access Token</span>
+                <button onClick={() => setShowTutorial(true)} className="text-primary hover:underline text-xs flex items-center gap-1">
+                    ❓ 如何獲取 Token
+                </button>
+            </label>
             <div className="flex gap-2">
               <input name="facebookToken" type="password" value={formData.facebookToken || ''} onChange={handleChange} className="flex-1 bg-dark border border-gray-600 rounded p-2 text-white text-sm" placeholder="EAA..." />
               <button onClick={checkToken} disabled={tokenStatus === 'checking'} className={`px-3 rounded text-white text-xs font-bold ${tokenStatus === 'valid' || tokenStatus === 'partial' ? 'bg-green-600' : 'bg-gray-700 hover:bg-gray-600'}`}>
@@ -211,7 +236,7 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
             <h3 className="text-lg font-bold text-primary border-l-4 border-primary pl-3 mb-4">2. 品牌基本資料</h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-xs text-gray-500 mb-1">官方網站</label>
+                <label className="block text-xs text-gray-500 mb-1">官方網站 (供 AI 參考)</label>
                 <input name="website" value={formData.website || ''} onChange={handleChange} className="w-full bg-dark border border-gray-600 rounded p-2 text-white text-sm" placeholder="https://..." />
               </div>
               <div>
@@ -228,24 +253,33 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
 
         {/* 中間：人設與語氣 */}
         <div className="lg:col-span-1 space-y-6">
-          <h3 className="text-lg font-bold text-primary border-l-4 border-primary pl-3">3. 小編人設與語氣</h3>
+          <h3 className="text-lg font-bold text-primary border-l-4 border-primary pl-3">3. 文案風格與知識庫</h3>
           
-          <div>
-              <label className="block text-sm text-gray-400 mb-1">經營身分</label>
-              <select name="brandType" value={formData.brandType} onChange={handleChange} className="w-full bg-dark border border-gray-600 rounded p-2 text-white text-sm">
-                  <option value="enterprise">🏢 企業/官方帳號</option>
-                  <option value="personal">👤 個人/網紅品牌</option>
-              </select>
+          {/* Brand Style Analyzer */}
+          <div className="bg-gradient-to-br from-indigo-900/30 to-purple-900/30 p-4 rounded-xl border border-indigo-500/30">
+              <div className="flex justify-between items-center mb-2">
+                  <label className="text-sm font-bold text-indigo-200">🔮 品牌風格指南 (Style DNA)</label>
+                  <button 
+                      onClick={handleAutoAnalyzeStyle}
+                      disabled={isAnalyzingTone} 
+                      className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-1 rounded shadow-lg transition-colors disabled:opacity-50"
+                  >
+                      {isAnalyzingTone ? '分析中...' : '一鍵分析過往貼文'}
+                  </button>
+              </div>
+              <textarea 
+                  name="brandStyleGuide" 
+                  value={formData.brandStyleGuide || ''} 
+                  onChange={handleChange} 
+                  className="w-full bg-dark/80 border border-indigo-500/30 rounded p-2 text-gray-300 text-xs h-32 leading-relaxed" 
+                  placeholder="點擊上方按鈕，AI 將自動分析您的粉專貼文，產生專屬的語氣與格式指導方針..." 
+              />
+              <p className="text-[10px] text-gray-500 mt-1">* 這是 AI 寫作的最高指導原則，比下方的人設更重要。</p>
           </div>
 
           <div>
-              <label className="block text-sm text-gray-400 mb-1">小編具體人設</label>
-              <textarea name="persona" value={formData.persona || ''} onChange={handleChange} className="w-full bg-dark border border-gray-600 rounded p-2 text-white text-xs h-24" placeholder="例如：毒舌犀利、溫柔大姊姊..." />
-          </div>
-
-          <div>
-              <label className="block text-sm text-gray-400 mb-1">品牌文案語氣</label>
-              <input name="brandTone" value={formData.brandTone || ''} onChange={handleChange} className="w-full bg-dark border border-gray-600 rounded p-2 text-white text-sm" placeholder="幽默、專業、溫馨..." />
+              <label className="block text-sm text-gray-400 mb-1">基礎語氣 (Tone)</label>
+              <input name="brandTone" value={formData.brandTone || ''} onChange={handleChange} className="w-full bg-dark border border-gray-600 rounded p-2 text-white text-sm" placeholder="例如：幽默、專業、溫馨 (作為備用設定)" />
           </div>
 
           <div>
@@ -259,7 +293,7 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
           </div>
         </div>
 
-        {/* 右側：競爭對手與附件 */}
+        {/* 右側：附件 */}
         <div className="lg:col-span-1 space-y-6 border-l border-gray-800 pl-4">
           <h3 className="text-lg font-bold text-primary border-l-4 border-primary pl-3">4. 進階內容策略</h3>
           
@@ -271,23 +305,15 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
               </div>
           </div>
 
-          <div>
-              <label className="block text-sm text-gray-400 mb-1">追蹤競品 (AI 學習對象)</label>
-              <div className="flex gap-2 mb-2">
-                  <input value={compInput} onChange={e => setCompInput(e.target.value)} className="flex-1 bg-dark border border-gray-600 rounded p-2 text-xs text-white" placeholder="對手粉專名稱" />
-                  <button onClick={handleAddCompetitor} className="bg-gray-700 px-3 rounded text-xs">+</button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                  {(formData.competitors || []).map((c, i) => (
-                      <span key={i} className="bg-blue-900/30 text-blue-300 text-[10px] px-2 py-1 rounded-full border border-blue-900 flex items-center gap-1">
-                          {c} <button onClick={() => removeCompetitor(i)}>×</button>
-                      </span>
-                  ))}
-              </div>
+          {/* Competitors Removed per user request */}
+          <div className="hidden">
+              <label className="block text-sm text-gray-400 mb-1">追蹤競品</label>
+              <p className="text-xs text-gray-500">已停用</p>
           </div>
 
           <div>
-              <label className="block text-sm text-gray-400 mb-1">產品手冊/參考文件</label>
+              <label className="block text-sm text-gray-400 mb-1">產品手冊/參考文件 (TXT/MD)</label>
+              <p className="text-[10px] text-gray-500 mb-2">上傳產品規格或過往文案，讓 AI 寫作更有依據。</p>
               <input type="file" accept=".txt,.md" onChange={handleRefFileUpload} className="text-xs text-gray-500 mb-2" />
               <div className="space-y-1">
                   {(formData.referenceFiles || []).map((f, i) => (
@@ -310,6 +336,8 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
           {isSaving ? '儲存中...' : '儲存品牌設定'}
         </button>
       </div>
+
+      {showTutorial && <TokenTutorialModal platform="facebook" onClose={() => setShowTutorial(false)} />}
     </div>
   );
 };

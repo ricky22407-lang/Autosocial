@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect } from 'react';
 import { BrandSettings, AutoReplyRule, AutoPilotConfig, ThreadsAutoPilotConfig } from '../types';
 import { api } from '../services/apiClient';
@@ -37,6 +36,9 @@ const AutomationPanel: React.FC<Props> = ({ settings, onSave }) => {
           config.postWeekDays = [(config as any).postWeekDay];
       }
       if (!config.postWeekDays) config.postWeekDays = [1];
+      // Fallback if legacy competitor source exists
+      if ((config.source as any) === 'competitor') config.source = 'trending';
+      
       config.mediaTypePreference = 'image';
       return config;
   });
@@ -53,7 +55,6 @@ const AutomationPanel: React.FC<Props> = ({ settings, onSave }) => {
 
   const [threadsApConfig, setThreadsApConfig] = useState<ThreadsAutoPilotConfig>(() => {
       const config = settings.threadsAutoPilot || defaultThreadsAP;
-      // Legacy compatibility: If targetAccountIds is undefined, default to ALL existing accounts initially (or none, let's do all to be safe)
       if (!config.targetAccountIds) {
           config.targetAccountIds = settings.threadsAccounts?.map(a => a.id) || [];
       }
@@ -114,14 +115,10 @@ const AutomationPanel: React.FC<Props> = ({ settings, onSave }) => {
 
   // Threads Trigger
   const handleTriggerThreadsAP = async () => {
-      // Temporarily save current config to settings object to pass to trigger
       const tempSettings = { ...settings, threadsAutoPilot: threadsApConfig };
-      
       setTriggeringThreads(true);
       try {
-          // Use centralized API client instead of dynamic import to avoid Vite build warnings
           const result = await api.automation.triggerThreads(tempSettings);
-          
           alert(`🚀 Threads 任務執行成功！\n帳號: ${result.targetAccount}\n主題: ${result.topic}\n狀態: ${result.message}`);
       } catch (e: any) {
           console.error(e);
@@ -267,10 +264,7 @@ const AutomationPanel: React.FC<Props> = ({ settings, onSave }) => {
                               <input type="radio" checked={apConfig.source === 'trending'} onChange={() => setApConfig({...apConfig, source: 'trending'})} />
                               <span className="text-white">🔥 熱門趨勢</span>
                           </label>
-                          <label className="flex items-center gap-2 cursor-pointer">
-                              <input type="radio" checked={apConfig.source === 'competitor'} onChange={() => setApConfig({...apConfig, source: 'competitor'})} />
-                              <span className="text-white">⚔️ 競品話題</span>
-                          </label>
+                          {/* Competitor option removed */}
                           <label className="flex items-center gap-2 cursor-pointer">
                               <input type="radio" checked={apConfig.source === 'keywords'} onChange={() => setApConfig({...apConfig, source: 'keywords'})} />
                               <span className="text-white">🎯 關鍵字</span>
@@ -413,9 +407,6 @@ const AutomationPanel: React.FC<Props> = ({ settings, onSave }) => {
                                   </div>
                               )}
                           </div>
-                          <p className="text-xs text-gray-500 mt-2">
-                             * 系統將從勾選的活躍帳號中，隨機挑選一位進行發文 (每次執行扣 1 點)。若不勾選任何帳號，將無法執行。
-                          </p>
                       </div>
                   </div>
               </div>

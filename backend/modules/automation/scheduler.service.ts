@@ -21,9 +21,6 @@ export class SchedulerService {
     let topic = '';
     if (config.source === 'keywords' && config.keywords.length > 0) {
         topic = config.keywords[Math.floor(Math.random() * config.keywords.length)];
-    } else if (config.source === 'competitor') {
-        // Mocking competitor logic for now, or use generic
-        topic = `關於 ${settings.industry} 產業的競爭對手熱門策略分析`;
     } else {
         // Trending (Uses ContentService's safe fallback search)
         topic = await this.contentService.getTrendingTopic(settings.industry);

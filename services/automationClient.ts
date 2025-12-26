@@ -1,3 +1,4 @@
+
 import { BrandSettings, AutoPilotConfig } from '../types';
 import { getTrendingTopics, generatePostDraft, generateImage, generateVideo, generateThreadsBatch, applyWatermark } from './geminiService';
 import { publishPostToFacebook } from './facebookService';
@@ -49,10 +50,8 @@ export const AutomationClient = {
     let topic = '';
     if (config.source === 'keywords' && config.keywords.length > 0) {
         topic = config.keywords[Math.floor(Math.random() * config.keywords.length)];
-    } else if (config.source === 'competitor') {
-         topic = `分析競品 ${settings.competitors[0] || '同業'} 的熱門話題`;
     } else {
-         // Trending
+         // Default to Trending if competitor was selected (as it's removed)
          const trends = await getTrendingTopics(settings.industry);
          topic = trends.length > 0 ? trends[0].title : `${settings.industry} 趨勢分享`;
     }
@@ -180,23 +179,6 @@ export const AutomationClient = {
       let imageUrl = undefined;
       if (config.imageMode !== 'none') {
           imageUrl = generateImageUrlLocal(post.imagePrompt, post.imageQuery, config.imageMode);
-          
-          // --- Auto Watermark Logic (Threads Automation) ---
-          // Currently Pollinations URLs are used directly. 
-          // If we want watermark, we must download -> canvas -> upload (or send base64 if supported, but Threads needs public URL).
-          // Threads API DOES NOT support Base64 images directly. It needs a Public URL.
-          // Since we are client-side only (Vercel frontend), we cannot upload the watermarked base64 to a public URL easily without a storage service (like Firebase Storage).
-          // 
-          // Strategy: Skip Watermark for Threads AutoPilot if we don't have storage hosting.
-          // Or: If user has uploaded logo, we can try, but since we return base64, publishThreadsPost will fail if we pass base64.
-          // 
-          // Decision: For this specific request "FB用AI生成圖片...", focusing on FB is priority.
-          // But technically if we are here, let's add a comment or check.
-          // `publishThreadsPost` in `threadsService.ts` checks for http/https.
-          
-          // Attempting watermark will result in data:image/png;base64.
-          // Without an image hosting service (like Cloudinary/Firebase Storage), we cannot use watermarked images for Threads API automation from a static site.
-          // So we SKIP watermark for Threads Automation to prevent breaking it.
       }
 
       // 5. Publish

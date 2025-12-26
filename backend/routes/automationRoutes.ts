@@ -54,9 +54,6 @@ router.post('/trigger', verifyToken, checkQuota, async (req, res) => {
         let topic = '';
         if (config.source === 'keywords' && config.keywords.length > 0) {
             topic = config.keywords[Math.floor(Math.random() * config.keywords.length)];
-        } else if (config.source === 'competitor') {
-             // Mock competitor fetch logic
-             topic = `分析競品 ${settings.competitors[0] || '同業'} 的熱門話題`;
         } else {
              // Trending (Google Search)
              const searchResp = await ai.models.generateContent({
