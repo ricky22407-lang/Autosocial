@@ -177,9 +177,10 @@ export const buildViralPrompt = (
        - Be slightly exaggerated but authentic.
 
     3. **The Format (Critical)**: 
-       - **Double line breaks** between EVERY paragraph. No walls of text.
-       - Use emojis as bullet points (✨, 👉, ✅, ❌) to list benefits or features.
-       - Short sentences. Fast rhythm.
+       - **Group Sentences**: Combine related sentences into short paragraphs (3-5 lines).
+       - ❌ **DO NOT** put a double line break after every single sentence.
+       - ✅ **DO** use double line breaks only to separate distinct *ideas* or *sections*.
+       - Use emojis as bullet points (✨, 👉, ✅, ❌) inside the paragraphs or lists.
 
     [🖼️ VISUAL PROMPT INSTRUCTION (STRICT)]
     You MUST generate a "imagePrompt" field for AI image generation.
