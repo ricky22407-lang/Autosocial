@@ -55,6 +55,7 @@ const App: React.FC = () => {
   const [editingPost, setEditingPost] = useState<Post | null>(null);
   const [showReportModal, setShowReportModal] = useState(false);
   const [showKeyModal, setShowKeyModal] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // Mobile toggle
 
   useEffect(() => {
     const unsubscribe = subscribeAuth(async (currentUser) => {
@@ -164,107 +165,163 @@ const App: React.FC = () => {
   const hasSeoAccess = isProPlus || userProfile?.unlockedFeatures?.includes('SEO');
   const hasThreadsAccess = isProPlus || userProfile?.unlockedFeatures?.includes('THREADS');
 
-  if (loadingAuth) return <div className="h-screen flex items-center justify-center bg-dark text-white text-xl animate-pulse">AutoSocial AI 啟動中...</div>;
+  if (loadingAuth) return <div className="h-screen flex items-center justify-center bg-bg text-primary text-xl animate-pulse font-mono tracking-widest">INITIALIZING SYSTEM...</div>;
   if (view === AppView.LOGIN) return <Login onLoginSuccess={() => {}} />;
 
-  const NavItem = ({ viewId, label, active, onClick, disabled = false, badge = "" }: any) => (
+  const NavItem = ({ viewId, label, active, onClick, disabled = false, badge = "", icon }: any) => (
     <button 
-      onClick={() => !disabled && onClick(viewId)} 
-      className={`relative w-full text-left px-6 py-3 transition-all flex items-center justify-between group ${active ? 'bg-primary/10 text-primary font-bold' : 'text-gray-400 hover:bg-gray-800/50 hover:text-gray-200'} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+      onClick={() => {
+          if (!disabled) {
+              onClick(viewId);
+              setIsSidebarOpen(false); // Close mobile menu on click
+          }
+      }} 
+      className={`relative w-full text-left px-6 py-3.5 transition-all duration-300 flex items-center justify-between group 
+        ${active ? 'bg-primary/10 text-primary' : 'text-gray-400 hover:text-white hover:bg-white/5'} 
+        ${disabled ? 'opacity-40 cursor-not-allowed grayscale' : ''}
+        border-l-2 ${active ? 'border-primary' : 'border-transparent hover:border-white/30'}
+      `}
     >
-      {active && <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary"></div>}
-      <span className="text-[15px] tracking-wide">{label}</span>
-      {badge && <span className="text-[9px] bg-gray-700 px-1.5 py-0.5 rounded uppercase tracking-tighter text-gray-400">{badge}</span>}
+      {active && <div className="absolute inset-0 bg-primary/5 shadow-[0_0_20px_rgba(0,242,234,0.1)]"></div>}
+      <div className="flex items-center gap-3 relative z-10">
+          <span className="text-lg opacity-80">{icon}</span>
+          <span className="text-[14px] font-medium tracking-wide">{label}</span>
+      </div>
+      {badge && <span className="text-[9px] bg-black/50 border border-gray-700 px-1.5 py-0.5 rounded uppercase tracking-tighter text-gray-400 font-bold">{badge}</span>}
     </button>
   );
 
   return (
-    <div className="min-h-screen bg-dark text-gray-200 flex flex-col md:flex-row relative font-sans">
-      <aside className="w-full md:w-64 bg-card border-r border-gray-800 flex flex-col shadow-2xl z-30">
-        <div className="p-8 border-b border-gray-800">
-          <h1 className="text-xl font-black text-white tracking-tighter cursor-pointer flex items-center gap-2" onClick={() => setView(AppView.CREATE)}>
-            AUTOSOCIAL <span className="text-primary">AI</span>
+    <div className="min-h-screen text-gray-200 flex flex-col md:flex-row relative font-sans overflow-hidden">
+      
+      {/* Mobile Header */}
+      <div className="md:hidden flex justify-between items-center p-4 glass-panel border-b border-white/10 relative z-50">
+          <h1 className="text-lg font-black tracking-tighter text-white flex items-center gap-2">
+            AUTO<span className="text-neon-cyan">SOCIAL</span>
           </h1>
-          <div className="mt-4 p-3 bg-dark/50 rounded-lg border border-gray-800">
+          <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="text-white p-2">
+             {isSidebarOpen ? '✕' : '☰'}
+          </button>
+      </div>
+
+      {/* Glass Sidebar */}
+      <aside className={`
+          fixed md:relative inset-y-0 left-0 w-72 glass-panel z-40 transform transition-transform duration-300 ease-out flex flex-col
+          ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+      `}>
+        <div className="p-8 pb-4">
+          <h1 className="text-2xl font-black text-white tracking-tighter cursor-pointer flex items-center gap-2 select-none" onClick={() => setView(AppView.CREATE)}>
+            AUTO<span className="text-neon-cyan drop-shadow-[0_0_8px_rgba(0,242,234,0.6)]">SOCIAL</span>
+          </h1>
+          <div className="mt-6 p-4 glass-card rounded-xl border border-white/10 bg-black/20">
             {userProfile ? (
                 <>
-                    <p className="truncate text-[10px] text-gray-500 mb-1 font-mono">{userProfile.email}</p>
-                    <div className="flex justify-between items-center">
-                        <p className="text-[11px] font-bold text-blue-400 uppercase tracking-widest">{userProfile.role}</p>
-                        <p className="text-[10px] text-gray-500 font-bold">{userProfile.quota_used}/{userProfile.quota_total}</p>
+                    <div className="flex justify-between items-start mb-2">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-primary to-accent flex items-center justify-center text-black font-bold text-xs">
+                            {userProfile.email[0].toUpperCase()}
+                        </div>
+                        <div className={`text-[10px] px-2 py-0.5 rounded font-black uppercase tracking-wider ${
+                            userProfile.role === 'admin' ? 'bg-red-500/20 text-red-400 border border-red-500/50' : 
+                            userProfile.role === 'business' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/50' : 
+                            'bg-primary/20 text-primary border border-primary/50'
+                        }`}>
+                            {userProfile.role}
+                        </div>
+                    </div>
+                    <p className="truncate text-xs text-gray-400 mb-3 font-mono">{userProfile.email}</p>
+                    <div className="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden mb-1">
+                        <div className="h-full bg-primary shadow-[0_0_10px_#00f2ea]" style={{ width: `${Math.min(100, (userProfile.quota_used / userProfile.quota_total) * 100)}%` }}></div>
+                    </div>
+                    <div className="flex justify-between text-[10px] text-gray-500 font-bold">
+                        <span>CREDITS</span>
+                        <span>{userProfile.quota_used} / {userProfile.quota_total}</span>
                     </div>
                 </>
-            ) : <p className="text-xs text-gray-500">訪客模式</p>}
+            ) : <p className="text-xs text-gray-500">GUEST MODE</p>}
           </div>
         </div>
         
-        <nav className="flex-1 py-4 space-y-0.5 overflow-y-auto custom-scrollbar">
-          <NavItem viewId={AppView.CREATE} label="建立貼文" active={view === AppView.CREATE} onClick={setView} />
-          <NavItem viewId={AppView.SCHEDULE} label="排程與歷史" active={view === AppView.SCHEDULE} onClick={setView} />
-          <NavItem viewId={AppView.SETTINGS} label="品牌設定" active={view === AppView.SETTINGS} onClick={setView} />
+        <nav className="flex-1 py-4 space-y-1 overflow-y-auto custom-scrollbar">
+          <NavItem viewId={AppView.CREATE} label="內容創作" icon="✍️" active={view === AppView.CREATE} onClick={setView} />
+          <NavItem viewId={AppView.SCHEDULE} label="排程與歷史" icon="📅" active={view === AppView.SCHEDULE} onClick={setView} />
+          <NavItem viewId={AppView.SETTINGS} label="品牌設定" icon="⚙️" active={view === AppView.SETTINGS} onClick={setView} />
           
-          <div className="pt-8 mb-2 px-6">
-              <p className="text-[10px] text-gray-600 font-black tracking-[0.2em] uppercase">進階管理模組</p>
+          <div className="mt-6 mb-2 px-6">
+              <p className="text-[10px] text-gray-500 font-black tracking-[0.2em] uppercase">INTELLIGENCE</p>
           </div>
           
-          <NavItem viewId={AppView.ANALYTICS} label="數據分析中心" active={view === AppView.ANALYTICS} onClick={() => hasAnalyticsAccess ? setView(AppView.ANALYTICS) : alert("需升級至 Starter 方案或輸入解鎖金鑰")} disabled={!hasAnalyticsAccess} badge={!hasAnalyticsAccess ? "LOCK" : ""} />
-          <NavItem viewId={AppView.AUTOMATION} label="全自動化中心" active={view === AppView.AUTOMATION} onClick={() => hasAutomationAccess ? setView(AppView.AUTOMATION) : alert("需升級至 Business 方案或輸入解鎖金鑰")} disabled={!hasAutomationAccess} badge={!hasAutomationAccess ? "LOCK" : ""} />
-          <NavItem viewId={AppView.SEO_ARTICLES} label="SEO 文章生成" active={view === AppView.SEO_ARTICLES} onClick={() => hasSeoAccess ? setView(AppView.SEO_ARTICLES) : alert("需升級至 Pro 方案或輸入解鎖金鑰")} disabled={!hasSeoAccess} badge={!hasSeoAccess ? "LOCK" : ""} />
-          <NavItem viewId={AppView.THREADS_NURTURE} label="Threads 養號系統" active={view === AppView.THREADS_NURTURE} onClick={() => hasThreadsAccess ? setView(AppView.THREADS_NURTURE) : alert("需升級至 Pro 方案或輸入解鎖金鑰")} disabled={!hasThreadsAccess} badge={!hasThreadsAccess ? "LOCK" : ""} />
-          <NavItem viewId={AppView.REFERRAL} label="好友推薦計畫" active={view === AppView.REFERRAL} onClick={setView} />
+          <NavItem viewId={AppView.ANALYTICS} label="數據分析" icon="📊" active={view === AppView.ANALYTICS} onClick={() => hasAnalyticsAccess ? setView(AppView.ANALYTICS) : alert("需升級至 Starter 方案")} disabled={!hasAnalyticsAccess} badge={!hasAnalyticsAccess ? "LOCKED" : ""} />
+          <NavItem viewId={AppView.AUTOMATION} label="全自動化" icon="🤖" active={view === AppView.AUTOMATION} onClick={() => hasAutomationAccess ? setView(AppView.AUTOMATION) : alert("需升級至 Business 方案")} disabled={!hasAutomationAccess} badge={!hasAutomationAccess ? "LOCKED" : ""} />
+          <NavItem viewId={AppView.SEO_ARTICLES} label="SEO 文章" icon="📝" active={view === AppView.SEO_ARTICLES} onClick={() => hasSeoAccess ? setView(AppView.SEO_ARTICLES) : alert("需升級至 Pro 方案")} disabled={!hasSeoAccess} badge={!hasSeoAccess ? "LOCKED" : ""} />
+          <NavItem viewId={AppView.THREADS_NURTURE} label="Threads 農場" icon="🧵" active={view === AppView.THREADS_NURTURE} onClick={() => hasThreadsAccess ? setView(AppView.THREADS_NURTURE) : alert("需升級至 Pro 方案")} disabled={!hasThreadsAccess} badge={!hasThreadsAccess ? "LOCKED" : ""} />
+          
+          <div className="mt-6 mb-2 px-6">
+              <p className="text-[10px] text-gray-500 font-black tracking-[0.2em] uppercase">GROWTH</p>
+          </div>
+          <NavItem viewId={AppView.REFERRAL} label="推薦計畫" icon="🎁" active={view === AppView.REFERRAL} onClick={setView} />
         </nav>
 
-        <div className="p-4 border-t border-gray-800 bg-dark/20 space-y-2">
-          <button onClick={() => setShowKeyModal(true)} className="w-full text-left px-4 py-2 text-xs rounded transition-colors font-bold bg-yellow-900/20 text-yellow-400 hover:bg-yellow-900/40 border border-yellow-800/50 mb-2">
-              🔑 兌換金鑰 (Redeem)
+        <div className="p-4 bg-black/20 space-y-2 border-t border-white/5">
+          <button onClick={() => setShowKeyModal(true)} className="w-full text-left px-4 py-3 text-xs rounded-lg transition-all font-bold bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 border border-yellow-500/20 flex items-center gap-2">
+              <span>🔑</span> 兌換序號 (Redeem)
           </button>
           
           {isAdmin && (
-            <button onClick={() => setView(AppView.ADMIN)} className={`w-full text-left px-4 py-2 text-xs rounded transition-colors font-bold ${view === AppView.ADMIN ? 'bg-red-900 text-white' : 'text-red-400 hover:bg-red-900/10'}`}>
-              管理員後台
+            <button onClick={() => setView(AppView.ADMIN)} className={`w-full text-left px-4 py-3 text-xs rounded-lg transition-all font-bold flex items-center gap-2 ${view === AppView.ADMIN ? 'bg-red-600 text-white shadow-lg' : 'text-red-400 hover:bg-red-900/20 border border-red-900/30'}`}>
+              <span>👮</span> 管理員後台
             </button>
           )}
-          <button onClick={handleLogout} className="w-full text-left px-4 py-2 text-xs text-gray-500 hover:text-red-400 transition-colors">
-            登出系統
+          <button onClick={handleLogout} className="w-full text-left px-4 py-3 text-xs text-gray-500 hover:text-white transition-colors flex items-center gap-2">
+            <span>🚪</span> 登出系統
           </button>
         </div>
       </aside>
 
-      <main className="flex-1 p-4 md:p-10 overflow-y-auto h-screen custom-scrollbar bg-dark/95">
-        {view === AppView.CREATE && (
-          <PostCreator 
-            settings={settings} 
-            user={userProfile} 
-            onPostCreated={handlePostCreated} 
-            onQuotaUpdate={refreshProfile} 
-            editPost={editingPost} 
-            onCancel={() => setEditingPost(null)}
-            scheduledPostsCount={posts.filter(p => p.status === 'scheduled').length}
-          />
-        )}
-        {view === AppView.SCHEDULE && (
-          <ScheduleList posts={posts} onUpdatePosts={async (updated) => {
-              const originalIds = posts.map(p => p.id);
-              const updatedIds = updated.map(p => p.id);
-              const deletedId = originalIds.find(id => !updatedIds.includes(id));
-              if (deletedId) await handleDeletePost(deletedId);
-              else {
-                  const changed = updated.find((p, i) => JSON.stringify(p) !== JSON.stringify(posts.find(op => op.id === p.id)));
-                  if (changed && user) await syncPostToCloud(user.uid, changed);
-                  setPosts(updated);
-              }
-          }} onEditPost={handleEditPost} />
-        )}
-        {view === AppView.SETTINGS && <SettingsForm onSave={handleSaveSettings} initialSettings={settings} />}
-        {view === AppView.ANALYTICS && <AnalyticsDashboard settings={settings} />}
-        {view === AppView.AUTOMATION && <AutomationPanel settings={settings} onSave={handleSaveSettings} />}
-        {view === AppView.SEO_ARTICLES && <SeoArticleGenerator user={userProfile} onQuotaUpdate={refreshProfile} />}
-        {view === AppView.THREADS_NURTURE && <ThreadsNurturePanel settings={settings} user={userProfile} onSaveSettings={handleSaveSettings} onQuotaUpdate={refreshProfile} />}
-        {view === AppView.REFERRAL && <ReferralPanel user={userProfile} onQuotaUpdate={refreshProfile} />}
-        {view === AppView.ADMIN && isAdmin && <AdminPanel currentUser={userProfile!} />}
+      {/* Main Content Area */}
+      <main className="flex-1 p-4 md:p-8 lg:p-12 overflow-y-auto h-screen custom-scrollbar relative">
+        <div className="max-w-7xl mx-auto">
+            {view === AppView.CREATE && (
+              <PostCreator 
+                settings={settings} 
+                user={userProfile} 
+                onPostCreated={handlePostCreated} 
+                onQuotaUpdate={refreshProfile} 
+                editPost={editingPost} 
+                onCancel={() => setEditingPost(null)}
+                scheduledPostsCount={posts.filter(p => p.status === 'scheduled').length}
+              />
+            )}
+            {view === AppView.SCHEDULE && (
+              <ScheduleList posts={posts} onUpdatePosts={async (updated) => {
+                  const originalIds = posts.map(p => p.id);
+                  const updatedIds = updated.map(p => p.id);
+                  const deletedId = originalIds.find(id => !updatedIds.includes(id));
+                  if (deletedId) await handleDeletePost(deletedId);
+                  else {
+                      const changed = updated.find((p, i) => JSON.stringify(p) !== JSON.stringify(posts.find(op => op.id === p.id)));
+                      if (changed && user) await syncPostToCloud(user.uid, changed);
+                      setPosts(updated);
+                  }
+              }} onEditPost={handleEditPost} />
+            )}
+            {view === AppView.SETTINGS && <SettingsForm onSave={handleSaveSettings} initialSettings={settings} />}
+            {view === AppView.ANALYTICS && <AnalyticsDashboard settings={settings} />}
+            {view === AppView.AUTOMATION && <AutomationPanel settings={settings} onSave={handleSaveSettings} />}
+            {view === AppView.SEO_ARTICLES && <SeoArticleGenerator user={userProfile} onQuotaUpdate={refreshProfile} />}
+            {view === AppView.THREADS_NURTURE && <ThreadsNurturePanel settings={settings} user={userProfile} onSaveSettings={handleSaveSettings} onQuotaUpdate={refreshProfile} />}
+            {view === AppView.REFERRAL && <ReferralPanel user={userProfile} onQuotaUpdate={refreshProfile} />}
+            {view === AppView.ADMIN && isAdmin && <AdminPanel currentUser={userProfile!} />}
+        </div>
       </main>
       
-      <button onClick={() => setShowReportModal(true)} className="fixed bottom-6 right-6 bg-red-600 hover:bg-red-500 text-white w-10 h-10 rounded-full z-40 shadow-2xl transition-transform active:scale-90 flex items-center justify-center font-bold text-lg">!</button>
+      {/* Report Floating Button */}
+      <button 
+        onClick={() => setShowReportModal(true)} 
+        className="fixed bottom-6 right-6 bg-red-600 hover:bg-red-500 text-white w-12 h-12 rounded-full z-50 shadow-[0_0_20px_rgba(220,38,38,0.5)] transition-transform active:scale-90 flex items-center justify-center font-bold text-xl backdrop-blur-md border border-white/20"
+        title="回報問題"
+      >
+        !
+      </button>
       
       {/* Modals */}
       {showReportModal && <ErrorReportModal user={userProfile} currentView={view} onClose={() => setShowReportModal(false)} />}

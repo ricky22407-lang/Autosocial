@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { login, register, sendPasswordReset } from '../services/authService';
 
@@ -29,7 +30,6 @@ const Login: React.FC<Props> = ({ onLoginSuccess }) => {
       } else if (mode === 'FORGOT') {
         await sendPasswordReset(email.trim());
         setSuccessMsg(`密碼重設信已發送至 ${email}，請檢查信箱。`);
-        // Don't switch view automatically, let user read message
       }
     } catch (err: any) {
       console.error(err);
@@ -40,73 +40,76 @@ const Login: React.FC<Props> = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-dark">
-      <div className="bg-card p-8 rounded-xl shadow-2xl border border-gray-700 w-full max-w-md animate-fade-in">
-        <h2 className="text-3xl font-bold text-center text-white mb-2">
-          {mode === 'REGISTER' ? '註冊會員' : mode === 'FORGOT' ? '重設密碼' : '登入 AutoSocial'}
-        </h2>
-        
-        {/* 新增中文副標題 */}
-        {mode === 'LOGIN' && (
-            <p className="text-lg text-center text-blue-400 font-bold mb-2 tracking-wider">
-                首創全自動經營社群平台
+    <div className="flex items-center justify-center min-h-screen relative overflow-hidden">
+      {/* Login Card */}
+      <div className="glass-card p-10 rounded-3xl w-full max-w-md animate-fade-in relative z-10 border border-white/10 shadow-[0_0_50px_rgba(0,0,0,0.5)]">
+        <div className="text-center mb-8">
+            <h1 className="text-4xl font-black text-white tracking-tighter mb-2">
+                AUTO<span className="text-neon-cyan">SOCIAL</span>
+            </h1>
+            <p className="text-sm font-bold text-gray-400 tracking-[0.2em] uppercase">
+                AI 社群自動化中控台
             </p>
-        )}
+        </div>
+
+        <h2 className="text-2xl font-bold text-center text-white mb-2">
+          {mode === 'REGISTER' ? '建立帳戶' : mode === 'FORGOT' ? '重設密碼' : '歡迎回來'}
+        </h2>
 
         <p className="text-gray-400 text-center mb-8 text-sm">
-          {mode === 'REGISTER' ? '建立您的社群自動化帳戶' : mode === 'FORGOT' ? '輸入 Email 以接收重設連結' : '歡迎回來，請登入繼續使用'}
+          {mode === 'REGISTER' ? '開始您的自動化之旅' : mode === 'FORGOT' ? '我們會發送重設連結給您' : '登入以存取您的儀表板'}
         </p>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-5">
           <div>
-            <label className="block text-sm text-gray-400 mb-1">Email</label>
+            <label className="block text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider">Email</label>
             <input 
               type="email" 
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-dark border border-gray-600 rounded p-3 text-white focus:border-primary outline-none"
+              className="w-full p-4 rounded-xl outline-none text-white font-medium"
               placeholder="name@example.com"
             />
           </div>
           
           {mode !== 'FORGOT' && (
             <div>
-              <label className="block text-sm text-gray-400 mb-1">Password</label>
+              <label className="block text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider">Password</label>
               <input 
                 type="password" 
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-dark border border-gray-600 rounded p-3 text-white focus:border-primary outline-none"
+                className="w-full p-4 rounded-xl outline-none text-white font-medium"
               />
             </div>
           )}
 
-          {error && <p className="text-red-400 text-sm text-center bg-red-900/20 p-2 rounded">{error}</p>}
-          {successMsg && <p className="text-green-400 text-sm text-center bg-green-900/20 p-2 rounded">{successMsg}</p>}
+          {error && <div className="text-red-400 text-xs font-bold text-center bg-red-900/20 p-3 rounded border border-red-900/50">{error}</div>}
+          {successMsg && <div className="text-green-400 text-xs font-bold text-center bg-green-900/20 p-3 rounded border border-green-900/50">{successMsg}</div>}
 
           <button 
             type="submit" 
             disabled={loading}
-            className="w-full bg-primary hover:bg-blue-600 text-white py-3 rounded font-bold transition-all disabled:opacity-50"
+            className="w-full bg-gradient-to-r from-primary to-blue-600 hover:to-blue-500 text-black py-4 rounded-xl font-black transition-all transform active:scale-95 disabled:opacity-50 disabled:scale-100 shadow-[0_0_20px_rgba(0,242,234,0.3)] hover:shadow-[0_0_30px_rgba(0,242,234,0.5)] uppercase tracking-wider"
           >
-            {loading ? '處理中...' : (mode === 'REGISTER' ? '立即註冊' : mode === 'FORGOT' ? '發送重設信' : '登入')}
+            {loading ? <div className="loader mx-auto border-t-black"></div> : (mode === 'REGISTER' ? '註冊' : mode === 'FORGOT' ? '發送' : '登入')}
           </button>
         </form>
 
-        <div className="mt-6 flex flex-col gap-2 text-center text-sm">
+        <div className="mt-8 flex flex-col gap-3 text-center text-xs font-medium">
           {mode === 'LOGIN' && (
              <>
-                <button onClick={() => setMode('REGISTER')} className="text-gray-400 hover:text-white underline">還沒有帳號？免費註冊</button>
+                <button onClick={() => setMode('REGISTER')} className="text-gray-400 hover:text-white transition-colors">還沒有帳號？ <span className="text-primary underline decoration-primary/50 underline-offset-4">免費註冊</span></button>
                 <button onClick={() => setMode('FORGOT')} className="text-gray-500 hover:text-gray-400">忘記密碼？</button>
              </>
           )}
           {mode === 'REGISTER' && (
-             <button onClick={() => setMode('LOGIN')} className="text-gray-400 hover:text-white underline">已有帳號？點此登入</button>
+             <button onClick={() => setMode('LOGIN')} className="text-gray-400 hover:text-white transition-colors">已有帳號？ <span className="text-primary underline decoration-primary/50 underline-offset-4">點此登入</span></button>
           )}
           {mode === 'FORGOT' && (
-             <button onClick={() => setMode('LOGIN')} className="text-gray-400 hover:text-white underline">想起密碼了？返回登入</button>
+             <button onClick={() => setMode('LOGIN')} className="text-gray-400 hover:text-white transition-colors">想起密碼了？ <span className="text-primary underline decoration-primary/50 underline-offset-4">返回登入</span></button>
           )}
         </div>
       </div>

@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="zh-TW">
   <head>
@@ -5,27 +6,48 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AutoSocial AI - 社群自動化營運中控台</title>
     
-    <!-- 1. Tailwind CDN (Kept for styling consistency as requested) -->
+    <!-- 1. Tailwind CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- 2. Tailwind Configuration -->
+    <!-- 2. Tailwind Configuration (Cyberpunk Theme) -->
     <script>
       tailwind.config = {
+        darkMode: 'class',
         theme: {
           extend: {
             colors: {
-              primary: '#3b82f6',
-              secondary: '#6366f1',
-              dark: '#0f172a',
-              card: '#1e293b',
+              // Cyberpunk Palette
+              bg: '#050505', // Deep Void
+              glass: 'rgba(20, 20, 30, 0.6)', // Glass Base
+              'glass-border': 'rgba(255, 255, 255, 0.08)',
+              primary: '#00f2ea', // Neon Cyan
+              secondary: '#ff0055', // Neon Pink
+              accent: '#7000ff', // Electric Purple
+              
+              // Semantic Overrides
+              dark: '#0a0a0a',
+              card: 'rgba(30, 30, 40, 0.4)', // Slightly lighter glass
+            },
+            boxShadow: {
+              'neon-blue': '0 0 10px rgba(0, 242, 234, 0.5), 0 0 20px rgba(0, 242, 234, 0.3)',
+              'neon-pink': '0 0 10px rgba(255, 0, 85, 0.5), 0 0 20px rgba(255, 0, 85, 0.3)',
+              'glass': '0 8px 32px 0 rgba(0, 0, 0, 0.37)',
             },
             animation: {
-              'fade-in': 'fadeIn 0.3s ease-in-out',
+              'fade-in': 'fadeIn 0.5s ease-out',
+              'blob': 'blob 10s infinite',
+              'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
             },
             keyframes: {
               fadeIn: {
                 '0%': { opacity: '0', transform: 'translateY(10px)' },
                 '100%': { opacity: '1', transform: 'translateY(0)' },
+              },
+              blob: {
+                '0%': { transform: 'translate(0px, 0px) scale(1)' },
+                '33%': { transform: 'translate(30px, -50px) scale(1.1)' },
+                '66%': { transform: 'translate(-20px, 20px) scale(0.9)' },
+                '100%': { transform: 'translate(0px, 0px) scale(1)' },
               }
             }
           }
@@ -33,42 +55,124 @@
       }
     </script>
 
-    <!-- 3. Global Styles -->
+    <!-- 3. Global Styles (Glassmorphism & Backgrounds) -->
     <style>
       body {
-        background-color: #0f172a;
+        background-color: #050505;
         color: #e2e8f0;
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        overflow-x: hidden;
       }
-      /* Custom scrollbar */
+
+      /* Aurora Background Animation */
+      .aurora-bg {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        z-index: -1;
+        overflow: hidden;
+        background: #050505;
+      }
+      .blob-1 {
+        position: absolute;
+        top: -10%;
+        left: -10%;
+        width: 50vw;
+        height: 50vw;
+        background: radial-gradient(circle, rgba(112, 0, 255, 0.15) 0%, rgba(0, 0, 0, 0) 70%);
+        border-radius: 50%;
+        animation: blob 15s infinite alternate;
+        filter: blur(80px);
+      }
+      .blob-2 {
+        position: absolute;
+        bottom: -10%;
+        right: -10%;
+        width: 50vw;
+        height: 50vw;
+        background: radial-gradient(circle, rgba(0, 242, 234, 0.1) 0%, rgba(0, 0, 0, 0) 70%);
+        border-radius: 50%;
+        animation: blob 20s infinite alternate-reverse;
+        filter: blur(80px);
+      }
+      .blob-3 {
+        position: absolute;
+        top: 40%;
+        left: 40%;
+        width: 40vw;
+        height: 40vw;
+        background: radial-gradient(circle, rgba(255, 0, 85, 0.08) 0%, rgba(0, 0, 0, 0) 70%);
+        border-radius: 50%;
+        animation: blob 25s infinite linear;
+        filter: blur(100px);
+      }
+
+      /* Glassmorphism Utilities */
+      .glass-card {
+        background: rgba(20, 20, 30, 0.4);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+      }
+      
+      .glass-panel {
+        background: rgba(10, 10, 15, 0.6);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border-right: 1px solid rgba(255, 255, 255, 0.05);
+      }
+
+      /* Neon Text */
+      .text-neon-cyan {
+        color: #00f2ea;
+        text-shadow: 0 0 10px rgba(0, 242, 234, 0.5);
+      }
+      .text-neon-pink {
+        color: #ff0055;
+        text-shadow: 0 0 10px rgba(255, 0, 85, 0.5);
+      }
+
+      /* Custom Scrollbar */
       ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
+        width: 6px;
+        height: 6px;
       }
       ::-webkit-scrollbar-track {
-        background: #1e293b; 
+        background: transparent; 
       }
       ::-webkit-scrollbar-thumb {
-        background: #475569; 
-        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.1); 
+        border-radius: 10px;
       }
       ::-webkit-scrollbar-thumb:hover {
-        background: #64748b; 
+        background: rgba(255, 255, 255, 0.3); 
       }
-      /* Loading Spinner */
+
+      /* Loader */
       .loader {
-        border: 3px solid rgba(255,255,255,0.3);
+        border: 3px solid rgba(255,255,255,0.1);
         border-radius: 50%;
-        border-top: 3px solid white;
-        width: 1.25rem;
-        height: 1.25rem;
-        -webkit-animation: spin 1s linear infinite;
-        animation: spin 1s linear infinite;
-        display: inline-block;
-        vertical-align: middle;
+        border-top: 3px solid #00f2ea;
+        width: 1.5rem;
+        height: 1.5rem;
+        animation: spin 0.8s linear infinite;
       }
-      @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
+      @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+      /* Input Reset */
+      input, textarea, select {
+        background: rgba(0, 0, 0, 0.3) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        color: white !important;
+        transition: all 0.3s ease;
+      }
+      input:focus, textarea:focus, select:focus {
+        border-color: #00f2ea !important;
+        box-shadow: 0 0 10px rgba(0, 242, 234, 0.1);
+        background: rgba(0, 0, 0, 0.5) !important;
       }
     </style>
 <script type="importmap">
@@ -91,8 +195,14 @@
 </script>
 </head>
   <body>
-    <div id="root"></div>
-    <!-- Clean Vite Entry Point -->
+    <!-- Aurora Background Layers -->
+    <div class="aurora-bg">
+      <div class="blob-1"></div>
+      <div class="blob-2"></div>
+      <div class="blob-3"></div>
+    </div>
+    
+    <div id="root" class="relative z-10 h-full"></div>
     <script type="module" src="/index.tsx"></script>
   </body>
 </html>
