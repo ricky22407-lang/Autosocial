@@ -157,13 +157,13 @@ const App: React.FC = () => {
 
   const handleDeletePost = async (postId: string) => {
       if (!user) return;
-      if (confirm("確定要從雲端永久刪除此紀錄嗎？")) {
-          try {
-              await deletePostFromCloud(user.uid, postId);
-              setPosts(prev => prev.filter(p => p.id !== postId));
-          } catch (e) {
-              alert("刪除失敗");
-          }
+      // Note: Actual API deletion logic is handled inside ScheduleList component now for better encapsulation
+      // This function mainly handles local/cloud sync state removal
+      try {
+          await deletePostFromCloud(user.uid, postId);
+          setPosts(prev => prev.filter(p => p.id !== postId));
+      } catch (e) {
+          alert("刪除失敗");
       }
   };
 
@@ -251,7 +251,7 @@ const App: React.FC = () => {
                         <div className="h-full bg-primary shadow-[0_0_10px_#00f2ea]" style={{ width: `${Math.min(100, (userProfile.quota_used / userProfile.quota_total) * 100)}%` }}></div>
                     </div>
                     <div className="flex justify-between text-[10px] text-gray-500 font-bold">
-                        <span>CREDITS</span>
+                        <span>點數</span>
                         <span>{userProfile.quota_used} / {userProfile.quota_total}</span>
                     </div>
                 </>
@@ -265,7 +265,7 @@ const App: React.FC = () => {
           <NavItem viewId={AppView.SETTINGS} label="品牌設定" icon={Icons.Settings} active={view === AppView.SETTINGS} onClick={setView} />
           
           <div className="mt-6 mb-2 px-6">
-              <p className="text-[10px] text-gray-500 font-black tracking-[0.2em] uppercase">INTELLIGENCE</p>
+              <p className="text-[10px] text-gray-500 font-black tracking-[0.2em] uppercase">智慧功能</p>
           </div>
           
           <NavItem viewId={AppView.ANALYTICS} label="數據分析" icon={Icons.Analytics} active={view === AppView.ANALYTICS} onClick={() => hasAnalyticsAccess ? setView(AppView.ANALYTICS) : alert("需升級至 Starter 方案")} disabled={!hasAnalyticsAccess} badge={!hasAnalyticsAccess ? "LOCKED" : ""} />
@@ -274,7 +274,7 @@ const App: React.FC = () => {
           <NavItem viewId={AppView.THREADS_NURTURE} label="Threads 農場" icon={Icons.Threads} active={view === AppView.THREADS_NURTURE} onClick={() => hasThreadsAccess ? setView(AppView.THREADS_NURTURE) : alert("需升級至 Pro 方案")} disabled={!hasThreadsAccess} badge={!hasThreadsAccess ? "LOCKED" : ""} />
           
           <div className="mt-6 mb-2 px-6">
-              <p className="text-[10px] text-gray-500 font-black tracking-[0.2em] uppercase">GROWTH</p>
+              <p className="text-[10px] text-gray-500 font-black tracking-[0.2em] uppercase">成長工具</p>
           </div>
           <NavItem viewId={AppView.REFERRAL} label="推薦計畫" icon={Icons.Referral} active={view === AppView.REFERRAL} onClick={setView} />
         </nav>
@@ -310,17 +310,25 @@ const App: React.FC = () => {
               />
             )}
             {view === AppView.SCHEDULE && (
-              <ScheduleList posts={posts} onUpdatePosts={async (updated) => {
-                  const originalIds = posts.map(p => p.id);
-                  const updatedIds = updated.map(p => p.id);
-                  const deletedId = originalIds.find(id => !updatedIds.includes(id));
-                  if (deletedId) await handleDeletePost(deletedId);
-                  else {
-                      const changed = updated.find((p, i) => JSON.stringify(p) !== JSON.stringify(posts.find(op => op.id === p.id)));
-                      if (changed && user) await syncPostToCloud(user.uid, changed);
-                      setPosts(updated);
-                  }
-              }} onEditPost={handleEditPost} />
+              <ScheduleList 
+                  posts={posts} 
+                  onUpdatePosts={async (updated) => {
+                      const originalIds = posts.map(p => p.id);
+                      const updatedIds = updated.map(p => p.id);
+                      
+                      // Identify deletion
+                      const deletedId = originalIds.find(id => !updatedIds.includes(id));
+                      if (deletedId) await handleDeletePost(deletedId);
+                      else {
+                          // Identify update (e.g. status change from calendar view)
+                          const changed = updated.find((p, i) => JSON.stringify(p) !== JSON.stringify(posts.find(op => op.id === p.id)));
+                          if (changed && user) await syncPostToCloud(user.uid, changed);
+                          setPosts(updated);
+                      }
+                  }} 
+                  onEditPost={handleEditPost}
+                  settings={settings} // Pass settings for API token access
+              />
             )}
             {view === AppView.SETTINGS && <SettingsForm onSave={handleSaveSettings} initialSettings={settings} />}
             {view === AppView.ANALYTICS && <AnalyticsDashboard settings={settings} />}

@@ -21,7 +21,8 @@ export enum ErrorCode {
   FACEBOOK_API_ERROR = 'EXT_FB_001',
   AI_API_ERROR = 'EXT_AI_001',
   INTERNAL_ERROR = 'SYS_001',
-  MAINTENANCE_MODE = 'SYS_002'
+  MAINTENANCE_MODE = 'SYS_002',
+  RATE_LIMIT_EXCEEDED = 'SYS_003'
 }
 
 export type UserRole = 'user' | 'starter' | 'pro' | 'business' | 'admin';
@@ -38,8 +39,20 @@ export interface UserProfile {
   referralCode?: string;
   referredBy?: string;
   referralCount?: number;
+  last_api_call_timestamp?: number; // Rate Limiting
   created_at: number;
   updated_at: number;
+}
+
+export interface QuotaTransaction {
+  txId: string;
+  userId: string;
+  amount: number; // Negative for cost, Positive for refill
+  balanceAfter: number;
+  action: string;
+  refId?: string; // Optional: Post ID or Task ID
+  timestamp: number;
+  metadata?: any;
 }
 
 export interface UsageLog {

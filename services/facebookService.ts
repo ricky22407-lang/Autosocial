@@ -66,19 +66,15 @@ export const validateFacebookToken = async (token: string): Promise<{
   const cleanToken = token.trim();
 
   try {
-    // 步驟 1: 基礎身份與類型檢查
-    // 請求 metadata=1 可以知道這個 Token 的類型 (User 或 Page)
     const meRes = await graphApi('me?fields=id,name,category', cleanToken);
     
     if (!meRes || !meRes.id) {
         return { valid: false, status: 'INVALID', missingPermissions: [], error: '無法識別身份' };
     }
 
-    // 如果有 category 欄位，代表這是一個 Page Token
     const isPageToken = !!meRes.category;
     
     if (isPageToken) {
-        // Page Token 通常不支援 /me/permissions，但具備發文能力
         return { 
             valid: true, 
             status: 'VALID', 
@@ -87,7 +83,6 @@ export const validateFacebookToken = async (token: string): Promise<{
         };
     }
     
-    // 步驟 2: 用戶 Token 權限檢查
     let missing: string[] = [];
     try {
         const permRes = await graphApi('me/permissions', cleanToken);
@@ -128,13 +123,20 @@ export const publishPostToFacebook = async (
   message: string,
   mediaUrl?: string,
   firstComment?: string,
-  syncInstagram?: boolean
+  syncInstagram?: boolean,
+  scheduledTime?: number
 ): Promise<{ success: boolean; url?: string; error?: string }> => {
   if (!pageId || !token) return { success: false, error: '未設定 Page ID 或 Token' };
 
   try {
     let postId: string;
     const cleanToken = token.trim();
+    
+    const schedulingParams: any = {};
+    if (scheduledTime) {
+        schedulingParams.published = false;
+        schedulingParams.scheduled_publish_time = scheduledTime;
+    }
 
     if (mediaUrl) {
       const isBase64 = mediaUrl.startsWith('data:');
@@ -143,6 +145,12 @@ export const publishPostToFacebook = async (
       if (isBase64) {
           const blob = await base64ToBlob(mediaUrl);
           const formData = new FormData();
+          
+          if (scheduledTime) {
+              formData.append('published', 'false');
+              formData.append('scheduled_publish_time', scheduledTime.toString());
+          }
+
           if (isVideo) {
               formData.append('description', message);
               formData.append('source', blob, 'video.mp4');
@@ -156,16 +164,19 @@ export const publishPostToFacebook = async (
           }
       } else {
           const endpoint = isVideo ? `${pageId}/videos` : `${pageId}/photos`;
-          const payload: any = isVideo ? { description: message, file_url: mediaUrl } : { caption: message, url: mediaUrl };
+          const payload: any = isVideo ? 
+            { description: message, file_url: mediaUrl, ...schedulingParams } : 
+            { caption: message, url: mediaUrl, ...schedulingParams };
+            
           const res = await graphApi(endpoint, cleanToken, 'POST', payload);
           postId = res.id || res.post_id;
       }
     } else {
-      const res = await graphApi(`${pageId}/feed`, cleanToken, 'POST', { message });
+      const res = await graphApi(`${pageId}/feed`, cleanToken, 'POST', { message, ...schedulingParams });
       postId = res.id;
     }
 
-    if (firstComment && postId) {
+    if (firstComment && postId && !scheduledTime) {
       try { await graphApi(`${postId}/comments`, cleanToken, 'POST', { message: firstComment }); } catch (e) {}
     }
 
@@ -175,12 +186,39 @@ export const publishPostToFacebook = async (
   }
 };
 
+export const reschedulePost = async (
+    postId: string, 
+    token: string, 
+    newTime: number
+): Promise<{ success: boolean; error?: string }> => {
+    try {
+        await graphApi(postId, token, 'POST', {
+            published: false,
+            scheduled_publish_time: newTime
+        });
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
+};
+
+export const deleteFbPost = async (
+    postId: string, 
+    token: string
+): Promise<{ success: boolean; error?: string }> => {
+    try {
+        await graphApi(postId, token, 'DELETE');
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
+};
+
 export const fetchPageAnalytics = async (pageId: string, token?: string): Promise<AnalyticsData | null> => {
   if (!pageId || !token) return null; 
   const cleanToken = token.trim();
   try {
     const pageInfo = await graphApi(`${pageId}?fields=followers_count`, cleanToken);
-    // 降級處理：如果 insights 無法讀取，給予 0
     let reach = 0;
     try {
         const reachData = await graphApi(`${pageId}/insights?metric=page_impressions_unique&period=days_28`, cleanToken);
@@ -200,7 +238,6 @@ export const fetchPageAnalytics = async (pageId: string, token?: string): Promis
 export const fetchPageTopPosts = async (pageId: string, token: string): Promise<{ topReach?: TopPostData, topEngagement?: TopPostData }> => {
     const cleanToken = token.trim();
     try {
-        // 簡化欄位請求，移除可能報錯的 insights 指標
         const fields = 'id,message,created_time,full_picture,permalink_url';
         const res = await graphApi(`${pageId}/feed?limit=15&fields=${fields}`, cleanToken);
         const posts = res.data || [];

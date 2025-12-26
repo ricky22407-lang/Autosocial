@@ -34,7 +34,7 @@ export const AutomationClient = {
     // Actually, let's simplify for automation: charge a flat fee or calculate.
     // Let's assume AutoPilot run costs 1 base point. If it generates AI Image, that's extra internal logic, 
     // but here we just charge 1 to trigger the run for simplicity unless we want complex transaction.
-    const hasQuota = await checkAndUseQuota(user.uid, 1);
+    const hasQuota = await checkAndUseQuota(user.uid, 1, 'AUTOPILOT_FB_TRIGGER');
     if (!hasQuota) throw new Error("配額不足，無法執行自動化任務");
 
     const config = settings.autoPilot;
@@ -142,7 +142,7 @@ export const AutomationClient = {
       const user = getCurrentUser();
       if (!user) throw new Error("使用者未登入");
 
-      const hasQuota = await checkAndUseQuota(user.uid, 1);
+      const hasQuota = await checkAndUseQuota(user.uid, 1, 'AUTOPILOT_THREADS_TRIGGER');
       if (!hasQuota) throw new Error("配額不足 (Threads AutoPilot)");
 
       const config = settings.threadsAutoPilot;

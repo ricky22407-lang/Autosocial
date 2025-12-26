@@ -1,7 +1,12 @@
 
-import firebase from 'firebase/compat/app';
-import 'firebase/compat/auth';
-import 'firebase/compat/firestore';
+// We use global CDN scripts in index.html for maximum compatibility in this environment.
+// This file acts as a typed wrapper around the global `window.firebase` object.
+
+declare global {
+  interface Window {
+    firebase: any;
+  }
+}
 
 // ============================================================================
 // FIREBASE CONFIGURATION
@@ -30,18 +35,20 @@ const firebaseConfig = {
 };
 
 // ============================================================================
-// INITIALIZATION (COMPAT / V8 STYLE)
+// INITIALIZATION
 // ============================================================================
 
-let app;
-let auth: firebase.auth.Auth;
-let db: firebase.firestore.Firestore;
+let app: any;
+let auth: any;
+let db: any;
 let isMock = false;
+let firebase: any; // Export the global namespace
 
 const hasConfig = !!firebaseConfig.apiKey && !!firebaseConfig.projectId && firebaseConfig.apiKey !== 'undefined';
 
-if (hasConfig) {
+if (typeof window !== 'undefined' && window.firebase && hasConfig) {
   try {
+      firebase = window.firebase;
       if (!firebase.apps.length) {
           app = firebase.initializeApp(firebaseConfig);
       } else {
@@ -49,19 +56,28 @@ if (hasConfig) {
       }
       auth = firebase.auth();
       db = firebase.firestore();
-      console.log("🔥 Firebase Initialized (Compat)");
+      console.log("🔥 Firebase Initialized (Global CDN)");
   } catch (e) {
       console.error("Firebase Init Error:", e);
       isMock = true; 
-      // Create mock objects placeholders to prevent crash on import
       auth = {} as any; 
       db = {} as any;
   }
 } else {
-  console.log("⚠️ No Valid Firebase Config. Using MOCK mode.");
+  console.log("⚠️ Using MOCK mode (No Config or SDK).");
   isMock = true;
   auth = {} as any;
   db = {} as any;
+  // Minimal mock for typings if needed
+  firebase = {
+      firestore: {
+          FieldValue: {
+              increment: (n: number) => n,
+              serverTimestamp: () => Date.now(),
+              arrayUnion: (val: any) => val
+          }
+      }
+  };
 }
 
 export { app, auth, db, isMock, firebase };

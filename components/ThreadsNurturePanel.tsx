@@ -48,23 +48,23 @@ interface CommentData {
 const STYLE_PRESETS = [
     { name: '請選擇風格模板...', dna: '' },
     { 
-        name: '🫠 厭世社畜 (真實感/抱怨)', 
-        dna: '你是一個被工作壓垮的台灣社畜。語氣充滿無奈、疲憊，但帶有自嘲的幽默。喜歡抱怨老闆、天氣、或莫名其妙的客戶。關鍵特徵：1. 絕對不使用句號，改用空格或換行。2. 常用 Emoji：🫠, 💀, 🙃, 😭。3. 口頭禪：「心好累」、「想離職」、「救命」、「確」。文章結構鬆散，像是剛下班在捷運上的隨手發文。' 
+        name: '厭世社畜 (真實感/抱怨)', 
+        dna: '你是一個被工作壓垮的台灣社畜。語氣充滿無奈、疲憊，但帶有自嘲的幽默。喜歡抱怨老闆、天氣、或莫名其妙的客戶。關鍵特徵：1. 絕對不使用句號，改用空格或換行。2. 常用表情符號：🫠, 💀, 🙃, 😭。3. 口頭禪：「心好累」、「想離職」、「救命」、「確」。文章結構鬆散，像是剛下班在捷運上的隨手發文。' 
     },
     { 
-        name: '🤡 發瘋廢文 (混沌/迷因)', 
+        name: '發瘋廢文 (混沌/迷因)', 
         dna: '你是一個思緒跳躍、有點「發瘋」狀態的脆友。語氣誇張、情緒起伏大（或是極度敷衍）。針對時事發表「沒什麼營養」但「很好笑」的評論。關鍵特徵：1. 使用大量網路流行語（如：笑死、暈、超派）。2. 節奏極快，短句為主。3. 把 Threads 當成個版在碎碎念。' 
     },
     { 
-        name: '👀 吃瓜群眾 (八卦/好奇)', 
+        name: '吃瓜群眾 (八卦/好奇)', 
         dna: '你是一個熱愛觀察路人、跟風時事的吃瓜群眾。語氣帶有「好奇」、「驚訝」或「看戲」的成分。喜歡用問句開頭，例如「只有我覺得...嗎？」、「有人知道...嗎？」。目的是引發共鳴和討論。語氣親切但帶點八卦感。' 
     },
     { 
-        name: '💖 暈船仔/EMO (感性/深夜)', 
-        dna: '你是一個感情豐富、容易「暈船」或深夜 EMO 的人。語氣感性、柔軟，文字帶有淡淡的憂傷或對關係的困惑。常用 Emoji：🥺, 💔, ☁️, 🥀。喜歡分享一些看起來很有道理但其實是廢話的愛情觀。' 
+        name: '暈船仔/EMO (感性/深夜)', 
+        dna: '你是一個感情豐富、容易「暈船」或深夜 EMO 的人。語氣感性、柔軟，文字帶有淡淡的憂傷或對關係的困惑。常用表情符號：🥺, 💔, ☁️, 🥀。喜歡分享一些看起來很有道理但其實是廢話的愛情觀。' 
     },
     { 
-        name: '🏢 品牌小編 (親切/非官方腔)', 
+        name: '品牌小編 (親切/非官方腔)', 
         dna: '你是一個「像真人的小編」。雖然代表品牌，但拒絕使用官腔。語氣活潑、甚至會自嘲自家產品。會跟粉絲像朋友一樣對話，使用「小編」自稱。目的是建立親和力，而不是推銷。' 
     }
 ];
@@ -100,11 +100,11 @@ const ImagePreview: React.FC<{ src: string, alt: string }> = ({ src, alt }) => {
 const LoadingOverlay: React.FC<{ message: string, detail?: string }> = ({ message, detail }) => {
     const [tipIndex, setTipIndex] = useState(0);
     const tips = [
-        "💡 Threads 小技巧：演算法喜歡「引發討論」的內容，試著在文末用問句結尾。",
-        "💡 經營心法：Threads 網友喜歡「真實感」與「廢文感」，過於完美的文案反而沒人看。",
-        "💡 省錢祕技：善用「擬真圖庫」模式，只要 3 點就能生成超像網友隨手拍的照片！",
-        "💡 流量密碼：看到熱門時事要趕快跟風，AutoSocial 的「挖掘靈感」能幫你搶快。",
-        "💡 安全建議：雖然我們有自動養號，但建議不要在短時間內連續發佈超過 5 篇貼文。"
+        "Tips: 演算法喜歡「引發討論」的內容，試著在文末用問句結尾。",
+        "Tips: Threads 網友喜歡「真實感」與「廢文感」，過於完美的文案反而沒人看。",
+        "Tips: 善用「擬真圖庫」模式，只要 3 點就能生成超像網友隨手拍的照片！",
+        "Tips: 看到熱門時事要趕快跟風，AutoSocial 的「挖掘靈感」能幫你搶快。",
+        "Tips: 建議不要在短時間內連續發佈超過 5 篇貼文。"
     ];
 
     useEffect(() => {
@@ -125,7 +125,7 @@ const LoadingOverlay: React.FC<{ message: string, detail?: string }> = ({ messag
             
             <div className="bg-card p-6 rounded-xl border border-gray-700 max-w-md w-full text-center shadow-2xl relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-purple-500 to-pink-500"></div>
-                <p className="text-yellow-400 text-sm font-bold mb-2 uppercase tracking-wider">AutoSocial Pro Tips</p>
+                <p className="text-yellow-400 text-sm font-bold mb-2 uppercase tracking-wider">System Tips</p>
                 <p className="text-gray-200 text-base transition-all duration-500 min-h-[50px] flex items-center justify-center font-medium">
                     {tips[tipIndex]}
                 </p>
@@ -211,8 +211,8 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   const loadTrends = async (overrideKeyword?: string) => {
       if (!user) return alert("請先登入");
       const COST = 1;
-      const allowed = await checkAndUseQuota(user.user_id, COST);
-      if (!allowed) return alert(`配額不足 (需要 ${COST} 點)`);
+      const allowed = await checkAndUseQuota(user.user_id, COST, 'TREND_SEARCH');
+      if (!allowed) return; 
       onQuotaUpdate();
 
       setLoadingTrends(true);
@@ -250,15 +250,15 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       try {
           const res = await validateThreadsToken(userIdInput.trim(), token.trim());
           if (res.valid) {
-              setVerifyStatus({ valid: true, msg: `✅ 驗證成功: ${res.username}` });
+              setVerifyStatus({ valid: true, msg: `驗證成功: ${res.username}` });
               if (!newAccountInput.username && res.username) {
                   setNewAccountInput(prev => ({ ...prev, username: res.username || '' }));
               }
           } else {
-              setVerifyStatus({ valid: false, msg: `❌ 驗證失敗: ${res.error}` });
+              setVerifyStatus({ valid: false, msg: `驗證失敗: ${res.error}` });
           }
       } catch (e: any) {
-          setVerifyStatus({ valid: false, msg: `❌ 錯誤: ${e.message}` });
+          setVerifyStatus({ valid: false, msg: `錯誤: ${e.message}` });
       } finally {
           setIsVerifying(false);
       }
@@ -300,8 +300,8 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       if (!user) return;
       if (!account.token) return alert("無 Token，無法讀取貼文");
       
-      const allowed = await checkAndUseQuota(user.user_id, 2); // Charge 2 credits for analysis
-      if (!allowed) return alert("配額不足 (需 2 點)");
+      const allowed = await checkAndUseQuota(user.user_id, 2, 'THREADS_STYLE_ANALYSIS'); // Charge 2 credits for analysis
+      if (!allowed) return; 
       onQuotaUpdate();
 
       setIsAnalyzingStyle(account.id);
@@ -323,7 +323,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
           
           // 3. Update Account
           handleUpdateAccount(account.id, 'styleGuide', styleDNA);
-          alert("✅ 風格分析完成！已更新 Style DNA。");
+          alert("風格分析完成！已更新 Style DNA。");
       } catch (e: any) {
           alert(`分析失敗: ${e.message}`);
       } finally {
@@ -362,13 +362,13 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       if (!topicSource) return alert("無效話題");
 
       const targetAccount = accounts.find(a => a.id === selectedGenAccountId);
-      if (!targetAccount) return alert("❌ 錯誤：請先在上方選單選擇要發文的帳號");
+      if (!targetAccount) return alert("錯誤：請先在上方選單選擇要發文的帳號");
 
       const totalCost = calculateCost(genCount, preSelectedImageMode);
       if (!confirm(`確定為帳號「${targetAccount.username}」生成 ${genCount} 篇貼文？\n\n消耗：${totalCost} 點配額`)) return;
 
-      const allowed = await checkAndUseQuota(user.user_id, totalCost);
-      if (!allowed) return alert(`配額不足 (需 ${totalCost} 點)`);
+      const allowed = await checkAndUseQuota(user.user_id, totalCost, 'THREADS_BATCH_GEN', { count: genCount, mode: preSelectedImageMode });
+      if (!allowed) return; 
       onQuotaUpdate();
 
       setIsGenerating(true);
@@ -459,11 +459,11 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
           if (!user) return alert("請先登入");
           
           const COST = 2;
-          const confirmChange = confirm(`🎨 換圖將重新生成並消耗 ${COST} 點配額，確定執行？`);
+          const confirmChange = confirm(`換圖將重新生成並消耗 ${COST} 點配額，確定執行？`);
           if (!confirmChange) return;
 
-          const allowed = await checkAndUseQuota(user.user_id, COST);
-          if (!allowed) return alert(`配額不足 (需 ${COST} 點)`);
+          const allowed = await checkAndUseQuota(user.user_id, COST, 'THREADS_REGEN_IMAGE');
+          if (!allowed) return; 
           onQuotaUpdate();
 
           // Start Loading
@@ -489,11 +489,11 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
 
   const handlePublish = async (post: GeneratedPost) => {
       // Validation Check
-      if (!post.targetAccountId) return alert("❌ 錯誤：未指定發佈帳號");
+      if (!post.targetAccountId) return alert("錯誤：未指定發佈帳號");
       const acc = accounts.find(a => a.id === post.targetAccountId);
-      if (!acc) return alert("❌ 錯誤：找不到對應的帳號資料，請檢查帳號是否已被移除。");
+      if (!acc) return alert("錯誤：找不到對應的帳號資料，請檢查帳號是否已被移除。");
       
-      if (!post.caption) return alert("❌ 內容為空，無法發佈");
+      if (!post.caption) return alert("內容為空，無法發佈");
 
       setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, status: 'publishing', log: '發佈中...' } : p));
       
@@ -502,13 +502,13 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
           const res = await publishThreadsPost(acc, post.caption, imgUrl);
           
           if (res.success) {
-              setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, status: 'done', log: '✅ 發佈成功！' } : p));
+              setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, status: 'done', log: '發佈成功！' } : p));
           } else {
-              setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, status: 'failed', log: `❌ 發佈失敗: ${res.error}` } : p));
+              setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, status: 'failed', log: `發佈失敗: ${res.error}` } : p));
               alert(`發佈失敗: ${res.error}`);
           }
       } catch (e: any) {
-          setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, status: 'failed', log: `❌ 系統錯誤: ${e.message}` } : p));
+          setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, status: 'failed', log: `系統錯誤: ${e.message}` } : p));
       }
   };
 
@@ -565,8 +565,8 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       if (!acc) return;
       
       // Cost check
-      const allowed = await checkAndUseQuota(user!.user_id, 1);
-      if (!allowed) return alert("配額不足");
+      const allowed = await checkAndUseQuota(user!.user_id, 1, 'GENERATE_REPLY');
+      if (!allowed) return; 
       onQuotaUpdate();
 
       setSelectedCommentId(comment.id);
@@ -615,14 +615,14 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   return (
     <div className="max-w-6xl mx-auto p-4 animate-fade-in pb-20">
       <div className="flex justify-between items-center mb-6">
-          <h2 className="text-3xl font-bold text-white">🧵 Threads 養號農場</h2>
+          <h2 className="text-3xl font-bold text-white">Threads 養號農場</h2>
           <div className="text-xs text-gray-400">多帳號管理 • 風格學習 • 批量生成</div>
       </div>
 
       <div className="flex border-b border-gray-700 mb-6 overflow-x-auto">
-        <button onClick={() => setActiveTab('accounts')} className={`px-6 py-3 font-bold whitespace-nowrap ${activeTab === 'accounts' ? 'text-white border-b-2' : 'text-gray-500 hover:text-gray-300'}`}>👥 帳號管理</button>
-        <button onClick={() => setActiveTab('interaction')} className={`px-6 py-3 font-bold whitespace-nowrap ${activeTab === 'interaction' ? 'text-pink-400 border-b-2 border-pink-400' : 'text-gray-500 hover:text-gray-300'}`}>💬 留言互動</button>
-        <button onClick={() => setActiveTab('generator')} className={`px-6 py-3 font-bold whitespace-nowrap ${activeTab === 'generator' ? 'text-white border-b-2' : 'text-gray-500 hover:text-gray-300'}`}>🚀 內容生成</button>
+        <button onClick={() => setActiveTab('accounts')} className={`px-6 py-3 font-bold whitespace-nowrap ${activeTab === 'accounts' ? 'text-white border-b-2' : 'text-gray-500 hover:text-gray-300'}`}>帳號管理</button>
+        <button onClick={() => setActiveTab('interaction')} className={`px-6 py-3 font-bold whitespace-nowrap ${activeTab === 'interaction' ? 'text-pink-400 border-b-2 border-pink-400' : 'text-gray-500 hover:text-gray-300'}`}>留言互動</button>
+        <button onClick={() => setActiveTab('generator')} className={`px-6 py-3 font-bold whitespace-nowrap ${activeTab === 'generator' ? 'text-white border-b-2' : 'text-gray-500 hover:text-gray-300'}`}>內容生成</button>
       </div>
 
       {/* VIEW: ACCOUNTS */}
@@ -634,7 +634,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                       {/* ID & Token Fields */}
                       <div><label className="block text-xs text-gray-400 mb-1">Threads User ID *</label><input value={newAccountInput.userIdInput} onChange={e => setNewAccountInput({...newAccountInput, userIdInput: e.target.value})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white" placeholder="數值 ID" /></div>
                       <div>
-                          <label className="block text-xs text-gray-400 mb-1 flex justify-between"><span>Access Token *</span><button onClick={() => setShowTutorial(true)} className="text-primary hover:underline text-xs flex items-center gap-1">❓ 如何獲取 Token</button></label>
+                          <label className="block text-xs text-gray-400 mb-1 flex justify-between"><span>Access Token *</span><button onClick={() => setShowTutorial(true)} className="text-primary hover:underline text-xs flex items-center gap-1">如何獲取 Token</button></label>
                           <input value={newAccountInput.token} onChange={e => setNewAccountInput({...newAccountInput, token: e.target.value})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white" type="password" placeholder="長期 Token" />
                       </div>
                       
@@ -646,11 +646,11 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                           <div className="flex gap-4 items-center h-[38px]">
                               <label className="flex items-center gap-2 cursor-pointer">
                                   <input type="radio" checked={newAccountInput.accountType === 'personal'} onChange={() => setNewAccountInput({...newAccountInput, accountType: 'personal'})} />
-                                  <span className="text-sm text-gray-300">👤 個人/創作者</span>
+                                  <span className="text-sm text-gray-300">個人/創作者</span>
                               </label>
                               <label className="flex items-center gap-2 cursor-pointer">
                                   <input type="radio" checked={newAccountInput.accountType === 'brand'} onChange={() => setNewAccountInput({...newAccountInput, accountType: 'brand'})} />
-                                  <span className="text-sm text-gray-300">🏢 品牌/企業</span>
+                                  <span className="text-sm text-gray-300">品牌/企業</span>
                               </label>
                           </div>
                       </div>
@@ -678,8 +678,8 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                   {verifyStatus && <p className={`mt-3 text-xs font-bold ${verifyStatus.valid ? 'text-green-400' : 'text-red-400'}`}>{verifyStatus.msg}</p>}
 
                   <div className="mt-4 flex gap-2 justify-end">
-                      <button onClick={handleVerifyAccount} disabled={isVerifying} className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded text-sm font-bold transition-colors">{isVerifying ? '檢查中...' : '🔍 驗證 Token'}</button>
-                      <button onClick={handleAddAccount} className="bg-primary hover:bg-blue-600 text-white px-6 py-2 rounded font-bold transition-colors">+ 新增帳號</button>
+                      <button onClick={handleVerifyAccount} disabled={isVerifying} className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded text-sm font-bold transition-colors">{isVerifying ? '檢查中...' : '驗證 Token'}</button>
+                      <button onClick={handleAddAccount} className="bg-primary hover:bg-blue-600 text-white px-6 py-2 rounded font-bold transition-colors">新增帳號</button>
                   </div>
               </div>
 
@@ -689,7 +689,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                       <div key={acc.id} className="bg-dark p-4 rounded border border-gray-600 relative group">
                           <div className="flex items-center gap-3 mb-2">
                              <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg font-bold text-white ${acc.accountType === 'brand' ? 'bg-blue-700' : 'bg-pink-700'}`}>
-                                 {acc.accountType === 'brand' ? '🏢' : '👤'}
+                                 {acc.accountType === 'brand' ? 'B' : 'P'}
                              </div>
                              <div className="overflow-hidden">
                                  <div className="font-bold text-white text-sm truncate">{acc.username}</div>
@@ -706,7 +706,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                           disabled={!!isAnalyzingStyle}
                                           className="text-primary hover:underline flex items-center gap-1"
                                       >
-                                          {isAnalyzingStyle === acc.id ? '分析中...' : '🔮 讀取過往貼文'}
+                                          {isAnalyzingStyle === acc.id ? '分析中...' : '讀取過往貼文'}
                                       </button>
                                   </div>
                                   
@@ -720,7 +720,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                       }}
                                       value=""
                                   >
-                                      <option value="" disabled>✨ 快速套用風格模板 (台灣特有種)</option>
+                                      <option value="" disabled>快速套用風格模板 (台灣特有種)</option>
                                       {STYLE_PRESETS.map((style, idx) => (
                                           <option key={idx} value={style.dna}>{style.name}</option>
                                       ))}
@@ -737,7 +737,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                               {acc.accountType === 'brand' && (
                                   <label className="flex items-center gap-2 cursor-pointer bg-black/20 p-1 rounded">
                                       <input type="checkbox" checked={acc.safetyFilter} onChange={e => handleUpdateAccount(acc.id, 'safetyFilter', e.target.checked)} />
-                                      <span className="text-gray-400">🛡️ 安全護欄</span>
+                                      <span className="text-gray-400">安全護欄</span>
                                   </label>
                               )}
                           </div>
@@ -755,7 +755,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                   <div className="flex justify-between items-center mb-6">
                       <h3 className="text-xl font-bold text-white">留言互動中心</h3>
                       <button onClick={handleScan} disabled={isLoadingComments} className="bg-pink-600 hover:bg-pink-500 text-white px-4 py-2 rounded font-bold transition-colors disabled:opacity-50">
-                          {isLoadingComments ? '掃描中...' : '🔄 掃描最新留言'}
+                          {isLoadingComments ? '掃描中...' : '掃描最新留言'}
                       </button>
                   </div>
 
@@ -794,7 +794,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                               {selectedCommentId ? (
                                   <>
                                       <h4 className="font-bold text-gray-300 mb-4 flex items-center gap-2">
-                                          💬 AI 建議回覆
+                                          AI 建議回覆
                                           {isReplying && <div className="loader w-4 h-4 border-t-pink-500"></div>}
                                       </h4>
                                       
@@ -829,7 +829,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                               }}
                                               className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-3 rounded font-bold text-sm"
                                           >
-                                              🔄 重新生成
+                                              重新生成
                                           </button>
                                           <button 
                                               onClick={() => {
@@ -839,7 +839,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                               disabled={!draftReply || isReplying}
                                               className="flex-[2] bg-pink-600 hover:bg-pink-500 text-white py-3 rounded font-bold text-sm disabled:opacity-50"
                                           >
-                                              🚀 發送回覆
+                                              發送回覆
                                           </button>
                                       </div>
                                   </>
@@ -865,7 +865,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                        
                        {/* UPDATED: Topic Input moved to top for better search experience */}
                        <div className="mb-6 p-4 bg-dark/50 rounded-lg border border-gray-600">
-                           <label className="block text-xs text-gray-400 mb-2 font-bold uppercase tracking-wider">🎯 第一步：設定或搜尋話題</label>
+                           <label className="block text-xs text-gray-400 mb-2 font-bold uppercase tracking-wider">第一步：設定或搜尋話題</label>
                            <div className="flex gap-2">
                                <input 
                                    value={manualTopic} 
@@ -877,19 +877,19 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                    onClick={() => loadTrends()} 
                                    className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 rounded font-bold transition-colors whitespace-nowrap flex items-center gap-2"
                                >
-                                   <span>🔍</span> 搜尋趨勢 (1點)
+                                   搜尋趨勢 (1點)
                                </button>
                            </div>
-                           <p className="text-[10px] text-gray-500 mt-2">💡 提示：輸入關鍵字後點擊「搜尋」，AI 將為您挖掘該領域的最新熱門新聞。</p>
+                           <p className="text-[10px] text-gray-500 mt-2">提示：輸入關鍵字後點擊「搜尋」，AI 將為您挖掘該領域的最新熱門新聞。</p>
                        </div>
                        
                        {/* UPDATED: Grid Layout for better use of space */}
                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4 max-h-[60vh] overflow-y-auto custom-scrollbar p-1">
                             {/* Generic Trend Button */}
                             <div onClick={() => loadTrends(settings.industry)} className="flex flex-col items-center justify-center bg-gray-800/50 border border-gray-600 hover:border-gray-400 rounded-lg p-6 cursor-pointer min-h-[160px] text-center shadow-lg transition-transform active:scale-95 group">
-                                <span className="text-4xl mb-3 group-hover:scale-110 transition-transform">🌍</span>
                                 <span className="text-lg font-bold text-gray-300 group-hover:text-white">挖掘綜合熱門靈感</span>
-                                <p className="text-xs text-gray-500 mt-1">查看 {settings.industry || '台灣'} 目前最紅的話題</p>
+                                <span className="text-[10px] bg-primary/20 text-primary px-2 py-0.5 rounded mt-2 font-bold tracking-wider">1 點數</span>
+                                <p className="text-xs text-gray-500 mt-2">查看 {settings.industry || '台灣'} 目前最紅的話題</p>
                             </div>
 
                             {trendingTopics.map((t, i) => (
@@ -928,7 +928,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                <label className="block text-sm text-blue-300 font-bold mb-2">1. 選擇發文帳號 (決定語氣與人設) *</label>
                                <select value={selectedGenAccountId} onChange={(e) => setSelectedGenAccountId(e.target.value)} className="w-full bg-dark border border-blue-500 rounded p-3 text-white">
                                    {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.username} ({acc.accountType === 'brand' ? '品牌' : '個人'})</option>)}
-                               </select>
+                                </select>
                            </div>
                            
                            {/* Other settings same as before */}
@@ -940,7 +940,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                </div>
                            </div>
 
-                           <button onClick={handleGenerateBatch} disabled={!selectedGenAccountId} className="w-full bg-gradient-to-r from-pink-600 to-purple-600 text-white py-4 rounded-xl font-bold text-lg shadow-lg">✨ 生成貼文</button>
+                           <button onClick={handleGenerateBatch} disabled={!selectedGenAccountId} className="w-full bg-gradient-to-r from-pink-600 to-purple-600 text-white py-4 rounded-xl font-bold text-lg shadow-lg">生成貼文</button>
                       </div>
 
                       {/* Results Display (Simplified) */}
@@ -963,7 +963,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                                   disabled={isRegeneratingImage === post.id}
                                                   className="text-xs bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded shadow-lg font-bold border border-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
                                               >
-                                                  🔄 隨機換圖 (2點)
+                                                  隨機換圖 (2點)
                                               </button>
                                           </div>
                                       </div>

@@ -1,11 +1,14 @@
+
 import React, { useState } from 'react';
-import { Post } from '../types';
+import { Post, BrandSettings } from '../types';
 import CalendarView from './CalendarView';
+import { reschedulePost, deleteFbPost } from '../services/facebookService';
 
 interface Props {
   posts: Post[];
   onUpdatePosts: (posts: Post[]) => void;
   onEditPost: (post: Post) => void;
+  settings?: BrandSettings; // Need Token for API ops
 }
 
 const PostItem: React.FC<{ 
@@ -18,9 +21,9 @@ const PostItem: React.FC<{
             {post.mediaUrl ? (
                 post.mediaType === 'image' ? 
                 <img src={post.mediaUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt="Post media" /> :
-                <div className="text-[10px] font-black text-gray-600 uppercase">Video</div>
+                <div className="text-[10px] font-black text-gray-600 uppercase">影片</div>
             ) : (
-                <div className="text-[10px] font-black text-gray-700 uppercase tracking-tighter text-center px-2">No Visual Asset</div>
+                <div className="text-[10px] font-black text-gray-700 uppercase tracking-tighter text-center px-2">無影像素材</div>
             )}
         </div>
         
@@ -53,21 +56,21 @@ const PostItem: React.FC<{
             
             <div className="text-[10px] font-medium text-gray-600 flex flex-wrap gap-x-6 gap-y-2 items-center uppercase tracking-widest">
                 <span className="flex items-center gap-2">
-                  Created: {new Date(post.createdAt).toLocaleDateString()}
+                  建立於: {new Date(post.createdAt).toLocaleDateString()}
                 </span>
                 {post.scheduledDate && (
                   <span className="text-blue-500/80 flex items-center gap-2 font-bold">
-                    Schedule: {new Date(post.scheduledDate).toLocaleString()}
+                    排程於: {new Date(post.scheduledDate).toLocaleString()}
                   </span>
                 )}
                 {post.publishedUrl && (
                   <a href={post.publishedUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center gap-2 font-black">
-                    Link: View Post
+                    連結: 查看貼文
                   </a>
                 )}
                 {post.status === 'failed' && (
                   <span className="text-red-500/80 flex items-center gap-2">
-                    Error: {post.errorLog}
+                    錯誤: {post.errorLog}
                   </span>
                 )}
             </div>
@@ -75,16 +78,49 @@ const PostItem: React.FC<{
     </div>
 );
 
-const ScheduleList: React.FC<Props> = ({ posts, onUpdatePosts, onEditPost }) => {
+const ScheduleList: React.FC<Props> = ({ posts, onUpdatePosts, onEditPost, settings }) => {
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
+  const [isApiLoading, setIsApiLoading] = useState(false);
 
   const sortedPosts = [...posts].sort((a, b) => b.createdAt - a.createdAt);
   
   const scheduledPosts = sortedPosts.filter(p => p.status === 'scheduled');
   const historyPosts = sortedPosts.filter(p => p.status !== 'scheduled');
 
-  const handleDelete = (id: string) => {
-    if (confirm('確定要永久移除此貼文紀錄嗎？')) {
+  const extractFbPostId = (post: Post): string | null => {
+      if (!post.publishedUrl) return null;
+      // Url format usually: https://facebook.com/{POST_ID} or https://facebook.com/{PAGE_ID}/posts/{POST_ID}
+      const parts = post.publishedUrl.split('/');
+      // Removing empty strings from split
+      const validParts = parts.filter(p => p);
+      return validParts[validParts.length - 1];
+  };
+
+  const handleDelete = async (id: string) => {
+    const targetPost = posts.find(p => p.id === id);
+    if (!targetPost) return;
+
+    const isNativeScheduled = targetPost.status === 'scheduled' && targetPost.publishedUrl;
+    
+    if (confirm(`確定要永久移除此紀錄嗎？${isNativeScheduled ? '\n\n⚠️ 注意：這是一篇「FB 原生排程」貼文，刪除此紀錄將同步刪除 FB 後台的排程。' : ''}`)) {
+      
+      // 1. If it's a real FB scheduled post, delete from FB first
+      if (isNativeScheduled) {
+          if (!settings?.facebookToken) return alert("❌ 錯誤：缺少 Page Token，無法刪除 FB 排程。請先至設定頁面檢查。");
+          
+          const fbId = extractFbPostId(targetPost);
+          if (fbId) {
+              setIsApiLoading(true);
+              const res = await deleteFbPost(fbId, settings.facebookToken);
+              setIsApiLoading(false);
+              
+              if (!res.success) {
+                  return alert(`❌ FB 刪除失敗: ${res.error}\n(本地紀錄未刪除)`);
+              }
+          }
+      }
+
+      // 2. Delete Local Record
       const updated = posts.filter(p => p.id !== id);
       onUpdatePosts(updated);
     }
@@ -97,9 +133,39 @@ const ScheduleList: React.FC<Props> = ({ posts, onUpdatePosts, onEditPost }) => 
     }
   };
 
-  return (
-    <div className="max-w-6xl mx-auto space-y-10 animate-fade-in pb-10 pt-4">
+  // Handler for Calendar Drag-and-Drop
+  const handleReschedule = async (post: Post, newDateStr: string) => {
+      if (!settings?.facebookToken) throw new Error("缺少 Page Token，無法連線 FB。");
       
+      const fbId = extractFbPostId(post);
+      if (!fbId) throw new Error("找不到 FB Post ID (publishedUrl 格式不符)。");
+
+      const newUnix = Math.floor(new Date(newDateStr).getTime() / 1000);
+      
+      // Call API
+      const res = await reschedulePost(fbId, settings.facebookToken, newUnix);
+      
+      if (!res.success) {
+          throw new Error(`FB API 拒絕請求: ${res.error}`);
+      }
+
+      // Success: Update local state
+      const updated = posts.map(p => p.id === post.id ? { ...p, scheduledDate: newDateStr } : p);
+      onUpdatePosts(updated);
+  };
+
+  return (
+    <div className="max-w-6xl mx-auto space-y-10 animate-fade-in pb-10 pt-4 relative">
+      
+      {isApiLoading && (
+          <div className="absolute inset-0 bg-black/50 z-50 flex items-center justify-center backdrop-blur-sm rounded-xl">
+              <div className="text-white font-bold flex flex-col items-center">
+                  <div className="loader border-t-red-500 mb-2"></div>
+                  同步刪除中...
+              </div>
+          </div>
+      )}
+
       <div className="flex justify-between items-center border-b border-gray-800 pb-6">
           <h2 className="text-3xl font-black text-white tracking-tighter uppercase">排程管理與歷史</h2>
           <div className="bg-dark/80 border border-gray-800 rounded-xl p-1.5 flex gap-1 shadow-inner">
@@ -123,6 +189,7 @@ const ScheduleList: React.FC<Props> = ({ posts, onUpdatePosts, onEditPost }) => 
               posts={posts} 
               onUpdatePosts={onUpdatePosts} 
               onEditPost={onEditPost} 
+              onReschedule={handleReschedule}
           />
       ) : (
           <div className="space-y-16">
@@ -165,7 +232,7 @@ const ScheduleList: React.FC<Props> = ({ posts, onUpdatePosts, onEditPost }) => 
 
                 {historyPosts.length === 0 ? (
                     <div className="text-center text-gray-700 py-16 bg-dark/10 rounded-3xl border border-gray-800">
-                        <span className="text-[10px] font-black uppercase tracking-widest">尚無歷史紀錄紀錄</span>
+                        <span className="text-[10px] font-black uppercase tracking-widest">尚無歷史紀錄</span>
                     </div>
                 ) : (
                     <div className="space-y-4">

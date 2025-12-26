@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Post } from '../types';
 
@@ -5,11 +6,13 @@ interface Props {
   posts: Post[];
   onUpdatePosts: (posts: Post[]) => void;
   onEditPost: (post: Post) => void;
+  onReschedule?: (post: Post, newDate: string) => Promise<void>; // New callback
 }
 
-const CalendarView: React.FC<Props> = ({ posts, onUpdatePosts, onEditPost }) => {
+const CalendarView: React.FC<Props> = ({ posts, onUpdatePosts, onEditPost, onReschedule }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [draggedPostId, setDraggedPostId] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   // Constants
   const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
@@ -42,26 +45,53 @@ const CalendarView: React.FC<Props> = ({ posts, onUpdatePosts, onEditPost }) => 
       e.dataTransfer.effectAllowed = "move";
   };
 
-  const handleDrop = (e: React.DragEvent, day: number) => {
+  const handleDrop = async (e: React.DragEvent, day: number) => {
       e.preventDefault();
-      if (!draggedPostId) return;
+      if (!draggedPostId || isProcessing) return;
 
-      const newDate = new Date(year, month, day, 9, 0, 0); // Default to 9 AM
-      const newDateStr = newDate.toISOString().slice(0, 16); // Format for datetime-local (YYYY-MM-DDTHH:mm)
+      const targetDate = new Date(year, month, day, 9, 0, 0); // Default 9 AM
+      const newDateStr = targetDate.toISOString().slice(0, 16); 
 
-      const updatedPosts = posts.map(p => {
-          if (p.id === draggedPostId) {
-              return { 
-                  ...p, 
-                  status: 'scheduled' as const,
-                  scheduledDate: newDateStr 
-              };
+      // Validation: Facebook Native Scheduling constraints (10 mins to 30 days)
+      const now = Date.now();
+      const diffMinutes = (targetDate.getTime() - now) / 1000 / 60;
+      
+      if (diffMinutes < 15) {
+          return alert("❌ 錯誤：新時間距離現在太近 (需大於 15 分鐘)，FB 拒絕排程。");
+      }
+      if (diffMinutes > 30 * 24 * 60) {
+          return alert("❌ 錯誤：排程時間不能超過 30 天。");
+      }
+
+      const post = posts.find(p => p.id === draggedPostId);
+      if (!post) return;
+
+      // Logic: If onReschedule provided (Connected to FB API), use it. Else fall back to local update.
+      if (onReschedule && post.status === 'scheduled') {
+          setIsProcessing(true);
+          try {
+              await onReschedule(post, newDateStr);
+          } catch (err: any) {
+              alert(`改期失敗: ${err.message}`);
+          } finally {
+              setIsProcessing(false);
+              setDraggedPostId(null);
           }
-          return p;
-      });
-
-      onUpdatePosts(updatedPosts);
-      setDraggedPostId(null);
+      } else {
+          // Fallback for draft/local only or if no handler provided
+          const updatedPosts = posts.map(p => {
+              if (p.id === draggedPostId) {
+                  return { 
+                      ...p, 
+                      status: 'scheduled' as const,
+                      scheduledDate: newDateStr 
+                  };
+              }
+              return p;
+          });
+          onUpdatePosts(updatedPosts);
+          setDraggedPostId(null);
+      }
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -73,7 +103,7 @@ const CalendarView: React.FC<Props> = ({ posts, onUpdatePosts, onEditPost }) => 
   const renderCells = () => {
       const cells = [];
       
-      // Empty cells for previous month
+      // Empty cells
       for (let i = 0; i < firstDay; i++) {
           cells.push(<div key={`empty-${i}`} className="bg-dark/30 border border-gray-700 min-h-[100px]"></div>);
       }
@@ -84,7 +114,6 @@ const CalendarView: React.FC<Props> = ({ posts, onUpdatePosts, onEditPost }) => 
           const isToday = new Date().toDateString() === new Date(year, month, day).toDateString();
           const holiday = taiwanHolidays[dateKey];
 
-          // Find posts for this day
           const dayPosts = posts.filter(p => {
               if (!p.scheduledDate) return false;
               const pDate = new Date(p.scheduledDate);
@@ -107,14 +136,14 @@ const CalendarView: React.FC<Props> = ({ posts, onUpdatePosts, onEditPost }) => 
                       {dayPosts.map(post => (
                           <div 
                               key={post.id}
-                              draggable
+                              draggable={!isProcessing} // Disable drag while processing
                               onDragStart={(e) => handleDragStart(e, post.id)}
                               onClick={() => onEditPost(post)}
-                              className={`text-xs p-1 rounded cursor-pointer truncate shadow-sm hover:opacity-80 border-l-2 ${
+                              className={`text-xs p-1 rounded cursor-pointer truncate shadow-sm hover:opacity-80 border-l-2 relative ${
                                   post.status === 'published' ? 'bg-green-900 text-green-100 border-green-500' :
                                   post.status === 'failed' ? 'bg-red-900 text-red-100 border-red-500' :
                                   'bg-blue-900 text-blue-100 border-blue-500'
-                              }`}
+                              } ${isProcessing ? 'opacity-50 cursor-wait' : ''}`}
                               title={post.topic}
                           >
                               {new Date(post.scheduledDate!).getHours().toString().padStart(2, '0')}:00 {post.topic}
@@ -129,7 +158,16 @@ const CalendarView: React.FC<Props> = ({ posts, onUpdatePosts, onEditPost }) => 
   };
 
   return (
-    <div className="animate-fade-in">
+    <div className="animate-fade-in relative">
+        {isProcessing && (
+            <div className="absolute inset-0 bg-black/50 z-10 flex items-center justify-center backdrop-blur-sm rounded-lg">
+                <div className="text-white font-bold flex flex-col items-center">
+                    <div className="loader border-t-primary mb-2"></div>
+                    同步 Facebook 排程中...
+                </div>
+            </div>
+        )}
+
         <div className="flex justify-between items-center mb-4">
             <div className="flex items-center gap-4">
                 <h2 className="text-2xl font-bold text-white">📅 {year} 年 {month + 1} 月</h2>
@@ -142,7 +180,7 @@ const CalendarView: React.FC<Props> = ({ posts, onUpdatePosts, onEditPost }) => 
             
             <div className="flex gap-4 text-xs text-gray-400">
                 <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-green-500"></div> 已發佈</span>
-                <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-blue-500"></div> 排程中</span>
+                <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-blue-500"></div> 排程中 (可拖移改期)</span>
                 <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-red-500"></div> 失敗</span>
             </div>
         </div>
@@ -161,7 +199,7 @@ const CalendarView: React.FC<Props> = ({ posts, onUpdatePosts, onEditPost }) => 
             {renderCells()}
         </div>
         
-        <p className="text-xs text-gray-500 mt-4 text-center">💡 提示：可直接拖曳藍色卡片至其他日期以更改排程 (發佈時間預設為該日早上 09:00)</p>
+        <p className="text-xs text-gray-500 mt-4 text-center">💡 提示：拖移藍色卡片將直接同步修改 FB 後台排程時間 (需等待約 2-3 秒)。</p>
     </div>
   );
 };

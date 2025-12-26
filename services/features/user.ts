@@ -1,7 +1,8 @@
 
 import { db, isMock, firebase } from '../firebase';
-import { UserProfile, BrandSettings, UsageLog, Post, UserReport } from '../../types';
+import { UserProfile, BrandSettings, UsageLog, Post, UserReport, QuotaTransaction } from '../../types';
 import { MockStore } from '../mockStore';
+import { v4 as uuidv4 } from 'uuid';
 
 export const getUserProfile = async (userId: string): Promise<UserProfile | null> => {
     try {
@@ -25,6 +26,7 @@ export const createUserProfile = async (user: { uid: string, email: string }): P
         unlockedFeatures: [],
         referralCode: `REF-${user.uid.substring(0,5).toUpperCase()}`,
         referralCount: 0,
+        last_api_call_timestamp: 0,
         created_at: Date.now(),
         updated_at: Date.now()
     };
@@ -37,21 +39,101 @@ export const createUserProfile = async (user: { uid: string, email: string }): P
     return newUser;
 };
 
-export const checkAndUseQuota = async (userId: string, amount: number = 1): Promise<boolean> => {
-    const user = await getUserProfile(userId);
-    if (!user || user.isSuspended) return false;
-    if ((user.quota_used + amount) > user.quota_total) return false;
+/**
+ * Execute a Quota Transaction (Ledger System)
+ * Replaces simple increments with strict accounting.
+ */
+export const checkAndUseQuota = async (
+    userId: string, 
+    amount: number = 1, 
+    action: string = 'GENERAL_API_CALL',
+    metadata: any = {}
+): Promise<boolean> => {
+    
+    // MOCK MODE (Simplified)
+    if (isMock) {
+        const user = MockStore.getUser(userId);
+        if (!user || user.isSuspended) return false;
+        
+        // Rate Limit Check (Mock)
+        const now = Date.now();
+        if (user.last_api_call_timestamp && (now - user.last_api_call_timestamp < 2000)) {
+            console.warn("Mock Rate Limit hit (2s)");
+            // In mock, we log but allow for dev speed
+        }
 
-    if (!isMock) {
-        await db.collection('users').doc(userId).update({
-            quota_used: firebase.firestore.FieldValue.increment(amount),
-            updated_at: Date.now()
-        });
-    } else {
+        if ((user.quota_used + amount) > user.quota_total) return false;
+        
         user.quota_used += amount;
+        user.last_api_call_timestamp = now;
         MockStore.saveUser(user);
+        
+        // Mock Ledger Log
+        console.log(`[Ledger Mock] ${action}: -${amount} pts. Balance: ${user.quota_total - user.quota_used}`);
+        return true;
     }
-    return true;
+
+    // REAL FIREBASE TRANSACTION
+    const userRef = db.collection('users').doc(userId);
+    const ledgerRef = db.collection('quota_transactions').doc();
+
+    try {
+        await db.runTransaction(async (t) => {
+            const userDoc = await t.get(userRef);
+            if (!userDoc.exists) throw new Error("User not found");
+
+            const userData = userDoc.data() as UserProfile;
+            
+            // 1. Suspension Check
+            if (userData.isSuspended) throw new Error("Account Suspended");
+
+            // 2. Rate Limiting (5 seconds cooldown)
+            const now = Date.now();
+            if (userData.last_api_call_timestamp) {
+                const timeDiff = now - userData.last_api_call_timestamp;
+                if (timeDiff < 5000) { // 5000ms
+                     throw new Error(`操作過快！請等待 ${Math.ceil((5000 - timeDiff)/1000)} 秒後再試。`);
+                }
+            }
+
+            // 3. Balance Check
+            const currentUsed = userData.quota_used || 0;
+            const total = userData.quota_total || 0;
+            if (currentUsed + amount > total) {
+                throw new Error("配額不足，請充值或升級方案。");
+            }
+
+            // 4. Update User State
+            const newUsed = currentUsed + amount;
+            t.update(userRef, {
+                quota_used: newUsed,
+                last_api_call_timestamp: now,
+                updated_at: now
+            });
+
+            // 5. Write to Ledger
+            const transactionRecord: QuotaTransaction = {
+                txId: ledgerRef.id,
+                userId: userId,
+                amount: -amount, // Negative for cost
+                balanceAfter: total - newUsed,
+                action: action,
+                timestamp: now,
+                metadata: metadata
+            };
+            t.set(ledgerRef, transactionRecord);
+        });
+
+        return true;
+    } catch (e: any) {
+        console.error("Quota Transaction Failed:", e.message);
+        // If it's our specific logic error, we can throw it up to UI or return false
+        if (e.message.includes("操作過快") || e.message.includes("配額不足")) {
+             alert(e.message); // Simple alert for now, ideally UI handles error state
+             return false;
+        }
+        return false;
+    }
 };
 
 export const updateUserSettings = async (userId: string, settings: BrandSettings) => {
@@ -71,6 +153,9 @@ export const redeemReferralCode = async (currentUserId: string, code: string): P
             const referrerDoc = referrerSnapshot.docs[0];
             const referrerRef = referrerDoc.ref;
             const userRef = db.collection('users').doc(currentUserId);
+            
+            const userLedgerRef = db.collection('quota_transactions').doc();
+            const referrerLedgerRef = db.collection('quota_transactions').doc();
 
             // 2. Transaction
             await db.runTransaction(async (t) => {
@@ -82,16 +167,41 @@ export const redeemReferralCode = async (currentUserId: string, code: string): P
                 if (currentUserData.referralCode === cleanCode) throw new Error("不能輸入自己的邀請碼");
                 if (currentUserDoc.id === referrerDoc.id) throw new Error("不能輸入自己的邀請碼");
 
+                // Update Me
                 t.update(userRef, {
                     referredBy: cleanCode,
                     quota_total: firebase.firestore.FieldValue.increment(REWARD_AMOUNT),
                     updated_at: Date.now()
                 });
 
+                // Update Referrer
                 t.update(referrerRef, {
                     referralCount: firebase.firestore.FieldValue.increment(1),
                     quota_total: firebase.firestore.FieldValue.increment(REWARD_AMOUNT),
                     updated_at: Date.now()
+                });
+
+                // Ledger Entry for Me
+                t.set(userLedgerRef, {
+                    txId: userLedgerRef.id,
+                    userId: currentUserId,
+                    amount: REWARD_AMOUNT,
+                    balanceAfter: (currentUserData.quota_total || 0) - (currentUserData.quota_used || 0) + REWARD_AMOUNT,
+                    action: 'REFERRAL_REWARD_CLAIM',
+                    timestamp: Date.now(),
+                    metadata: { code: cleanCode }
+                });
+
+                // Ledger Entry for Referrer (We can't easily get referrer balance in same read efficiently without reading it first, doing best effort estimate or omitting balanceAfter for referrer if reading is costly, but let's read it)
+                const referrerData = referrerDoc.data() as UserProfile;
+                t.set(referrerLedgerRef, {
+                     txId: referrerLedgerRef.id,
+                     userId: referrerDoc.id,
+                     amount: REWARD_AMOUNT,
+                     balanceAfter: (referrerData.quota_total || 0) - (referrerData.quota_used || 0) + REWARD_AMOUNT,
+                     action: 'REFERRAL_BONUS',
+                     timestamp: Date.now(),
+                     metadata: { fromUser: currentUserId }
                 });
             });
             return { success: true, reward: REWARD_AMOUNT };

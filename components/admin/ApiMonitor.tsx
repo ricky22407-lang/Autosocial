@@ -44,7 +44,7 @@ const UsageRing = ({ count, max, label, color, isActive }: { count: number, max:
                 {label}
             </p>
             <p className={`text-[10px] mt-1 ${isActive ? 'text-gray-600' : 'text-red-800'}`}>
-                {isActive ? `負載 ${(progress).toFixed(1)}%` : 'OFFLINE'}
+                {isActive ? `負載 ${(progress).toFixed(1)}%` : '離線 (OFFLINE)'}
             </p>
         </div>
     );
@@ -88,7 +88,7 @@ export const ApiMonitor: React.FC<Props> = ({ apiUsage, apiStatus }) => {
                     </p>
                 </div>
                 <div className="text-right">
-                    <p className="text-xs text-gray-500 font-bold uppercase">總調用次數 (Total Calls)</p>
+                    <p className="text-xs text-gray-500 font-bold uppercase">總調用次數</p>
                     <p className="text-4xl font-black text-blue-400 font-mono">{apiUsage ? apiUsage.total_calls : 0}</p>
                 </div>
             </div>

@@ -17,12 +17,12 @@ interface Props {
 }
 
 const TAB_NAMES: Record<string, string> = {
-    dashboard: '📊 儀表板',
-    users: '👥 會員管理',
-    keys: '🔑 金鑰生成',
-    api_monitor: '🔌 流量監控',
-    reports: '🚨 回報單',
-    system: '🛠 系統設定'
+    dashboard: '儀表板',
+    users: '會員管理',
+    keys: '金鑰生成',
+    api_monitor: '流量監控',
+    reports: '回報單',
+    system: '系統設定'
 };
 
 const AdminPanel: React.FC<Props> = ({ currentUser }) => {
@@ -92,9 +92,9 @@ const AdminPanel: React.FC<Props> = ({ currentUser }) => {
   return (
     <div className="max-w-7xl mx-auto p-4 space-y-6 animate-fade-in pb-20">
       <div className="flex justify-between items-center">
-        <h2 className="text-3xl font-bold text-white">👮 管理員中控台</h2>
+        <h2 className="text-3xl font-bold text-white">管理員中控台</h2>
         <div className="flex gap-2">
-           {config.dryRunMode && <span className="px-3 py-1 bg-yellow-600 text-white rounded-full text-xs font-bold animate-pulse">DRY RUN MODE ON</span>}
+           {config.dryRunMode && <span className="px-3 py-1 bg-yellow-600 text-white rounded-full text-xs font-bold animate-pulse">模擬模式 (Dry Run) 開啟</span>}
            {config.maintenanceMode && <span className="px-3 py-1 bg-red-600 text-white rounded-full text-xs font-bold animate-pulse">維護模式開啟</span>}
         </div>
       </div>
@@ -174,7 +174,7 @@ const AdminPanel: React.FC<Props> = ({ currentUser }) => {
                   <div className="bg-card p-6 rounded-xl border border-gray-700">
                       <h3 className="text-xl font-bold text-white mb-4">🔧 系統全域設定</h3>
                       <div className="space-y-4">
-                          <div className="flex items-center justify-between p-4 bg-dark rounded border border-gray-600"><div><div className="font-bold text-white">🧪 Dry Run 模擬模式</div><div className="text-xs text-gray-400">開啟後，不扣除真實配額，不連接外部 API。</div></div><button onClick={toggleDryRun} className={`w-12 h-6 rounded-full transition-colors relative ${config.dryRunMode ? 'bg-yellow-500' : 'bg-gray-600'}`}><div className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${config.dryRunMode ? 'translate-x-6' : ''}`}></div></button></div>
+                          <div className="flex items-center justify-between p-4 bg-dark rounded border border-gray-600"><div><div className="font-bold text-white">🧪 模擬模式 (Dry Run)</div><div className="text-xs text-gray-400">開啟後，不扣除真實配額，不連接外部 API。</div></div><button onClick={toggleDryRun} className={`w-12 h-6 rounded-full transition-colors relative ${config.dryRunMode ? 'bg-yellow-500' : 'bg-gray-600'}`}><div className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${config.dryRunMode ? 'translate-x-6' : ''}`}></div></button></div>
                           <div className="flex items-center justify-between p-4 bg-dark rounded border border-gray-600"><div><div className="font-bold text-white">🚧 系統維護模式</div><div className="text-xs text-gray-400">開啟後，一般用戶無法登入。</div></div><button onClick={toggleMaintenance} className={`w-12 h-6 rounded-full transition-colors relative ${config.maintenanceMode ? 'bg-red-500' : 'bg-gray-600'}`}><div className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${config.maintenanceMode ? 'translate-x-6' : ''}`}></div></button></div>
                       </div>
                   </div>

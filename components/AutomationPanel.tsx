@@ -167,7 +167,7 @@ const AutomationPanel: React.FC<Props> = ({ settings, onSave }) => {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 animate-fade-in pb-20">
-      <h2 className="text-2xl font-bold text-white mb-6">🤖 自動化中心</h2>
+      <h2 className="text-2xl font-bold text-white mb-6">自動化中心</h2>
 
       {/* Tabs */}
       <div className="flex border-b border-gray-700 mb-6 overflow-x-auto">
@@ -175,19 +175,19 @@ const AutomationPanel: React.FC<Props> = ({ settings, onSave }) => {
           onClick={() => setActiveTab('autopilot')}
           className={`px-4 md:px-6 py-3 font-bold transition-colors whitespace-nowrap ${activeTab === 'autopilot' ? 'text-primary border-b-2 border-primary' : 'text-gray-400 hover:text-white'}`}
         >
-          🚀 FB 自動發文
+          Facebook 自動發文
         </button>
         <button 
           onClick={() => setActiveTab('threads_autopilot')}
           className={`px-4 md:px-6 py-3 font-bold transition-colors whitespace-nowrap ${activeTab === 'threads_autopilot' ? 'text-white border-b-2 border-white' : 'text-gray-400 hover:text-white'}`}
         >
-          🧵 Threads 自動養號
+          Threads 養號
         </button>
         <button 
           onClick={() => setActiveTab('reply')}
           className={`px-4 md:px-6 py-3 font-bold transition-colors whitespace-nowrap ${activeTab === 'reply' ? 'text-primary border-b-2 border-primary' : 'text-gray-400 hover:text-white'}`}
         >
-          💬 FB 自動回覆
+          Messenger 自動回覆
         </button>
       </div>
 
@@ -196,7 +196,7 @@ const AutomationPanel: React.FC<Props> = ({ settings, onSave }) => {
           <div className="bg-card p-6 rounded-xl border border-gray-700 space-y-6">
               <div className="flex items-center justify-between border-b border-gray-700 pb-6">
                   <div>
-                      <h3 className="text-xl font-bold text-white">Facebook AutoPilot</h3>
+                      <h3 className="text-xl font-bold text-white">Facebook 自動排程</h3>
                       <p className="text-sm text-gray-400">系統將根據設定自動生成並發佈貼文至粉絲專頁。</p>
                   </div>
                   <div className="flex items-center gap-3">
@@ -221,8 +221,8 @@ const AutomationPanel: React.FC<Props> = ({ settings, onSave }) => {
                               onChange={(e) => setApConfig({...apConfig, frequency: e.target.value as any})}
                               className="w-full bg-dark border border-gray-600 rounded p-2 text-white"
                           >
-                              <option value="daily">每天 (Daily)</option>
-                              <option value="weekly">每週 (Weekly)</option>
+                              <option value="daily">每天</option>
+                              <option value="weekly">每週</option>
                           </select>
                       </div>
                       
@@ -332,8 +332,8 @@ const AutomationPanel: React.FC<Props> = ({ settings, onSave }) => {
                               onChange={(e) => setThreadsApConfig({...threadsApConfig, frequency: e.target.value as any})}
                               className="w-full bg-dark border border-gray-600 rounded p-2 text-white"
                           >
-                              <option value="daily">每天 (Daily)</option>
-                              <option value="weekly">每週 (Weekly)</option>
+                              <option value="daily">每天</option>
+                              <option value="weekly">每週</option>
                           </select>
                       </div>
 

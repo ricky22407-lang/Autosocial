@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { generateSeoArticle } from '../services/geminiService';
 import { checkAndUseQuota, logUserActivity } from '../services/authService';
@@ -39,11 +40,13 @@ const SeoArticleGenerator: React.FC<Props> = ({ user, onQuotaUpdate }) => {
         // SEO Articles cost 15 Credits (High Value Replacement)
         const COST = 15;
 
-        // Check Quota
+        // Check Quota with Ledger Action
         try {
-            const allowed = await checkAndUseQuota(user.user_id, COST);
+            const allowed = await checkAndUseQuota(user.user_id, COST, 'GENERATE_SEO_ARTICLE', { topic });
             if (!allowed) {
-                setErrorMsg(`⚠️ 配額不足 (需要 ${COST} 點)，無法生成文章。請升級方案或聯絡管理員。`);
+                // Alert already handled in service if it was a generic error, but let's be safe
+                // If it returned false, it means either quota or rate limit
+                // The service alerts, so we just return
                 return;
             }
             onQuotaUpdate();

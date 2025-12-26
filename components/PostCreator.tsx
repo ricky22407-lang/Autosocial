@@ -41,7 +41,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishResult, setPublishResult] = useState<{success: boolean, msg: string} | null>(null);
 
-  // 排程上限判定
+  // 排程上限判定 (For local DB record keeping)
   const role = user?.role || 'user';
   const limit = role === 'pro' ? 5 : (role === 'business' ? 10 : (role === 'admin' ? 100 : 3));
   const isLimitReached = !editPost && scheduledPostsCount >= limit;
@@ -59,8 +59,8 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
 
   const loadTrends = async () => {
       if (!user) return alert("請先登入");
-      const allowed = await checkAndUseQuota(user.user_id, 1);
-      if (!allowed) return alert("配額不足 (需要 1 點)");
+      const allowed = await checkAndUseQuota(user.user_id, 1, 'TREND_SEARCH');
+      if (!allowed) return; // Alert handled in service
       onQuotaUpdate();
       setIsLoadingTrends(true);
       try {
@@ -76,8 +76,8 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   const handleNext = async () => {
     if (!topic || !user) return;
     
-    const allowed = await checkAndUseQuota(user.user_id, 2);
-    if (!allowed) return alert("配額不足 (需要 2 點)");
+    const allowed = await checkAndUseQuota(user.user_id, 2, 'GENERATE_POST_DRAFT');
+    if (!allowed) return; 
     
     onQuotaUpdate();
     setStep(2);
@@ -126,8 +126,8 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     if (!draft.imagePrompt.trim()) return alert("請輸入圖片提示詞 (Prompt)");
 
     const cost = mediaUrl ? 2 : 5;
-    const allowed = await checkAndUseQuota(user.user_id, cost);
-    if (!allowed) return alert(`配額不足 (需要 ${cost} 點)`);
+    const allowed = await checkAndUseQuota(user.user_id, cost, 'GENERATE_IMAGE_AI', { prompt: draft.imagePrompt });
+    if (!allowed) return;
     
     onQuotaUpdate();
     setMediaUrl(undefined);
@@ -145,7 +145,28 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
 
   const handleFinalize = async (schedule: boolean) => {
     if (!user || isPublishing) return;
-    if (schedule && !scheduleDate) return alert("請選擇預計發佈時間");
+    
+    let scheduledUnixTime: number | undefined = undefined;
+
+    if (schedule) {
+        if (!scheduleDate) return alert("請選擇預計發佈時間");
+        
+        // Calculate Unix Timestamp (Seconds)
+        const targetTime = new Date(scheduleDate).getTime();
+        const now = Date.now();
+        const diffMinutes = (targetTime - now) / 1000 / 60;
+
+        // Facebook Native Scheduling Validation (10 mins to 30 days)
+        if (diffMinutes < 10) {
+            return alert("FB 規定：排程時間必須在「未來 10 分鐘」之後。");
+        }
+        if (diffMinutes > 30 * 24 * 60) {
+            return alert("FB 規定：排程時間不能超過 30 天。");
+        }
+        
+        scheduledUnixTime = Math.floor(targetTime / 1000);
+    }
+
     setIsPublishing(true);
     try {
         const newPost: Post = {
@@ -163,23 +184,37 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
           createdAt: editPost ? editPost.createdAt : Date.now()
         };
 
-        if (schedule) {
-          await onPostCreated(newPost);
-          setPublishResult({ success: true, msg: "已存入雲端排程系統" });
-        } else {
-          const res = await publishPostToFacebook(settings.facebookPageId, settings.facebookToken, draft.caption, mediaUrl, draft.firstComment, syncInstagram);
-          if (res.success) {
+        // Unified Publishing Logic (Both Instant & Scheduled go to FB API)
+        const res = await publishPostToFacebook(
+            settings.facebookPageId, 
+            settings.facebookToken, 
+            draft.caption, 
+            mediaUrl, 
+            draft.firstComment, 
+            syncInstagram,
+            scheduledUnixTime // Pass timestamp if scheduled
+        );
+
+        if (res.success) {
             newPost.publishedUrl = res.url;
-            newPost.status = 'published';
+            // Even if scheduled, we mark it as successful in our local tracking
+            // 'scheduled' status in our DB means "Scheduled on Platform"
+            newPost.status = schedule ? 'scheduled' : 'published';
+            
             await onPostCreated(newPost);
-            setPublishResult({ success: true, msg: "貼文已成功發佈！" });
-          } else {
+            
+            if (schedule) {
+                setPublishResult({ success: true, msg: "✅ 已成功傳送至 Facebook 排程系統！" });
+            } else {
+                setPublishResult({ success: true, msg: "✅ 貼文已成功發佈！" });
+            }
+        } else {
             newPost.status = 'failed';
             newPost.errorLog = res.error;
             await onPostCreated(newPost);
-            setPublishResult({ success: false, msg: `發佈失敗: ${res.error}` });
-          }
+            setPublishResult({ success: false, msg: `❌ 發佈失敗: ${res.error}` });
         }
+
     } catch (err: any) { 
         setPublishResult({ success: false, msg: `錯誤: ${err.message}` }); 
     } finally { 
@@ -189,7 +224,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
 
   if (isGeneratingDraft) return <LoadingOverlay message="AI 正在構思文案..." />;
   if (isGeneratingMedia) return <LoadingOverlay message="AI 正在繪製視覺素材..." />;
-  if (isPublishing) return <LoadingOverlay message="正在執行同步發佈..." />;
+  if (isPublishing) return <LoadingOverlay message="正在傳送至 Facebook..." />;
 
   if (step === 1) return (
       <div className="max-w-4xl mx-auto space-y-12 animate-fade-in pt-10">
@@ -231,7 +266,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                     className="bg-gray-800 hover:bg-gray-700 px-8 rounded-2xl text-white font-bold transition-all flex flex-col items-center justify-center gap-1 border border-gray-700 hover:border-white/20"
                   >
                     <span className="text-sm">🔥 挖掘靈感</span>
-                    <span className="text-[9px] bg-primary/20 text-primary px-2 rounded-full font-black">1 CREDIT</span>
+                    <span className="text-[9px] bg-primary/20 text-primary px-2 rounded-full font-black">1 點數</span>
                   </button>
               </div>
 
@@ -257,7 +292,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                 disabled={!topic} 
                 className={`w-full py-6 rounded-2xl font-black text-white shadow-2xl hover:opacity-90 transition-all disabled:opacity-30 text-xl tracking-widest uppercase relative z-10 ${mode === 'viral' ? 'bg-gradient-to-r from-orange-600 to-red-600' : 'bg-gradient-to-r from-blue-600 to-primary'}`}
               >
-                GENERATE MAGIC <span className="text-sm font-normal opacity-70 ml-2">(2 CREDITS)</span>
+                開始生成內容 <span className="text-sm font-normal opacity-70 ml-2">(2 點數)</span>
               </button>
           </div>
       </div>
@@ -268,12 +303,12 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
         <div className="space-y-6">
             <div className="glass-card p-8 rounded-3xl relative overflow-hidden">
                 <div className="flex justify-between items-center mb-6">
-                    <h3 className="font-black text-gray-300 tracking-tighter uppercase text-sm">CONTENT EDITOR ({mode === 'viral' ? 'VIRAL' : 'BRAND'})</h3>
-                    <button onClick={() => setStep(1)} className="text-[10px] font-bold text-red-400 hover:text-white transition-colors uppercase tracking-widest border border-red-500/30 px-2 py-1 rounded">← RESET TOPIC</button>
+                    <h3 className="font-black text-gray-300 tracking-tighter uppercase text-sm">內容編輯器 ({mode === 'viral' ? '爆文模式' : '品牌模式'})</h3>
+                    <button onClick={() => setStep(1)} className="text-[10px] font-bold text-red-400 hover:text-white transition-colors uppercase tracking-widest border border-red-500/30 px-2 py-1 rounded">← 重設主題</button>
                 </div>
                 
                 {/* Caption Editor */}
-                <label className="text-[10px] text-gray-500 font-bold mb-2 block uppercase tracking-wider">CAPTION</label>
+                <label className="text-[10px] text-gray-500 font-bold mb-2 block uppercase tracking-wider">貼文文案 (Caption)</label>
                 <textarea 
                     value={draft.caption} 
                     onChange={e => setDraft({...draft, caption: e.target.value})} 
@@ -283,13 +318,13 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                 {/* Image Prompt Editor */}
                 <div className="mb-6">
                     <div className="flex justify-between items-end mb-2">
-                        <label className="text-[10px] text-primary font-bold block uppercase tracking-wider">VISUAL PROMPT</label>
+                        <label className="text-[10px] text-primary font-bold block uppercase tracking-wider">視覺提示詞 (Visual Prompt)</label>
                     </div>
                     <textarea 
                         value={draft.imagePrompt} 
                         onChange={e => setDraft({...draft, imagePrompt: e.target.value})} 
                         className="w-full h-24 p-4 text-gray-300 text-xs outline-none resize-none leading-relaxed rounded-xl" 
-                        placeholder="Describe the image..."
+                        placeholder="描述圖片內容..."
                     />
                 </div>
                 
@@ -299,9 +334,9 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                         className={`w-full py-5 rounded-2xl font-black text-white shadow-lg transition-all flex items-center justify-center gap-3 tracking-widest uppercase border border-white/10 ${mediaUrl ? 'bg-black/40 hover:bg-black/60' : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:brightness-110'}`}
                     >
                         {mediaUrl ? (
-                            <>REGENERATE ART <span className="text-[10px] font-black bg-white/20 px-2 py-0.5 rounded-full">2 CR</span></>
+                            <>重新繪製 <span className="text-[10px] font-black bg-white/20 px-2 py-0.5 rounded-full">2 點數</span></>
                         ) : (
-                            <>GENERATE VISUAL <span className="text-[10px] font-black bg-white/20 px-2 py-0.5 rounded-full">5 CR</span></>
+                            <>生成圖片 <span className="text-[10px] font-black bg-white/20 px-2 py-0.5 rounded-full">5 點數</span></>
                         )}
                     </button>
                 </div>
@@ -310,7 +345,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
         
         <div className="space-y-6">
             <div className="glass-card p-8 rounded-3xl flex flex-col min-h-[600px] relative">
-                <h3 className="font-black text-gray-300 tracking-tighter uppercase text-sm mb-6">PREVIEW</h3>
+                <h3 className="font-black text-gray-300 tracking-tighter uppercase text-sm mb-6">預覽效果</h3>
                 
                 {/* Simulated Phone UI */}
                 <div className="bg-white rounded-[2rem] overflow-hidden flex-1 border-8 border-gray-900 shadow-2xl flex flex-col relative mx-auto w-full max-w-sm">
@@ -333,7 +368,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                         {!mediaUrl && (
                             <div className="w-full aspect-square bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center text-gray-300 gap-2">
                                 <span className="text-2xl opacity-50">🖼️</span>
-                                <span className="text-[10px] font-bold uppercase tracking-widest">Waiting for Visuals</span>
+                                <span className="text-[10px] font-bold uppercase tracking-widest">等待圖片生成...</span>
                             </div>
                         )}
                         
@@ -349,13 +384,13 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                 {publishResult ? (
                     <div className={`mt-8 p-5 rounded-2xl text-center font-bold border transition-all ${publishResult.success ? 'bg-green-500/20 text-green-400 border-green-500/50' : 'bg-red-500/20 text-red-400 border-red-500/50'}`}>
                         <div className="text-[15px] mb-1">{publishResult.msg}</div>
-                        <button onClick={() => setPublishResult(null)} className="text-[10px] uppercase font-black tracking-widest text-white/50 hover:text-white transition-colors underline underline-offset-4">Back to Edit</button>
+                        <button onClick={() => setPublishResult(null)} className="text-[10px] uppercase font-black tracking-widest text-white/50 hover:text-white transition-colors underline underline-offset-4">返回編輯</button>
                     </div>
                 ) : (
                     <div className="mt-8 space-y-4">
                         <div className="bg-black/40 p-4 rounded-xl border border-white/5 flex justify-between items-center">
                             <div className="flex-1">
-                                <label className="block text-[9px] text-gray-500 font-black uppercase tracking-[0.2em] mb-1">SCHEDULE</label>
+                                <label className="block text-[9px] text-gray-500 font-black uppercase tracking-[0.2em] mb-1">FB 排程發佈 (選填)</label>
                                 <input 
                                     type="datetime-local" 
                                     value={scheduleDate} 
@@ -364,7 +399,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                                 />
                             </div>
                             <div className={`px-3 py-1 rounded text-[10px] font-black uppercase tracking-widest border ${isLimitReached ? 'text-red-400 border-red-900/50' : 'text-primary border-primary/20'}`}>
-                                {scheduledPostsCount}/{limit} SLOT
+                                {scheduledPostsCount}/{limit} 席位
                             </div>
                         </div>
                         <div className="flex gap-4">
@@ -373,13 +408,13 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                                 disabled={isLimitReached} 
                                 className={`flex-1 py-4 rounded-xl font-black transition-all border uppercase tracking-widest text-xs ${isLimitReached ? 'border-gray-800 text-gray-700 cursor-not-allowed' : 'border-gray-600 text-gray-400 hover:border-white hover:text-white'}`}
                             >
-                                {isLimitReached ? 'FULL' : 'SAVE DRAFT'}
+                                {isLimitReached ? '已滿' : '排程發佈 (FB API)'}
                             </button>
                             <button 
                                 onClick={() => handleFinalize(false)} 
                                 className="flex-1 bg-white text-black py-4 rounded-xl font-black shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:bg-gray-200 transition-all transform active:scale-95 text-xs uppercase tracking-widest"
                             >
-                                PUBLISH NOW
+                                立即發佈
                             </button>
                         </div>
                     </div>

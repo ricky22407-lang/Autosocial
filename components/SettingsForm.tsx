@@ -111,14 +111,17 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
           const msg = e.message || '';
           console.error("Auth Error", msg);
           
-          if (msg.includes('JSSDK') || msg.includes('JavaScript SDK')) {
+          const currentOrigin = window.location.origin + '/';
+
+          // Detect common configuration errors including Chinese error messages
+          if (msg.includes('JSSDK') || msg.includes('JavaScript SDK') || msg.includes('未切換至開啟')) {
               setOauthError({ 
-                  msg: "JSSDK 未啟用：請至 Meta 後台開啟「Login with JavaScript SDK」開關。",
+                  msg: "設定錯誤：JSSDK 未啟用。請至 Meta 後台「Facebook 登入 > 設定」將「使用 JavaScript SDK 登入」設為「是」。",
                   link: `https://developers.facebook.com/apps/${fbAppId}/fb-login/settings/`
               });
-          } else if (msg.includes('URL Blocked') || msg.includes('App not setup')) {
+          } else if (msg.includes('URL Blocked') || msg.includes('App not setup') || msg.includes('domain')) {
                setOauthError({ 
-                  msg: "網域未授權：請至 Meta 後台確認「Allowed Domains」已填寫 http://localhost:5173/",
+                  msg: `網域未授權：請至 Meta 後台「Facebook 登入 > 設定」確認「允許的 JavaScript SDK 網域」已填寫：${currentOrigin}`,
                   link: `https://developers.facebook.com/apps/${fbAppId}/fb-login/settings/`
               });
           } else {
@@ -278,7 +281,7 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
               {oauthError && (
                   <div className="mt-3 p-3 bg-red-950 border border-red-500 rounded text-xs text-red-200 shadow-xl">
                       <p className="mb-2 font-bold flex items-center gap-2">⚠️ 連線錯誤</p>
-                      <p className="mb-3 leading-relaxed">{oauthError.msg}</p>
+                      <p className="mb-3 leading-relaxed break-all">{oauthError.msg}</p>
                       {oauthError.link && (
                           <a 
                               href={oauthError.link} 
