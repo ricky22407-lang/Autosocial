@@ -143,6 +143,10 @@ export const buildDraftPrompt = (
     `;
 };
 
+// ============================================================================
+// VIRAL MODE (Xiaohongshu/Clickbait Style)
+// ============================================================================
+
 export const buildViralPrompt = (
     topic: string,
     options: { audience: string, viralType: string | 'auto', platform: ViralPlatform, versionCount: number },
@@ -150,41 +154,45 @@ export const buildViralPrompt = (
 ) => {
     const productInfo = settings.productContext || settings.services || '';
     
-    // Viral mode overrides strict brand tone to favor engagement and platform-native formatting.
     return `
-    Role: You are a top-tier Viral Marketing Copywriter (specializing in Xiaohongshu/Red style).
-    Task: Write ${options.versionCount} highly engaging, viral post about "${topic}" for Facebook.
+    Role: Professional Viral Marketing Copywriter (Taiwan Market).
+    Task: Write ONE high-converting, "Viral Style" Facebook post about: "${topic}".
     Language: Traditional Chinese (Taiwan).
     
-    [Product/Brand Context]: ${productInfo}
-    
-    [🔥 VIRAL STRATEGY - XIAOHONGSHU LOGIC]
-    Instead of following a rigid template, analyze the topic "${topic}" and determine the single most effective "Clickbait Angle" from the following list:
-    1. **Regret/Warning**: "I regret not knowing this sooner..." or "Don't do X until you read this."
-    2. **Insider Secret**: "Only industry insiders know..." or "Exposing the truth about..."
-    3. **Emotional Resonance**: "I cried when I saw this..." or "This saved my life..."
-    4. **Curiosity Gap**: "You won't believe what happened..."
-    
-    **INSTRUCTION**: Pick the best angle for this specific topic and write the post. Do NOT mention which angle you picked. Just write it.
+    [Context Info]
+    Product/Brand: ${productInfo}
+    Target Audience: ${options.audience}
 
-    [🔥 STYLE GUIDELINES - AUTHENTIC & SENSATIONAL]
-    1. **Tone**: Use a "Bestie" (姐妹/閨蜜) or "Real User" perspective. Be emotional, slightly exaggerated, but feel authentic.
-    2. **Keywords**: Naturally weave in words like "救命", "後悔", "必看", "天啊", "真的絕了", "寶藏", "避雷", "沒在開玩笑".
+    [🔥 STRATEGY: THE "XIAOHONGSHU" (小紅書) FORMULA]
+    You must adopt a "Key Opinion Consumer" (KOC) persona. Do NOT sound like a company.
     
-    [🔥 FORMATTING RULES (CRITICAL)]
-    1. **Headline**: The first line MUST be a catchy title using brackets or emojis (e.g., 【...】, 🚨...🚨, 🔥...🔥).
-    2. **Spacing**: You MUST use **double line breaks** (\n\n) between every short paragraph. **NO WALL OF TEXT**.
-    3. **Bullets**: Use emojis (✨, 👉, ✅, ❌) as bullet points for lists.
-    4. **Length**: Keep paragraphs short (1-2 sentences).
+    1. **The Hook (First Line)**: 
+       - Must be a "Regret", "Warning", or "Shocking Discovery" headline.
+       - Use brackets like 【...】 or emojis 🚨 / 🔥.
+       - Example: "【救命】真的後悔沒早點知道..." or "🚨千萬不要亂買，除非你看過這篇！".
 
-    [🖼️ VISUAL INSTRUCTION (REQUIRED)]
-    You MUST generate a "imagePrompt" field in the JSON.
-    - Content: A highly descriptive, photorealistic image prompt in ENGLISH that visually represents the topic.
-    - Style: Cinematic, High Resolution, Commercial Photography.
-    - Example: "A close-up of a delicious beef noodle soup with steam rising, warm lighting, 8k resolution, shot on Sony A7R IV."
+    2. **The Vibe**: 
+       - "Bestie talk" (姐妹閒聊). 
+       - Use emotional keywords: "真的絕了", "寶藏", "避雷", "感動哭", "懂的都懂".
+       - Be slightly exaggerated but authentic.
 
-    Output JSON Format:
-    { "versions": ["post text..."], "imagePrompt": "Detailed English image prompt here..." }
+    3. **The Format (Critical)**: 
+       - **Double line breaks** between EVERY paragraph. No walls of text.
+       - Use emojis as bullet points (✨, 👉, ✅, ❌) to list benefits or features.
+       - Short sentences. Fast rhythm.
+
+    [🖼️ VISUAL PROMPT INSTRUCTION (STRICT)]
+    You MUST generate a "imagePrompt" field for AI image generation.
+    - **Language**: English ONLY. (Do NOT use Chinese in imagePrompt).
+    - **Style**: Photorealistic, Cinematic Lighting, 8K, Commercial Photography, Depth of Field.
+    - **Content**: Visually represent the topic "${topic}" in a stunning, high-quality way. 
+    - **Example**: "A close-up of a glowing skincare bottle on a marble table, water droplets, soft morning sunlight, 8k resolution, shot on Hasselblad."
+
+    Output JSON Schema:
+    {
+      "caption": "The full post content in Traditional Chinese. Include headline at the top and hashtags at the bottom.",
+      "imagePrompt": "Detailed ENGLISH image prompt. High quality photography style."
+    }
     `;
 };
 

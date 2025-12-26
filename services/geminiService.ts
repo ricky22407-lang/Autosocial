@@ -325,11 +325,29 @@ export const generateViralContent = async (topic: string, options: { audience: s
             responseMimeType: "application/json",
             responseSchema: {
                 type: Type.OBJECT,
-                properties: { versions: { type: Type.ARRAY, items: { type: Type.STRING } }, imagePrompt: { type: Type.STRING } }
+                properties: { 
+                    caption: { type: Type.STRING }, 
+                    imagePrompt: { type: Type.STRING } 
+                }
             }
         }
     });
-    return JSON.parse(cleanJsonText(response.text || '{}'));
+    
+    // Safety Parsing
+    let data;
+    try {
+        data = JSON.parse(cleanJsonText(response.text || '{}'));
+    } catch (e) {
+        // Fallback if schema fails violently
+        console.error("JSON Parse Error in Viral Content", e);
+        return { versions: ["生成失敗，請重試。"], imagePrompt: "" };
+    }
+
+    // Map new flat structure to expected interface
+    return {
+        versions: [data.caption || '內容生成異常。'],
+        imagePrompt: data.imagePrompt || ''
+    };
 };
 
 export const generatePostDraft = async (topic: string, settings: BrandSettings, options: { length: string, ctaList: CtaItem[], tempHashtags: string, includeEngagement?: boolean, imageText?: string }, topicContext?: TrendingTopic, userRole: string = 'user') => {
@@ -437,21 +455,6 @@ export const generateWeeklyReport = async (analytics: any, settings: BrandSettin
 
 // UPDATED: Now supports accountType and styleGuide overrides
 export const generateThreadsBatch = async (topic: string, count: number, settings: BrandSettings, personas: string[] = []): Promise<any[]> => {
-    // Determine the context from available personas or settings
-    // If multiple personas passed (from AutoPilot), we usually take the first one or ignore if styleGuide exists.
-    
-    // We need to access the *current* account context. 
-    // Since this function is generic, we'll try to find if a specific styleGuide was passed in 'personas' 
-    // or rely on the caller to handle specific account logic.
-    // NOTE: 'personas' argument is legacy. We should rely on how the prompt is built.
-    
-    // Strategy: We will assume the Caller has already selected the account and passed its specific style guide via 'personas' array 
-    // OR we will update the prompt template to accept generic params. 
-    // To minimize breaking changes, we'll assume the prompt construction happens here.
-    
-    // BUT wait, 'settings' contains global settings. 
-    // We need the specific account's config (personal vs brand).
-    // Let's assume the UI passes the correct "Instruction" string in the 'personas' [0] slot if it's customized.
     
     let systemInstruction = Prompts.getThreadsSystemInstruction('personal'); // Default
     
