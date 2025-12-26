@@ -78,7 +78,7 @@ export const checkAndUseQuota = async (
     const ledgerRef = db.collection('quota_transactions').doc();
 
     try {
-        await db.runTransaction(async (t) => {
+        await db.runTransaction(async (t: any) => {
             const userDoc = await t.get(userRef);
             if (!userDoc.exists) throw new Error("User not found");
 
@@ -158,7 +158,7 @@ export const redeemReferralCode = async (currentUserId: string, code: string): P
             const referrerLedgerRef = db.collection('quota_transactions').doc();
 
             // 2. Transaction
-            await db.runTransaction(async (t) => {
+            await db.runTransaction(async (t: any) => {
                 const currentUserDoc = await t.get(userRef);
                 if (!currentUserDoc.exists) throw new Error("User not found");
                 const currentUserData = currentUserDoc.data() as UserProfile;
@@ -244,7 +244,7 @@ export const submitUserReport = async (report: Omit<UserReport, 'id'>) => {
 export const getUserReports = async (): Promise<UserReport[]> => {
     if (!isMock) {
         const snap = await db.collection('user_reports').orderBy('timestamp', 'desc').get();
-        return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserReport));
+        return snap.docs.map((doc: any) => ({ id: doc.id, ...doc.data() } as UserReport));
     } 
     return [];
 };
@@ -253,7 +253,7 @@ export const getUserUsageLogs = async (userId: string): Promise<UsageLog[]> => {
     // Simplified: Just returning empty for now to save space, real impl needs Firestore query
     if (!isMock) {
         const snap = await db.collection('usage_logs').where('uid', '==', userId).orderBy('ts', 'desc').limit(100).get();
-        return snap.docs.map(doc => doc.data() as UsageLog);
+        return snap.docs.map((doc: any) => doc.data() as UsageLog);
     }
     return [];
 };
@@ -262,7 +262,7 @@ export const deleteUserUsageLogs = async (userId: string): Promise<void> => {
     if (!isMock) {
         const snap = await db.collection('usage_logs').where('uid', '==', userId).get();
         const batch = db.batch();
-        snap.docs.forEach(doc => batch.delete(doc.ref));
+        snap.docs.forEach((doc: any) => batch.delete(doc.ref));
         await batch.commit();
     }
 };
@@ -293,7 +293,7 @@ export const fetchUserPostsFromCloud = async (userId: string): Promise<Post[]> =
     }
     try {
         const snap = await db.collection('users').doc(userId).collection('posts').orderBy('createdAt', 'desc').get();
-        return snap.docs.map(doc => doc.data() as Post);
+        return snap.docs.map((doc: any) => doc.data() as Post);
     } catch (e) { return []; }
 };
 

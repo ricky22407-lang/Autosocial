@@ -18,7 +18,7 @@ const getQuotaForRole = (role: UserRole): number => {
 export const getAllUsers = async (): Promise<UserProfile[]> => {
     if (!isMock) {
         const snap = await db.collection('users').orderBy('created_at', 'desc').get();
-        return snap.docs.map(doc => doc.data() as UserProfile);
+        return snap.docs.map((doc: any) => doc.data() as UserProfile);
     } 
     return MockStore.getAllUsers();
 };
@@ -47,7 +47,7 @@ export const useAdminKey = async (userId: string, keyString: string): Promise<{ 
     if (!isMock) {
         const keyRef = db.collection('admin_keys').doc(keyString);
         try {
-            return await db.runTransaction(async (t) => {
+            return await db.runTransaction(async (t: any) => {
                 const doc = await t.get(keyRef);
                 if (!doc.exists) throw new Error("無效的金鑰");
                 const keyData = doc.data() as AdminKey;

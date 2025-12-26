@@ -91,7 +91,7 @@ export const logout = async () => {
 
 export const subscribeAuth = (callback: (user: { uid: string, email: string } | null) => void) => {
     if (!isMock) {
-        return auth.onAuthStateChanged(async (firebaseUser) => {
+        return auth.onAuthStateChanged(async (firebaseUser: any) => {
             if (firebaseUser) {
                 const profile = await getUserProfile(firebaseUser.uid);
                 if (profile && profile.isSuspended) {
