@@ -16,8 +16,8 @@ const PostItem: React.FC<{
   onDelete: (id: string) => void; 
   onEdit: (post: Post) => void;
 }> = ({ post, onDelete, onEdit }) => (
-    <div className="bg-card p-5 rounded-2xl border border-gray-800 flex gap-6 hover:border-gray-700 transition-all group">
-        <div className="w-28 h-28 bg-dark rounded-xl flex-shrink-0 overflow-hidden flex items-center justify-center border border-gray-800 shadow-inner">
+    <div className="bg-card p-5 rounded-2xl border border-gray-800 flex flex-col sm:flex-row gap-4 sm:gap-6 hover:border-gray-700 transition-all group">
+        <div className="w-full sm:w-28 h-48 sm:h-28 bg-dark rounded-xl flex-shrink-0 overflow-hidden flex items-center justify-center border border-gray-800 shadow-inner">
             {post.mediaUrl ? (
                 post.mediaType === 'image' ? 
                 <img src={post.mediaUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt="Post media" /> :
@@ -30,7 +30,7 @@ const PostItem: React.FC<{
         <div className="flex-1 min-w-0 flex flex-col justify-center">
             <div className="flex justify-between items-start mb-3">
                 <h4 className="font-bold text-lg text-white truncate pr-4 tracking-tight">{post.topic}</h4>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap justify-end">
                    <span className={`px-2.5 py-1 text-[9px] rounded-lg uppercase font-black tracking-widest border ${
                       post.status === 'published' ? 'bg-green-900/20 text-green-400 border-green-500/30' :
                       post.status === 'scheduled' ? 'bg-blue-900/20 text-blue-400 border-blue-500/30' :
@@ -166,18 +166,19 @@ const ScheduleList: React.FC<Props> = ({ posts, onUpdatePosts, onEditPost, setti
           </div>
       )}
 
-      <div className="flex justify-between items-center border-b border-gray-800 pb-6">
+      {/* RESPONSIVE CHANGE: Stack header contents on mobile */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-800 pb-6">
           <h2 className="text-3xl font-black text-white tracking-tighter uppercase">排程管理與歷史</h2>
-          <div className="bg-dark/80 border border-gray-800 rounded-xl p-1.5 flex gap-1 shadow-inner">
+          <div className="bg-dark/80 border border-gray-800 rounded-xl p-1.5 flex gap-1 shadow-inner w-full md:w-auto">
               <button 
                   onClick={() => setViewMode('list')}
-                  className={`px-6 py-2 rounded-lg text-xs font-black tracking-widest uppercase transition-all ${viewMode === 'list' ? 'bg-primary text-white shadow-lg' : 'text-gray-500 hover:text-gray-300'}`}
+                  className={`flex-1 md:flex-none px-6 py-2 rounded-lg text-xs font-black tracking-widest uppercase transition-all ${viewMode === 'list' ? 'bg-primary text-white shadow-lg' : 'text-gray-500 hover:text-gray-300'}`}
               >
                   列表
               </button>
               <button 
                   onClick={() => setViewMode('calendar')}
-                  className={`px-6 py-2 rounded-lg text-xs font-black tracking-widest uppercase transition-all ${viewMode === 'calendar' ? 'bg-primary text-white shadow-lg' : 'text-gray-500 hover:text-gray-300'}`}
+                  className={`flex-1 md:flex-none px-6 py-2 rounded-lg text-xs font-black tracking-widest uppercase transition-all ${viewMode === 'calendar' ? 'bg-primary text-white shadow-lg' : 'text-gray-500 hover:text-gray-300'}`}
               >
                   行事曆
               </button>

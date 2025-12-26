@@ -228,8 +228,8 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
   return (
     <div className="max-w-5xl mx-auto p-6 bg-card rounded-xl border border-gray-700 animate-fade-in pb-24">
       {/* Header & Profile Switcher */}
-      <div className="flex justify-between items-center mb-8 border-b border-gray-700 pb-4">
-          <div className="flex flex-col">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8 border-b border-gray-700 pb-4">
+          <div className="flex flex-col w-full md:w-auto">
               <label className="text-xs text-gray-500 mb-1 font-bold">當前品牌身份</label>
               <select 
                 value={currentProfileId} 
@@ -241,7 +241,7 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
                         localStorage.setItem('autosocial_last_profile_id', e.target.value);
                     }
                 }} 
-                className="bg-dark border border-primary rounded p-2 text-white font-bold text-xl outline-none"
+                className="bg-dark border border-primary rounded p-2 text-white font-bold text-xl outline-none w-full"
               >
                   {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
@@ -255,12 +255,12 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
                   setCurrentProfileId(id); 
                   loadSettingsIntoForm(initialSettings);
               }
-          }} className="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded text-sm transition-colors">+ 新增品牌</button>
+          }} className="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded text-sm transition-colors w-full md:w-auto">+ 新增品牌</button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Left Column: API Connection */}
-        <div className="lg:col-span-1 space-y-6 border-r border-gray-800 pr-4">
+        <div className="lg:col-span-1 space-y-6 border-r-0 lg:border-r border-gray-800 pr-0 lg:pr-4">
           <h3 className="text-lg font-bold text-primary border-l-4 border-primary pl-3">1. API 連結設定</h3>
           
           {/* OAuth Button */}
@@ -356,7 +356,7 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
         </div>
 
         {/* Right Column: Assets */}
-        <div className="lg:col-span-1 space-y-6 border-l border-gray-800 pl-4">
+        <div className="lg:col-span-1 space-y-6 border-l-0 lg:border-l border-gray-800 pl-0 lg:pl-4">
           <h3 className="text-lg font-bold text-primary border-l-4 border-primary pl-3">4. 進階內容策略</h3>
           <div><label className="block text-sm text-gray-400 mb-1">Logo 浮水印</label><div className="flex items-center gap-4">{formData.logoUrl && <img src={formData.logoUrl} className="w-12 h-12 object-contain bg-black/20 rounded border border-gray-700" alt="Logo" />}<input type="file" accept="image/*" onChange={handleLogoUpload} className="text-[10px] text-gray-500" /></div></div>
           <div>
@@ -368,7 +368,7 @@ const SettingsForm: React.FC<Props> = ({ onSave, initialSettings }) => {
       </div>
 
       <div className="mt-12 flex justify-end border-t border-gray-700 pt-6">
-        <button onClick={handleSaveWrapper} disabled={isSaving} className="bg-primary hover:bg-blue-600 text-white px-12 py-3 rounded-lg font-bold shadow-lg transform transition-all active:scale-95 disabled:opacity-50">{isSaving ? '儲存中...' : '儲存品牌設定'}</button>
+        <button onClick={handleSaveWrapper} disabled={isSaving} className="bg-primary hover:bg-blue-600 text-white px-12 py-3 rounded-lg font-bold shadow-lg transform transition-all active:scale-95 disabled:opacity-50 w-full md:w-auto">{isSaving ? '儲存中...' : '儲存品牌設定'}</button>
       </div>
 
       {showTutorial && <TokenTutorialModal platform="facebook" onClose={() => setShowTutorial(false)} />}

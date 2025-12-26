@@ -227,43 +227,44 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   if (isPublishing) return <LoadingOverlay message="正在傳送至 Facebook..." />;
 
   if (step === 1) return (
-      <div className="max-w-4xl mx-auto space-y-12 animate-fade-in pt-10">
+      <div className="max-w-4xl mx-auto space-y-8 md:space-y-12 animate-fade-in pt-4 md:pt-10">
           <div className="text-center space-y-3">
-              <h2 className="text-5xl font-black text-white tracking-tighter drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]">
+              <h2 className="text-3xl md:text-5xl font-black text-white tracking-tighter drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]">
                   What's Next?
               </h2>
-              <p className="text-gray-400 font-bold tracking-widest uppercase">輸入核心主題，讓 AI 為您打造吸睛內容</p>
+              <p className="text-gray-400 font-bold tracking-widest uppercase text-xs md:text-base">輸入核心主題，讓 AI 為您打造吸睛內容</p>
           </div>
           
-          <div className="glass-card p-12 rounded-[2rem] shadow-2xl space-y-8 relative overflow-hidden">
+          <div className="glass-card p-6 md:p-12 rounded-[2rem] shadow-2xl space-y-6 md:space-y-8 relative overflow-hidden">
               {/* Decorative Glow */}
               <div className="absolute top-0 right-0 w-64 h-64 bg-primary/20 blur-[100px] rounded-full pointer-events-none"></div>
 
               <div className="flex p-1.5 bg-black/40 rounded-2xl border border-white/5 relative z-10">
                   <button 
                     onClick={() => setMode('brand')}
-                    className={`flex-1 py-4 rounded-xl font-bold tracking-wide transition-all ${mode === 'brand' ? 'bg-primary text-black shadow-[0_0_20px_rgba(0,242,234,0.4)]' : 'text-gray-500 hover:text-white'}`}
+                    className={`flex-1 py-3 md:py-4 rounded-xl font-bold tracking-wide transition-all text-sm md:text-base ${mode === 'brand' ? 'bg-primary text-black shadow-[0_0_20px_rgba(0,242,234,0.4)]' : 'text-gray-500 hover:text-white'}`}
                   >
                     品牌模式
                   </button>
                   <button 
                     onClick={() => setMode('viral')}
-                    className={`flex-1 py-4 rounded-xl font-bold tracking-wide transition-all ${mode === 'viral' ? 'bg-secondary text-white shadow-[0_0_20px_rgba(255,0,85,0.4)]' : 'text-gray-500 hover:text-white'}`}
+                    className={`flex-1 py-3 md:py-4 rounded-xl font-bold tracking-wide transition-all text-sm md:text-base ${mode === 'viral' ? 'bg-secondary text-white shadow-[0_0_20px_rgba(255,0,85,0.4)]' : 'text-gray-500 hover:text-white'}`}
                   >
                     爆文模式 (小紅書)
                   </button>
               </div>
 
-              <div className="flex gap-3 relative z-10">
+              {/* RESPONSIVE CHANGE: Stack input and button on mobile */}
+              <div className="flex flex-col md:flex-row gap-3 relative z-10">
                   <input 
                     value={topic} 
                     onChange={e => setTopic(e.target.value)} 
-                    className="flex-1 p-5 rounded-2xl text-xl font-medium placeholder-gray-600 outline-none" 
+                    className="flex-1 p-4 md:p-5 rounded-2xl text-lg md:text-xl font-medium placeholder-gray-600 outline-none w-full" 
                     placeholder="輸入主題 (例如：夏季保養、今日新聞...)" 
                   />
                   <button 
                     onClick={loadTrends} 
-                    className="bg-gray-800 hover:bg-gray-700 px-8 rounded-2xl text-white font-bold transition-all flex flex-col items-center justify-center gap-1 border border-gray-700 hover:border-white/20"
+                    className="bg-gray-800 hover:bg-gray-700 px-8 py-4 md:py-0 rounded-2xl text-white font-bold transition-all flex flex-row md:flex-col items-center justify-center gap-2 md:gap-1 border border-gray-700 hover:border-white/20 whitespace-nowrap"
                   >
                     <span className="text-sm">🔥 挖掘靈感</span>
                     <span className="text-[9px] bg-primary/20 text-primary px-2 rounded-full font-black">1 點數</span>
@@ -290,7 +291,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
               <button 
                 onClick={handleNext} 
                 disabled={!topic} 
-                className={`w-full py-6 rounded-2xl font-black text-white shadow-2xl hover:opacity-90 transition-all disabled:opacity-30 text-xl tracking-widest uppercase relative z-10 ${mode === 'viral' ? 'bg-gradient-to-r from-orange-600 to-red-600' : 'bg-gradient-to-r from-blue-600 to-primary'}`}
+                className={`w-full py-5 md:py-6 rounded-2xl font-black text-white shadow-2xl hover:opacity-90 transition-all disabled:opacity-30 text-lg md:text-xl tracking-widest uppercase relative z-10 ${mode === 'viral' ? 'bg-gradient-to-r from-orange-600 to-red-600' : 'bg-gradient-to-r from-blue-600 to-primary'}`}
               >
                 開始生成內容 <span className="text-sm font-normal opacity-70 ml-2">(2 點數)</span>
               </button>
@@ -299,9 +300,9 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   );
 
   return (
-    <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 animate-fade-in pt-4">
+    <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 animate-fade-in pt-4 pb-20">
         <div className="space-y-6">
-            <div className="glass-card p-8 rounded-3xl relative overflow-hidden">
+            <div className="glass-card p-6 md:p-8 rounded-3xl relative overflow-hidden">
                 <div className="flex justify-between items-center mb-6">
                     <h3 className="font-black text-gray-300 tracking-tighter uppercase text-sm">內容編輯器 ({mode === 'viral' ? '爆文模式' : '品牌模式'})</h3>
                     <button onClick={() => setStep(1)} className="text-[10px] font-bold text-red-400 hover:text-white transition-colors uppercase tracking-widest border border-red-500/30 px-2 py-1 rounded">← 重設主題</button>
@@ -344,7 +345,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
         </div>
         
         <div className="space-y-6">
-            <div className="glass-card p-8 rounded-3xl flex flex-col min-h-[600px] relative">
+            <div className="glass-card p-6 md:p-8 rounded-3xl flex flex-col min-h-[600px] relative">
                 <h3 className="font-black text-gray-300 tracking-tighter uppercase text-sm mb-6">預覽效果</h3>
                 
                 {/* Simulated Phone UI */}
@@ -388,8 +389,8 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                     </div>
                 ) : (
                     <div className="mt-8 space-y-4">
-                        <div className="bg-black/40 p-4 rounded-xl border border-white/5 flex justify-between items-center">
-                            <div className="flex-1">
+                        <div className="bg-black/40 p-4 rounded-xl border border-white/5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                            <div className="flex-1 w-full">
                                 <label className="block text-[9px] text-gray-500 font-black uppercase tracking-[0.2em] mb-1">FB 排程發佈 (選填)</label>
                                 <input 
                                     type="datetime-local" 

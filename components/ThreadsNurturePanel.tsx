@@ -866,7 +866,8 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                        {/* UPDATED: Topic Input moved to top for better search experience */}
                        <div className="mb-6 p-4 bg-dark/50 rounded-lg border border-gray-600">
                            <label className="block text-xs text-gray-400 mb-2 font-bold uppercase tracking-wider">第一步：設定或搜尋話題</label>
-                           <div className="flex gap-2">
+                           {/* RESPONSIVE: Stack on mobile */}
+                           <div className="flex flex-col md:flex-row gap-2">
                                <input 
                                    value={manualTopic} 
                                    onChange={handleManualTopicChange} 
@@ -875,7 +876,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                />
                                <button 
                                    onClick={() => loadTrends()} 
-                                   className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 rounded font-bold transition-colors whitespace-nowrap flex items-center gap-2"
+                                   className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 md:py-0 rounded font-bold transition-colors whitespace-nowrap flex items-center justify-center gap-2"
                                >
                                    搜尋趨勢 (1點)
                                </button>
@@ -907,7 +908,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                             ))}
                        </div>
 
-                       <div className="mt-6 flex justify-end"><button onClick={proceedToGenerateUI} className="bg-primary hover:bg-blue-600 text-white px-8 py-3 rounded font-bold shadow-lg">下一步</button></div>
+                       <div className="mt-6 flex justify-end"><button onClick={proceedToGenerateUI} className="bg-primary hover:bg-blue-600 text-white px-8 py-3 rounded font-bold shadow-lg w-full md:w-auto">下一步</button></div>
                   </div>
               )}
 
