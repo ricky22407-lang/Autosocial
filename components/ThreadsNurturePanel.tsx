@@ -208,7 +208,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
     }
   }, [accounts]);
 
-  const loadTrends = async () => {
+  const loadTrends = async (overrideKeyword?: string) => {
       if (!user) return alert("請先登入");
       const COST = 1;
       const allowed = await checkAndUseQuota(user.user_id, COST);
@@ -220,10 +220,18 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       setTrendingTopics([]);
 
       try {
-          const industry = settings.industry || '台灣熱門時事';
-          const trends = await getTrendingTopics(industry);
-          if (trends.length === 0) setTrendError("目前找不到相關新聞，請嘗試手動輸入話題。");
+          // FIX: Priority = Override -> Manual Input -> Industry Setting -> Default
+          const query = overrideKeyword || manualTopic || settings.industry || '台灣熱門時事';
+          const trends = await getTrendingTopics(query);
+          
+          if (trends.length === 0) setTrendError("目前找不到相關新聞，請嘗試手動輸入其他話題。");
           setTrendingTopics(trends);
+          
+          if (manualTopic || overrideKeyword) {
+              // Clear manual topic from "generation" focus so the user doesn't get confused, 
+              // BUT keep it in the input so they see what they searched.
+              // Actually, keeping it is better.
+          }
       } catch (e: any) {
           console.warn("Trend load error", e);
           setTrendError("無法載入即時趨勢，請檢查網路或稍後再試。");
@@ -655,13 +663,35 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                   <div className="bg-card p-6 rounded-xl border border-gray-700">
                        <h3 className="text-xl font-bold text-white mb-4">步驟 1: 選擇話題</h3>
                        
+                       {/* UPDATED: Topic Input moved to top for better search experience */}
+                       <div className="mb-6 p-4 bg-dark/50 rounded-lg border border-gray-600">
+                           <label className="block text-xs text-gray-400 mb-2 font-bold uppercase tracking-wider">🎯 第一步：設定或搜尋話題</label>
+                           <div className="flex gap-2">
+                               <input 
+                                   value={manualTopic} 
+                                   onChange={handleManualTopicChange} 
+                                   className="flex-1 bg-dark border border-gray-600 rounded p-3 text-white placeholder-gray-500 focus:border-primary outline-none transition-colors" 
+                                   placeholder="輸入關鍵字 (例如: AI, 美食, 房地產)..." 
+                               />
+                               <button 
+                                   onClick={() => loadTrends()} 
+                                   className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 rounded font-bold transition-colors whitespace-nowrap flex items-center gap-2"
+                               >
+                                   <span>🔍</span> 搜尋趨勢 (1點)
+                               </button>
+                           </div>
+                           <p className="text-[10px] text-gray-500 mt-2">💡 提示：輸入關鍵字後點擊「搜尋」，AI 將為您挖掘該領域的最新熱門新聞。</p>
+                       </div>
+                       
                        {/* UPDATED: Grid Layout for better use of space */}
                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4 max-h-[60vh] overflow-y-auto custom-scrollbar p-1">
-                            <div onClick={() => loadTrends()} className="flex flex-col items-center justify-center bg-indigo-900/30 border border-indigo-500 rounded-lg p-6 cursor-pointer hover:bg-indigo-900/50 min-h-[160px] text-center shadow-lg transition-transform active:scale-95">
-                                <span className="text-4xl mb-3">🔎</span>
-                                <span className="text-lg font-bold text-indigo-200">挖掘最新靈感</span>
-                                <p className="text-xs text-indigo-300/60 mt-1">搜尋即時熱門新聞與社群話題</p>
+                            {/* Generic Trend Button */}
+                            <div onClick={() => loadTrends(settings.industry)} className="flex flex-col items-center justify-center bg-gray-800/50 border border-gray-600 hover:border-gray-400 rounded-lg p-6 cursor-pointer min-h-[160px] text-center shadow-lg transition-transform active:scale-95 group">
+                                <span className="text-4xl mb-3 group-hover:scale-110 transition-transform">🌍</span>
+                                <span className="text-lg font-bold text-gray-300 group-hover:text-white">挖掘綜合熱門靈感</span>
+                                <p className="text-xs text-gray-500 mt-1">查看 {settings.industry || '台灣'} 目前最紅的話題</p>
                             </div>
+
                             {trendingTopics.map((t, i) => (
                                 <div key={i} onClick={() => selectTopic(t.title)} className={`flex flex-col justify-between p-4 rounded-lg border cursor-pointer min-h-[160px] transition-all relative overflow-hidden ${selectedTopics.includes(t.title) ? 'bg-primary/20 border-primary ring-2 ring-primary' : 'bg-dark border-gray-700 hover:border-gray-500'}`}>
                                     {t.imageUrl && <div className="absolute inset-0 opacity-10 bg-cover bg-center z-0" style={{backgroundImage: `url(${t.imageUrl})`}}></div>}
@@ -677,10 +707,6 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                             ))}
                        </div>
 
-                       <div className="mt-6 pt-4 border-t border-gray-700">
-                           <label className="block text-xs text-gray-400 mb-1">自訂話題</label>
-                           <input value={manualTopic} onChange={handleManualTopicChange} className="w-full bg-dark border border-gray-600 rounded p-3 text-white" placeholder="或手動輸入您想聊的主題..." />
-                       </div>
                        <div className="mt-6 flex justify-end"><button onClick={proceedToGenerateUI} className="bg-primary hover:bg-blue-600 text-white px-8 py-3 rounded font-bold shadow-lg">下一步</button></div>
                   </div>
               )}

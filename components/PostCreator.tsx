@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { BrandSettings, Post, TrendingTopic, UserProfile, ViralType, ViralPlatform } from '../types';
 import { getTrendingTopics, generatePostDraft, generateImage, applyWatermark, generateViralContent } from '../services/geminiService';
@@ -62,9 +63,12 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
       onQuotaUpdate();
       setIsLoadingTrends(true);
       try {
-          const industry = settings.industry || '台灣熱門話題';
-          const trends = await getTrendingTopics(industry);
+          // FIX: Use 'topic' input if available, otherwise fallback to industry
+          const query = topic.trim() || settings.industry || '台灣熱門話題';
+          const trends = await getTrendingTopics(query);
           setTrendingTopics(trends);
+          
+          if(topic.trim()) alert(`已為您搜尋關於「${query}」的熱門話題！`);
       } catch (e) { console.error(e); }
       finally { setIsLoadingTrends(false); }
   };
