@@ -177,8 +177,14 @@ export const buildViralPrompt = (
     3. **Bullets**: Use emojis (✨, 👉, ✅, ❌) as bullet points for lists.
     4. **Length**: Keep paragraphs short (1-2 sentences).
 
+    [🖼️ VISUAL INSTRUCTION (REQUIRED)]
+    You MUST generate a "imagePrompt" field in the JSON.
+    - Content: A highly descriptive, photorealistic image prompt in ENGLISH that visually represents the topic.
+    - Style: Cinematic, High Resolution, Commercial Photography.
+    - Example: "A close-up of a delicious beef noodle soup with steam rising, warm lighting, 8k resolution, shot on Sony A7R IV."
+
     Output JSON Format:
-    { "versions": ["post text..."], "imagePrompt": "photorealistic image description, cinematic lighting, 8k, style of commercial photography..." }
+    { "versions": ["post text..."], "imagePrompt": "Detailed English image prompt here..." }
     `;
 };
 

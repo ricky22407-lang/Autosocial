@@ -93,22 +93,26 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                 includeEngagement: false 
             }, undefined, user.role);
             setDraft({ 
-                caption: res.caption, 
+                caption: res.caption || '', 
                 firstComment: res.ctaText || '', 
-                imagePrompt: res.imagePrompt 
+                imagePrompt: res.imagePrompt || `Professional photo about ${topic}` 
             });
         } else {
-            // Viral Mode: Now purely based on topic, no manual subtype selection
+            // Viral Mode
             const res = await generateViralContent(topic, {
                 audience: '社群大眾',
-                viralType: 'auto', // Handled by prompt logic
+                viralType: 'auto',
                 platform: 'facebook',
                 versionCount: 1
             }, settings);
+            
+            // Fallback Prompt if AI returns empty
+            const fallbackPrompt = `A creative, photorealistic image about ${topic}, 8k resolution, cinematic lighting, commercial photography style`;
+
             setDraft({
-                caption: res.versions[0],
+                caption: res.versions?.[0] || '生成內容為空，請重試',
                 firstComment: '',
-                imagePrompt: res.imagePrompt
+                imagePrompt: res.imagePrompt || fallbackPrompt
             });
         }
     } catch (e: any) { 
