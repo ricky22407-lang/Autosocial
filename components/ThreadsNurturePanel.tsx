@@ -71,6 +71,32 @@ const STYLE_PRESETS = [
 
 // --- Helper Components ---
 
+const ImagePreview: React.FC<{ src: string, alt: string }> = ({ src, alt }) => {
+    const [loading, setLoading] = useState(true);
+    // Reset loading state whenever src changes (this detects the regeneration)
+    useEffect(() => setLoading(true), [src]);
+
+    return (
+        <div className="w-full h-full relative bg-black flex items-center justify-center">
+            {loading && (
+                <div className="absolute inset-0 flex items-center justify-center z-10 bg-gray-900/80 backdrop-blur-sm">
+                    <div className="flex flex-col items-center">
+                        <div className="loader border-t-primary w-8 h-8 mb-2"></div>
+                        <span className="text-[10px] text-gray-400">載入中...</span>
+                    </div>
+                </div>
+            )}
+            <img 
+                src={src} 
+                alt={alt}
+                className={`w-full h-full object-cover transition-opacity duration-500 ${loading ? 'opacity-0' : 'opacity-100'}`}
+                onLoad={() => setLoading(false)}
+                onError={() => setLoading(false)}
+            />
+        </div>
+    );
+};
+
 const LoadingOverlay: React.FC<{ message: string, detail?: string }> = ({ message, detail }) => {
     const [tipIndex, setTipIndex] = useState(0);
     const tips = [
@@ -441,11 +467,11 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
           const visualSubject = post.imageQuery || post.topic; 
           const newUrl = generateStockUrl(visualSubject, newSeed);
 
-          // Increase timeout to 1500ms to allow generation time and prevent "instant change" feel
+          // Use a small timeout to allow UI update, but the main loading feedback is now handled by ImagePreview
           setTimeout(() => {
               setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageSourceType: newMode, imageUrl: newUrl } : p));
               setIsRegeneratingImage(null);
-          }, 1500); 
+          }, 200); 
 
       } else {
           // Just switching modes (e.g. to 'none' or 'upload'), no cost
@@ -698,21 +724,12 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                   <div key={post.id} className="bg-card rounded-xl border border-gray-700 overflow-hidden flex flex-col md:flex-row">
                                       <div className="w-full md:w-1/3 bg-black flex items-center justify-center relative min-h-[300px]">
                                           {getPreviewUrl(post) ? (
-                                              <img 
-                                                  key={getPreviewUrl(post) || 'empty'} // FORCE RE-RENDER ON URL CHANGE
+                                              <ImagePreview 
                                                   src={getPreviewUrl(post)} 
-                                                  className="w-full h-full object-cover transition-opacity duration-500" 
+                                                  alt="Generated Content" 
                                               />
                                           ) : <span className="text-gray-500">無圖片</span>}
                                           
-                                          {/* Loading Overlay for Image Regeneration */}
-                                          {isRegeneratingImage === post.id && (
-                                              <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center z-10">
-                                                  <div className="loader mb-2 border-t-primary"></div>
-                                                  <span className="text-xs text-white font-bold animate-pulse">繪製新素材中...</span>
-                                              </div>
-                                          )}
-
                                           <div className="absolute bottom-2 left-2 flex gap-2">
                                               {/* Updated Change Image Button: Forces stock refresh */}
                                               <button 

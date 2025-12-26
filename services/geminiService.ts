@@ -101,10 +101,11 @@ const callBackend = async (action: string, payload: any) => {
 
 const CACHE_TTL = 12 * 60 * 60 * 1000;
 
+// Update Cache Key prefix to 'v2_' to invalidate old HK-biased cache
 const checkTrendCache = async (industry: string): Promise<TrendingTopic[] | null> => {
     try {
         const dateKey = new Date().toISOString().split('T')[0];
-        const cacheId = `${dateKey}_${industry.replace(/\s+/g, '_')}`;
+        const cacheId = `v2_${dateKey}_${industry.replace(/\s+/g, '_')}`;
         const doc = await db.collection('global_trend_cache').doc(cacheId).get();
         if (doc.exists) {
             const data = doc.data() as CachedTrendData;
@@ -117,7 +118,7 @@ const checkTrendCache = async (industry: string): Promise<TrendingTopic[] | null
 const saveTrendCache = async (industry: string, topics: TrendingTopic[]) => {
     try {
         const dateKey = new Date().toISOString().split('T')[0];
-        const cacheId = `${dateKey}_${industry.replace(/\s+/g, '_')}`;
+        const cacheId = `v2_${dateKey}_${industry.replace(/\s+/g, '_')}`;
         await db.collection('global_trend_cache').doc(cacheId).set({ id: cacheId, industry, topics, createdAt: Date.now() });
     } catch (e) { console.warn("Cache write failed", e); }
 };
@@ -152,7 +153,7 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
       try {
         const response = await callBackend('generateContent', {
             model: 'gemini-2.5-flash',
-            contents: `Role: Trend Hunter. Generate ${Math.max(5, deficit + 2)} NEW trending topics about "${industry}" in Taiwan. DO NOT include: [${existingTitles}]. Output: Pure JSON Array: [{ "title": "...", "description": "...", "url": "#" }]`,
+            contents: `Role: Trend Hunter. Generate ${Math.max(5, deficit + 2)} NEW trending topics about "${industry}" in Taiwan (Traditional Chinese ONLY, NO Hong Kong news). DO NOT include: [${existingTitles}]. Output: Pure JSON Array: [{ "title": "...", "description": "...", "url": "#" }]`,
             config: { responseMimeType: "application/json" }
         });
         const raw = JSON.parse(cleanJsonText(response.text || '[]'));
@@ -210,7 +211,6 @@ const extractImageUrlFromItem = (item: Element): string => {
 
 const fetchRealtimeRss = async (keyword: string): Promise<TrendingTopic[]> => {
     // Fix: Force 'Taiwan' in query to prevent IP-based localization (US Server -> HK/Global Chinese results)
-    // Only add if not already present to avoid duplication
     const queryTerm = keyword.includes('台灣') || keyword.includes('Taiwan') ? keyword : `${keyword} 台灣`;
     
     // Yahoo TW is mostly deprecated or redirects, sticking to Google News with strict location
