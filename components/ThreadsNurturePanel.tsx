@@ -109,6 +109,7 @@ const LoadingOverlay: React.FC<{ message: string, detail?: string }> = ({ messag
 };
 
 const generateStockUrl = (query: string, seed: string) => {
+    // Ensuring topic adherence: The query is already AI-optimized for the specific post
     const realismPrompt = `${query}, candid photography, shot on iPhone 15, natural lighting, grainy, unpolished, 4k, no 3d render, no illustration, hyperrealistic`;
     const encoded = encodeURIComponent(realismPrompt);
     // Use Pollinations with unique seed
@@ -150,6 +151,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   const [selectedGenAccountId, setSelectedGenAccountId] = useState<string>(''); 
   const [generatedPosts, setGeneratedPosts] = useState<GeneratedPost[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  // Track which post is currently regenerating image (for loading spinner)
   const [isRegeneratingImage, setIsRegeneratingImage] = useState<string | null>(null);
   
   // Trends & Interactions
@@ -167,8 +169,18 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   // --- Effects & Init ---
   useEffect(() => {
     onSaveSettings({ ...settings, threadsAccounts: accounts });
-    if (accounts.length > 0 && !selectedGenAccountId) {
-        setSelectedGenAccountId(accounts[0].id);
+    
+    // FIX: Auto-select logic to handle additions or deletions of accounts
+    // Ensure selectedGenAccountId always points to a valid, existing account.
+    if (accounts.length > 0) {
+        const currentSelectionExists = accounts.some(a => a.id === selectedGenAccountId);
+        // If nothing selected OR current selection is invalid (e.g. was deleted), default to first
+        if (!selectedGenAccountId || !currentSelectionExists) {
+            setSelectedGenAccountId(accounts[0].id);
+        }
+    } else {
+        // No accounts available, clear selection
+        if (selectedGenAccountId) setSelectedGenAccountId('');
     }
   }, [accounts]);
 
@@ -318,7 +330,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       if (!topicSource) return alert("無效話題");
 
       const targetAccount = accounts.find(a => a.id === selectedGenAccountId);
-      if (!targetAccount) return alert("請先選擇要發文的帳號");
+      if (!targetAccount) return alert("❌ 錯誤：請先在上方選單選擇要發文的帳號");
 
       const totalCost = calculateCost(genCount, preSelectedImageMode);
       if (!confirm(`確定為帳號「${targetAccount.username}」生成 ${genCount} 篇貼文？\n\n消耗：${totalCost} 點配額`)) return;
@@ -411,12 +423,41 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   };
 
   const handleImageModeChange = async (post: GeneratedPost, newMode: ImageSourceType) => {
-      // Logic Update: If switching to 'stock' OR currently 'stock', regenerate seed to force new image
+      // Logic Update:
+      // 1. If switching to 'stock' (REGENERATION):
+      //    - Charge Quota (2 points)
+      //    - Show Loading State
+      //    - Maintain Topic Adherence (Use imageQuery)
+      
       if (newMode === 'stock') {
+          if (!user) return alert("請先登入");
+          
+          const COST = 2;
+          const confirmChange = confirm(`🎨 換圖將重新生成並消耗 ${COST} 點配額，確定執行？`);
+          if (!confirmChange) return;
+
+          const allowed = await checkAndUseQuota(user.user_id, COST);
+          if (!allowed) return alert(`配額不足 (需 ${COST} 點)`);
+          onQuotaUpdate();
+
+          // Start Loading
+          setIsRegeneratingImage(post.id);
+
+          // Force new seed
           const newSeed = Date.now().toString();
-          const newUrl = generateStockUrl(post.imageQuery || post.imagePrompt, newSeed);
-          setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageSourceType: newMode, imageUrl: newUrl } : p));
+          // IMPORTANT: Use imageQuery if available (more specific), fallback to topic
+          const visualSubject = post.imageQuery || post.topic; 
+          const newUrl = generateStockUrl(visualSubject, newSeed);
+
+          // Simulate slight delay for better UX (so user sees the spinner and knows something happened)
+          // and allow the browser to register the new image request
+          setTimeout(() => {
+              setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageSourceType: newMode, imageUrl: newUrl } : p));
+              setIsRegeneratingImage(null);
+          }, 800); 
+
       } else {
+          // Just switching modes (e.g. to 'none' or 'upload'), no cost
           setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageSourceType: newMode } : p));
       }
   };
@@ -665,11 +706,24 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                               {generatedPosts.map((post) => (
                                   <div key={post.id} className="bg-card rounded-xl border border-gray-700 overflow-hidden flex flex-col md:flex-row">
                                       <div className="w-full md:w-1/3 bg-black flex items-center justify-center relative min-h-[300px]">
-                                          {getPreviewUrl(post) ? <img src={getPreviewUrl(post)} className="w-full h-full object-cover" /> : <span className="text-gray-500">無圖片</span>}
+                                          {getPreviewUrl(post) ? <img src={getPreviewUrl(post)} className="w-full h-full object-cover transition-opacity duration-500" /> : <span className="text-gray-500">無圖片</span>}
+                                          
+                                          {/* Loading Overlay for Image Regeneration */}
+                                          {isRegeneratingImage === post.id && (
+                                              <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center z-10">
+                                                  <div className="loader mb-2 border-t-primary"></div>
+                                                  <span className="text-xs text-white font-bold animate-pulse">繪製新素材中...</span>
+                                              </div>
+                                          )}
+
                                           <div className="absolute bottom-2 left-2 flex gap-2">
                                               {/* Updated Change Image Button: Forces stock refresh */}
-                                              <button onClick={() => handleImageModeChange(post, 'stock')} className="text-xs bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded shadow-lg font-bold border border-gray-500">
-                                                  🔄 隨機換圖
+                                              <button 
+                                                  onClick={() => handleImageModeChange(post, 'stock')} 
+                                                  disabled={isRegeneratingImage === post.id}
+                                                  className="text-xs bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded shadow-lg font-bold border border-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                              >
+                                                  🔄 隨機換圖 (2點)
                                               </button>
                                           </div>
                                       </div>
