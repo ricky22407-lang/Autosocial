@@ -37,8 +37,8 @@ const SeoArticleGenerator: React.FC<Props> = ({ user, onQuotaUpdate }) => {
 
         setErrorMsg('');
         
-        // SEO Articles cost 15 Credits (High Value Replacement)
-        const COST = 15;
+        // SEO Articles cost 20 Credits (High Value Replacement)
+        const COST = 20;
 
         // Check Quota with Ledger Action
         try {
@@ -188,7 +188,7 @@ const SeoArticleGenerator: React.FC<Props> = ({ user, onQuotaUpdate }) => {
                     className="mt-6 w-full py-3 px-4 text-white font-bold bg-primary rounded-lg shadow-md hover:bg-blue-600 transition duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     {isGenerating ? <div className="loader"></div> : null}
-                    {isGenerating ? 'AI 正在撰寫中 (約需 10-20 秒)...' : '開始生成純文字文章 (消耗 15 配額)'}
+                    {isGenerating ? 'AI 正在撰寫中 (約需 10-20 秒)...' : '開始生成純文字文章 (消耗 20 配額)'}
                 </button>
             </div>
 

@@ -15,8 +15,17 @@ const ensureEnglishPrompt = async (prompt: string): Promise<string> => {
 export const generateImage = async (prompt: string, userRole: string = 'user', stylePrompt?: string): Promise<string> => {
     const noLimitTrigger = /no limit/i.test(prompt);
     let finalPrompt = prompt.replace(/no limit/ig, '').trim();
-    const effectiveRole = noLimitTrigger ? 'admin' : userRole;
-    const isPaidImageTier = ['pro', 'business', 'admin'].includes(effectiveRole);
+    
+    // Logic: Pollinations (Standard) vs Imagen (Pro/HD)
+    // 'pro', 'business', 'admin' can access Imagen 3 IF requested (e.g. by implicit quality setting or system prompt injection in future)
+    // For now, to save cost, we default EVERYONE to Pollinations unless they are 'admin' or explicitly requesting 'HD' quality in prompt.
+    // The user requirement said: "Only VIP or checkbox (High Quality) switches to Imagen 3".
+    
+    const isProTier = ['pro', 'business', 'admin'].includes(userRole);
+    const isHighQualityRequest = /HD|4k|high quality|premium/i.test(prompt) || noLimitTrigger;
+    
+    const usePremiumModel = isProTier && isHighQualityRequest;
+
     const englishPrompt = await ensureEnglishPrompt(finalPrompt);
     
     let enhancedPrompt = "";
@@ -25,19 +34,21 @@ export const generateImage = async (prompt: string, userRole: string = 'user', s
     else if (stylePrompt) enhancedPrompt = `${englishPrompt}. Visual Style: ${stylePrompt}. Photorealistic.`;
     else enhancedPrompt = `${englishPrompt}, photorealistic, cinematic lighting, photography style`;
 
-    if (!isPaidImageTier) {
+    if (!usePremiumModel) {
          console.log("🎨 [ImageGen] Economy Mode: Pollinations");
+         // Pollinations (Flux) is essentially free and high quality enough for casual/standard use
          return `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt)}?n=${Math.floor(Math.random()*100000)}&model=flux&enhance=true`;
     }
 
     try {
-        console.log(`🎨 [ImageGen] Pro Mode: Backend`);
+        console.log(`🎨 [ImageGen] Pro Mode: Backend (Imagen 3)`);
         const safetySettings = noLimitTrigger ? [{ category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' }] : undefined;
+        // Costly call
         const response = await callBackend('generateImages', { model: 'imagen-3.0-generate-002', prompt: enhancedPrompt, safetySettings });
         if (response.base64) return `data:image/png;base64,${response.base64}`;
         throw new Error("No image data");
     } catch (e: any) {
-        console.error("❌ [ImageGen] Backend Failed. Fallback.", e.message);
+        console.error("❌ [ImageGen] Backend Failed. Fallback to Pollinations.", e.message);
         return `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt)}?n=${Math.floor(Math.random()*100000)}&model=flux&enhance=true`;
     }
 };

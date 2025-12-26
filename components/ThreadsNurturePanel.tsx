@@ -210,7 +210,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
 
   const loadTrends = async (overrideKeyword?: string) => {
       if (!user) return alert("請先登入");
-      const COST = 1;
+      const COST = 1; // Cheap for Threads trend search
       const allowed = await checkAndUseQuota(user.user_id, COST, 'TREND_SEARCH');
       if (!allowed) return; 
       onQuotaUpdate();
@@ -348,11 +348,11 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   };
 
   const calculateCost = (count: number, mode: ImageSourceType) => {
-      const baseCost = 2; 
+      const baseCost = 1; // 1 point per post base cost
       let extraCost = 0;
-      if (mode === 'ai') extraCost = 5;
+      if (mode === 'ai') extraCost = 3; // AI image cost
       else if (mode === 'news') extraCost = 1;
-      else if (mode === 'stock') extraCost = 3;
+      else if (mode === 'stock') extraCost = 1;
       return (baseCost + extraCost) * count;
   };
 
@@ -458,7 +458,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       if (newMode === 'stock') {
           if (!user) return alert("請先登入");
           
-          const COST = 2;
+          const COST = 1; // Cheaper to change image for threads
           const confirmChange = confirm(`換圖將重新生成並消耗 ${COST} 點配額，確定執行？`);
           if (!confirmChange) return;
 
@@ -964,7 +964,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                                   disabled={isRegeneratingImage === post.id}
                                                   className="text-xs bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded shadow-lg font-bold border border-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
                                               >
-                                                  隨機換圖 (2點)
+                                                  隨機換圖 (1點)
                                               </button>
                                           </div>
                                       </div>

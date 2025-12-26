@@ -59,7 +59,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
 
   const loadTrends = async () => {
       if (!user) return alert("請先登入");
-      const allowed = await checkAndUseQuota(user.user_id, 1, 'TREND_SEARCH');
+      const allowed = await checkAndUseQuota(user.user_id, 3, 'TREND_SEARCH'); // Increased to 3 points
       if (!allowed) return; // Alert handled in service
       onQuotaUpdate();
       setIsLoadingTrends(true);
@@ -76,7 +76,8 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   const handleNext = async () => {
     if (!topic || !user) return;
     
-    const allowed = await checkAndUseQuota(user.user_id, 2, 'GENERATE_POST_DRAFT');
+    // Increased to 10 points for High Quality FB Draft
+    const allowed = await checkAndUseQuota(user.user_id, 10, 'GENERATE_POST_DRAFT');
     if (!allowed) return; 
     
     onQuotaUpdate();
@@ -125,7 +126,8 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     if (!user || isGeneratingMedia) return;
     if (!draft.imagePrompt.trim()) return alert("請輸入圖片提示詞 (Prompt)");
 
-    const cost = mediaUrl ? 2 : 5;
+    // Standard Image Generation Cost: 3 points
+    const cost = mediaUrl ? 1 : 3; // Retry is cheaper
     const allowed = await checkAndUseQuota(user.user_id, cost, 'GENERATE_IMAGE_AI', { prompt: draft.imagePrompt });
     if (!allowed) return;
     
@@ -133,6 +135,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     setMediaUrl(undefined);
     setIsGeneratingMedia(true);
     try {
+      // Logic handles fallback based on role in media.ts
       let url = await generateImage(draft.imagePrompt, user.role, settings.brandStylePrompt);
       if (settings.logoUrl) url = await applyWatermark(url, settings.logoUrl);
       setMediaUrl(url);
@@ -267,7 +270,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                     className="bg-gray-800 hover:bg-gray-700 px-8 py-4 md:py-0 rounded-2xl text-white font-bold transition-all flex flex-row md:flex-col items-center justify-center gap-2 md:gap-1 border border-gray-700 hover:border-white/20 whitespace-nowrap"
                   >
                     <span className="text-sm">🔥 挖掘靈感</span>
-                    <span className="text-[9px] bg-primary/20 text-primary px-2 rounded-full font-black">1 點數</span>
+                    <span className="text-[9px] bg-primary/20 text-primary px-2 rounded-full font-black">3 點數</span>
                   </button>
               </div>
 
@@ -293,7 +296,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                 disabled={!topic} 
                 className={`w-full py-5 md:py-6 rounded-2xl font-black text-white shadow-2xl hover:opacity-90 transition-all disabled:opacity-30 text-lg md:text-xl tracking-widest uppercase relative z-10 ${mode === 'viral' ? 'bg-gradient-to-r from-orange-600 to-red-600' : 'bg-gradient-to-r from-blue-600 to-primary'}`}
               >
-                開始生成內容 <span className="text-sm font-normal opacity-70 ml-2">(2 點數)</span>
+                開始生成內容 <span className="text-sm font-normal opacity-70 ml-2">(10 點數)</span>
               </button>
           </div>
       </div>
@@ -335,9 +338,9 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                         className={`w-full py-5 rounded-2xl font-black text-white shadow-lg transition-all flex items-center justify-center gap-3 tracking-widest uppercase border border-white/10 ${mediaUrl ? 'bg-black/40 hover:bg-black/60' : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:brightness-110'}`}
                     >
                         {mediaUrl ? (
-                            <>重新繪製 <span className="text-[10px] font-black bg-white/20 px-2 py-0.5 rounded-full">2 點數</span></>
+                            <>重新繪製 <span className="text-[10px] font-black bg-white/20 px-2 py-0.5 rounded-full">1 點數</span></>
                         ) : (
-                            <>生成圖片 <span className="text-[10px] font-black bg-white/20 px-2 py-0.5 rounded-full">5 點數</span></>
+                            <>生成圖片 <span className="text-[10px] font-black bg-white/20 px-2 py-0.5 rounded-full">3 點數</span></>
                         )}
                     </button>
                 </div>
