@@ -1,6 +1,7 @@
 
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
+import { resolve } from 'path';
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
@@ -17,6 +18,10 @@ export default defineConfig(({ mode }) => {
     build: {
       chunkSizeWarningLimit: 1000,
       rollupOptions: {
+        input: {
+          main: resolve(__dirname, 'index.html'),
+          deletion: resolve(__dirname, 'deletion.html'),
+        },
         output: {
           manualChunks: {
             vendor: ['react', 'react-dom', 'firebase/app', 'firebase/auth', 'firebase/firestore'],
