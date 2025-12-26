@@ -145,54 +145,37 @@ export const buildDraftPrompt = (
 
 export const buildViralPrompt = (
     topic: string,
-    options: { audience: string, viralType: ViralType, platform: ViralPlatform, versionCount: number },
+    options: { audience: string, viralType: string | 'auto', platform: ViralPlatform, versionCount: number },
     settings: BrandSettings
 ) => {
     const productInfo = settings.productContext || settings.services || '';
     
-    // Map viral types to specific hooks (Xiaohongshu Angles)
-    const typeHooks: Record<string, string> = {
-        'regret': 'Focus on "Regret not knowing sooner" (後悔太晚知道).',
-        'expose': 'Focus on "Revealing a secret/truth" (揭秘/內行人才知道).',
-        'counter': 'Focus on "Counter-intuitive advice" (千萬不要...除非...).',
-        'identity': 'Focus on "Target Audience Identity" (XX座請進/XX人必看).',
-        'result': 'Focus on "Shocking before/after results" (效果太誇張).',
-    };
-    
-    const specificHook = typeHooks[options.viralType] || 'Focus on High Emotion.';
-
     // Viral mode overrides strict brand tone to favor engagement and platform-native formatting.
     return `
     Role: You are a top-tier Viral Marketing Copywriter (specializing in Xiaohongshu/Red style).
-    Task: Write ${options.versionCount} highly engaging, viral posts about "${topic}" for Facebook.
+    Task: Write ${options.versionCount} highly engaging, viral post about "${topic}" for Facebook.
     Language: Traditional Chinese (Taiwan).
     
     [Product/Brand Context]: ${productInfo}
-    [Angle]: ${specificHook}
-
-    [🔥 VIRAL STYLE GUIDELINES - STRICTLY FOLLOW]
-    1. **Xiaohongshu Style (小紅書風格)**:
-       - Use an exaggerated, emotional, or "confessional" tone.
-       - Use a "Bestie" (姐妹/閨蜜) perspective: sharing a secret, warning against a mistake, or purely raving.
-       - Keywords to use: "救命", "後悔", "必看", "天啊", "真的絕了", "寶藏", "避雷", "沒在開玩笑".
     
-    2. **Formatting Rules (CRITICAL - DO NOT FAIL THIS)**:
-       - **Headline**: The first line MUST be a catchy title using brackets or emojis (e.g., 【...】, 🚨...🚨, 🔥...🔥).
-       - **Spacing**: You MUST use **double line breaks** (\n\n) between every short paragraph. **NO WALL OF TEXT**.
-       - **Bullets**: Use emojis (✨, 👉, ✅, ❌) as bullet points for lists.
-       - **Length**: Keep paragraphs short (1-2 sentences).
+    [🔥 VIRAL STRATEGY - XIAOHONGSHU LOGIC]
+    Instead of following a rigid template, analyze the topic "${topic}" and determine the single most effective "Clickbait Angle" from the following list:
+    1. **Regret/Warning**: "I regret not knowing this sooner..." or "Don't do X until you read this."
+    2. **Insider Secret**: "Only industry insiders know..." or "Exposing the truth about..."
+    3. **Emotional Resonance**: "I cried when I saw this..." or "This saved my life..."
+    4. **Curiosity Gap**: "You won't believe what happened..."
+    
+    **INSTRUCTION**: Pick the best angle for this specific topic and write the post. Do NOT mention which angle you picked. Just write it.
 
-    3. **Structure**:
-       - [Headline with 3+ Emojis]
-       - (Double Line Break)
-       - [Emotional Hook: Pain point or Shocking fact based on Angle]
-       - (Double Line Break)
-       - [The Solution/Secret: Introduce the Product/Service naturally]
-       - (Double Line Break)
-       - [Key Benefits (Bullet points with Emojis)]
-       - (Double Line Break)
-       - [Soft CTA/Engagement]
-       - [Hashtags]
+    [🔥 STYLE GUIDELINES - AUTHENTIC & SENSATIONAL]
+    1. **Tone**: Use a "Bestie" (姐妹/閨蜜) or "Real User" perspective. Be emotional, slightly exaggerated, but feel authentic.
+    2. **Keywords**: Naturally weave in words like "救命", "後悔", "必看", "天啊", "真的絕了", "寶藏", "避雷", "沒在開玩笑".
+    
+    [🔥 FORMATTING RULES (CRITICAL)]
+    1. **Headline**: The first line MUST be a catchy title using brackets or emojis (e.g., 【...】, 🚨...🚨, 🔥...🔥).
+    2. **Spacing**: You MUST use **double line breaks** (\n\n) between every short paragraph. **NO WALL OF TEXT**.
+    3. **Bullets**: Use emojis (✨, 👉, ✅, ❌) as bullet points for lists.
+    4. **Length**: Keep paragraphs short (1-2 sentences).
 
     Output JSON Format:
     { "versions": ["post text..."], "imagePrompt": "photorealistic image description, cinematic lighting, 8k, style of commercial photography..." }

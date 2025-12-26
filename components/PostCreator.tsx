@@ -27,7 +27,6 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   const [step, setStep] = useState<1 | 2>(1);
   const [topic, setTopic] = useState('');
   const [mode, setMode] = useState<'brand' | 'viral'>('brand');
-  const [viralType, setViralType] = useState<ViralType>('regret');
   
   const [trendingTopics, setTrendingTopics] = useState<TrendingTopic[]>([]);
   const [isLoadingTrends, setIsLoadingTrends] = useState(false);
@@ -65,7 +64,6 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
       onQuotaUpdate();
       setIsLoadingTrends(true);
       try {
-          // FIX: Use 'topic' input if available, otherwise fallback to industry
           const query = topic.trim() || settings.industry || '台灣熱門話題';
           const trends = await getTrendingTopics(query);
           setTrendingTopics(trends);
@@ -75,9 +73,8 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
       finally { setIsLoadingTrends(false); }
   };
 
-  const handleNext = async (selectedTopic?: string) => {
-    const finalTopic = selectedTopic || topic;
-    if (!finalTopic || !user) return;
+  const handleNext = async () => {
+    if (!topic || !user) return;
     
     const allowed = await checkAndUseQuota(user.user_id, 2);
     if (!allowed) return alert("配額不足 (需要 2 點)");
@@ -85,11 +82,11 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     onQuotaUpdate();
     setStep(2);
     setIsGeneratingDraft(true);
-    setTopic(finalTopic);
+    setMediaUrl(undefined); // Reset media when regenerating text
     
     try {
         if (mode === 'brand') {
-            const res = await generatePostDraft(finalTopic, settings, { 
+            const res = await generatePostDraft(topic, settings, { 
                 length: '150-300字', 
                 ctaList: [], 
                 tempHashtags: '', 
@@ -101,9 +98,10 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                 imagePrompt: res.imagePrompt 
             });
         } else {
-            const res = await generateViralContent(finalTopic, {
+            // Viral Mode: Now purely based on topic, no manual subtype selection
+            const res = await generateViralContent(topic, {
                 audience: '社群大眾',
-                viralType: viralType,
+                viralType: 'auto', // Handled by prompt logic
                 platform: 'facebook',
                 versionCount: 1
             }, settings);
@@ -123,7 +121,6 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
 
   const handleGenMedia = async () => {
     if (!user || isGeneratingMedia) return;
-    // Basic validation
     if (!draft.imagePrompt.trim()) return alert("請輸入圖片提示詞 (Prompt)");
 
     const cost = mediaUrl ? 2 : 5;
@@ -134,7 +131,6 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     setMediaUrl(undefined);
     setIsGeneratingMedia(true);
     try {
-      // Use the potentially edited prompt from state
       let url = await generateImage(draft.imagePrompt, user.role, settings.brandStylePrompt);
       if (settings.logoUrl) url = await applyWatermark(url, settings.logoUrl);
       setMediaUrl(url);
@@ -212,29 +208,9 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                     onClick={() => setMode('viral')}
                     className={`flex-1 py-4 rounded-xl font-bold tracking-wide transition-all ${mode === 'viral' ? 'bg-orange-600 text-white shadow-xl' : 'text-gray-500 hover:text-gray-300'}`}
                   >
-                    爆文模式 (流量密碼)
+                    爆文模式 (小紅書風格)
                   </button>
               </div>
-
-              {mode === 'viral' && (
-                  <div className="flex flex-wrap gap-2 justify-center">
-                       {[
-                           { id: 'regret', label: '😱 後悔太晚知道' },
-                           { id: 'expose', label: '🤫 內行人才懂' },
-                           { id: 'counter', label: '⚠️ 千萬不要系列' },
-                           { id: 'identity', label: '🎯 特定族群必看' },
-                           { id: 'result', label: '✨ 效果太誇張' }
-                       ].map(type => (
-                           <button
-                               key={type.id}
-                               onClick={() => setViralType(type.id as ViralType)}
-                               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${viralType === type.id ? 'bg-orange-600/20 text-orange-400 border-orange-500' : 'bg-dark border-gray-700 text-gray-500 hover:border-gray-500'}`}
-                           >
-                               {type.label}
-                           </button>
-                       ))}
-                  </div>
-              )}
 
               <div className="flex gap-3">
                   <input 
@@ -259,8 +235,8 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                       {trendingTopics.map((t, i) => (
                           <div 
                             key={i} 
-                            onClick={() => handleNext(t.title)} 
-                            className="bg-dark/40 border border-gray-800 p-4 rounded-xl cursor-pointer hover:border-primary hover:bg-primary/5 transition-all group"
+                            onClick={() => setTopic(t.title)} 
+                            className={`bg-dark/40 border p-4 rounded-xl cursor-pointer transition-all group ${topic === t.title ? 'border-primary bg-primary/10' : 'border-gray-800 hover:border-gray-500'}`}
                           >
                               <h4 className="font-bold text-blue-400 text-sm mb-1 line-clamp-1 group-hover:text-white transition-colors">{t.title}</h4>
                               <p className="text-[11px] text-gray-500 line-clamp-1">{t.description}</p>
@@ -270,11 +246,11 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
               )}
 
               <button 
-                onClick={() => handleNext()} 
+                onClick={handleNext} 
                 disabled={!topic} 
                 className={`w-full py-6 rounded-2xl font-black text-white shadow-2xl hover:opacity-90 transition-all disabled:opacity-30 text-xl tracking-widest uppercase ${mode === 'viral' ? 'bg-orange-600' : 'bg-primary'}`}
               >
-                生成內容 <span className="text-sm font-normal opacity-50 ml-2">需消耗 2 點</span>
+                生成文案與圖片Prompt <span className="text-sm font-normal opacity-50 ml-2">需消耗 2 點</span>
               </button>
           </div>
       </div>

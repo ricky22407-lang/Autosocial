@@ -317,7 +317,7 @@ export const scoreViralTitles = async (titles: string[]): Promise<TitleScore[]> 
     return JSON.parse(cleanJsonText(response.text || '[]'));
 };
 
-export const generateViralContent = async (topic: string, options: { audience: string; viralType: ViralType; platform: ViralPlatform; versionCount: number; }, settings: BrandSettings): Promise<ViralPostDraft> => {
+export const generateViralContent = async (topic: string, options: { audience: string; viralType: string | 'auto'; platform: ViralPlatform; versionCount: number; }, settings: BrandSettings): Promise<ViralPostDraft> => {
     const response = await callBackend('generateContent', {
         model: "gemini-2.5-flash", 
         contents: Prompts.buildViralPrompt(topic, options, settings),
