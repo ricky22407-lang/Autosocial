@@ -149,21 +149,53 @@ export const buildViralPrompt = (
     settings: BrandSettings
 ) => {
     const productInfo = settings.productContext || settings.services || '';
-    const styleGuide = settings.brandStyleGuide ? `[Style DNA]: ${settings.brandStyleGuide}` : `[Tone]: ${settings.brandTone}`;
+    
+    // Map viral types to specific hooks (Xiaohongshu Angles)
+    const typeHooks: Record<string, string> = {
+        'regret': 'Focus on "Regret not knowing sooner" (後悔太晚知道).',
+        'expose': 'Focus on "Revealing a secret/truth" (揭秘/內行人才知道).',
+        'counter': 'Focus on "Counter-intuitive advice" (千萬不要...除非...).',
+        'identity': 'Focus on "Target Audience Identity" (XX座請進/XX人必看).',
+        'result': 'Focus on "Shocking before/after results" (效果太誇張).',
+    };
+    
+    const specificHook = typeHooks[options.viralType] || 'Focus on High Emotion.';
 
+    // Viral mode overrides strict brand tone to favor engagement and platform-native formatting.
     return `
-    Role: Viral Content Strategist.
-    Task: Write ${options.versionCount} viral posts about "${topic}".
-    Platform: ${options.platform} (Optimize formatting for this platform).
+    Role: You are a top-tier Viral Marketing Copywriter (specializing in Xiaohongshu/Red style).
+    Task: Write ${options.versionCount} highly engaging, viral posts about "${topic}" for Facebook.
+    Language: Traditional Chinese (Taiwan).
     
-    ${styleGuide}
+    [Product/Brand Context]: ${productInfo}
+    [Angle]: ${specificHook}
 
-    [Viral Formula: The "Soft Sell"]
-    1. **Hook**: High emotion/curiosity. (Regret, Secret, Discovery).
-    2. **Story**: Relatable struggle.
-    3. **Solution**: Introduce the product (${productInfo}) as the key.
+    [🔥 VIRAL STYLE GUIDELINES - STRICTLY FOLLOW]
+    1. **Xiaohongshu Style (小紅書風格)**:
+       - Use an exaggerated, emotional, or "confessional" tone.
+       - Use a "Bestie" (姐妹/閨蜜) perspective: sharing a secret, warning against a mistake, or purely raving.
+       - Keywords to use: "救命", "後悔", "必看", "天啊", "真的絕了", "寶藏", "避雷", "沒在開玩笑".
     
-    Output JSON: { "versions": ["..."], "imagePrompt": "..." }
+    2. **Formatting Rules (CRITICAL - DO NOT FAIL THIS)**:
+       - **Headline**: The first line MUST be a catchy title using brackets or emojis (e.g., 【...】, 🚨...🚨, 🔥...🔥).
+       - **Spacing**: You MUST use **double line breaks** (\n\n) between every short paragraph. **NO WALL OF TEXT**.
+       - **Bullets**: Use emojis (✨, 👉, ✅, ❌) as bullet points for lists.
+       - **Length**: Keep paragraphs short (1-2 sentences).
+
+    3. **Structure**:
+       - [Headline with 3+ Emojis]
+       - (Double Line Break)
+       - [Emotional Hook: Pain point or Shocking fact based on Angle]
+       - (Double Line Break)
+       - [The Solution/Secret: Introduce the Product/Service naturally]
+       - (Double Line Break)
+       - [Key Benefits (Bullet points with Emojis)]
+       - (Double Line Break)
+       - [Soft CTA/Engagement]
+       - [Hashtags]
+
+    Output JSON Format:
+    { "versions": ["post text..."], "imagePrompt": "photorealistic image description, cinematic lighting, 8k, style of commercial photography..." }
     `;
 };
 
@@ -208,17 +240,25 @@ export const buildThreadsAnalysisPrompt = (posts: string) => `
 `;
 
 export const buildSeoArticlePrompt = (topic: string, length: string, keywords: string, options: { agenda: boolean, meta: boolean, faq: boolean, refLinks: boolean }) => `
-      Task: Write a comprehensive SEO Blog Article.
-      Topic: ${topic}
-      Target Length: ${length}
-      LSI Keywords: ${keywords}
-      Language: Traditional Chinese (Taiwan).
-      Requirements:
-      1. Use Markdown format.
-      ${options.agenda ? '2. Include Agenda.' : ''}
-      ${options.meta ? '3. Include Meta Title & Desc.' : ''}
-      ${options.faq ? '4. Include FAQ.' : ''}
-      
-      Output JSON Format:
-      { "fullText": "Markdown...", "imageKeyword": "English keyword..." }
+    Role: Senior SEO Content Strategist (Taiwan).
+    Task: Write a comprehensive, high-value blog article on "${topic}".
+
+    [Requirements]
+    1. Length: ${length} (Strictly adhere to this).
+    2. Keywords: ${keywords} (Integrate naturally for SEO).
+    3. Language: Traditional Chinese (Taiwan).
+    4. Structure:
+       ${options.agenda ? '- Include "Table of Contents" (目錄) at the top.' : ''}
+       ${options.meta ? '- Include "Meta Description" for search engines.' : ''}
+       - Introduction (Hook)
+       - Main Body (Use H2/H3)
+       ${options.faq ? '- FAQ Section (3-5 common questions).' : ''}
+       ${options.refLinks ? '- References/External Links (simulated).' : ''}
+       - Conclusion
+
+    Output JSON Format:
+    {
+       "fullText": "The complete article in Markdown...",
+       "imageKeyword": "Single English keyword for stock image search"
+    }
 `;

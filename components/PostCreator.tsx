@@ -27,6 +27,8 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   const [step, setStep] = useState<1 | 2>(1);
   const [topic, setTopic] = useState('');
   const [mode, setMode] = useState<'brand' | 'viral'>('brand');
+  const [viralType, setViralType] = useState<ViralType>('regret');
+  
   const [trendingTopics, setTrendingTopics] = useState<TrendingTopic[]>([]);
   const [isLoadingTrends, setIsLoadingTrends] = useState(false);
   
@@ -101,7 +103,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
         } else {
             const res = await generateViralContent(finalTopic, {
                 audience: '社群大眾',
-                viralType: 'regret',
+                viralType: viralType,
                 platform: 'facebook',
                 versionCount: 1
             }, settings);
@@ -210,9 +212,29 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                     onClick={() => setMode('viral')}
                     className={`flex-1 py-4 rounded-xl font-bold tracking-wide transition-all ${mode === 'viral' ? 'bg-orange-600 text-white shadow-xl' : 'text-gray-500 hover:text-gray-300'}`}
                   >
-                    爆文模式
+                    爆文模式 (流量密碼)
                   </button>
               </div>
+
+              {mode === 'viral' && (
+                  <div className="flex flex-wrap gap-2 justify-center">
+                       {[
+                           { id: 'regret', label: '😱 後悔太晚知道' },
+                           { id: 'expose', label: '🤫 內行人才懂' },
+                           { id: 'counter', label: '⚠️ 千萬不要系列' },
+                           { id: 'identity', label: '🎯 特定族群必看' },
+                           { id: 'result', label: '✨ 效果太誇張' }
+                       ].map(type => (
+                           <button
+                               key={type.id}
+                               onClick={() => setViralType(type.id as ViralType)}
+                               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${viralType === type.id ? 'bg-orange-600/20 text-orange-400 border-orange-500' : 'bg-dark border-gray-700 text-gray-500 hover:border-gray-500'}`}
+                           >
+                               {type.label}
+                           </button>
+                       ))}
+                  </div>
+              )}
 
               <div className="flex gap-3">
                   <input 
