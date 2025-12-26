@@ -21,6 +21,8 @@ export default defineConfig(({ mode }) => {
         input: {
           main: resolve(__dirname, 'index.html'),
           deletion: resolve(__dirname, 'deletion.html'),
+          privacy: resolve(__dirname, 'privacy.html'),
+          terms: resolve(__dirname, 'terms.html'),
         },
         output: {
           manualChunks: {
