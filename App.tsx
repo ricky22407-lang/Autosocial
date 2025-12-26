@@ -165,46 +165,66 @@ const App: React.FC = () => {
   if (loadingAuth) return <div className="h-screen flex items-center justify-center bg-dark text-white text-xl animate-pulse">AutoSocial AI 啟動中...</div>;
   if (view === AppView.LOGIN) return <Login onLoginSuccess={() => {}} />;
 
+  const NavItem = ({ viewId, label, active, onClick, disabled = false, badge = "" }: any) => (
+    <button 
+      onClick={() => !disabled && onClick(viewId)} 
+      className={`relative w-full text-left px-6 py-3 transition-all flex items-center justify-between group ${active ? 'bg-primary/10 text-primary font-bold' : 'text-gray-400 hover:bg-gray-800/50 hover:text-gray-200'} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+    >
+      {active && <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary"></div>}
+      <span className="text-[15px] tracking-wide">{label}</span>
+      {badge && <span className="text-[9px] bg-gray-700 px-1.5 py-0.5 rounded uppercase tracking-tighter text-gray-400">{badge}</span>}
+    </button>
+  );
+
   return (
-    <div className="min-h-screen bg-dark text-gray-200 flex flex-col md:flex-row relative">
-      <aside className="w-full md:w-64 bg-card border-r border-gray-700 flex flex-col shadow-2xl z-30">
-        <div className="p-6 border-b border-gray-700">
-          <h1 className="text-2xl font-bold text-blue-400 cursor-pointer" onClick={() => setView(AppView.CREATE)}>AutoSocial AI</h1>
-          <div className="mt-2 text-[10px] text-gray-400">
+    <div className="min-h-screen bg-dark text-gray-200 flex flex-col md:flex-row relative font-sans">
+      <aside className="w-full md:w-64 bg-card border-r border-gray-800 flex flex-col shadow-2xl z-30">
+        <div className="p-8 border-b border-gray-800">
+          <h1 className="text-xl font-black text-white tracking-tighter cursor-pointer flex items-center gap-2" onClick={() => setView(AppView.CREATE)}>
+            AUTOSOCIAL <span className="text-primary">AI</span>
+          </h1>
+          <div className="mt-4 p-3 bg-dark/50 rounded-lg border border-gray-800">
             {userProfile ? (
                 <>
-                    <p className="truncate font-mono">{userProfile.email}</p>
-                    <div className="flex justify-between mt-1 items-center">
-                        <p className="font-bold text-primary uppercase">{userProfile.role}</p>
-                        <p className="text-gray-500">Q: {userProfile.quota_used}/{userProfile.quota_total}</p>
+                    <p className="truncate text-[10px] text-gray-500 mb-1 font-mono">{userProfile.email}</p>
+                    <div className="flex justify-between items-center">
+                        <p className="text-[11px] font-bold text-blue-400 uppercase tracking-widest">{userProfile.role}</p>
+                        <p className="text-[10px] text-gray-500 font-bold">{userProfile.quota_used}/{userProfile.quota_total}</p>
                     </div>
                 </>
-            ) : 'Guest'}
+            ) : <p className="text-xs text-gray-500">訪客模式</p>}
           </div>
         </div>
         
-        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-          <button onClick={() => setView(AppView.CREATE)} className={`w-full text-left px-4 py-3 rounded transition-all ${view === AppView.CREATE ? 'bg-primary text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>✨ 建立貼文</button>
-          <button onClick={() => setView(AppView.SCHEDULE)} className={`w-full text-left px-4 py-3 rounded transition-all ${view === AppView.SCHEDULE ? 'bg-primary text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>📅 排程與歷史</button>
-          <button onClick={() => setView(AppView.SETTINGS)} className={`w-full text-left px-4 py-3 rounded transition-all ${view === AppView.SETTINGS ? 'bg-primary text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>⚙️ 品牌設定</button>
+        <nav className="flex-1 py-4 space-y-0.5 overflow-y-auto custom-scrollbar">
+          <NavItem viewId={AppView.CREATE} label="建立貼文" active={view === AppView.CREATE} onClick={setView} />
+          <NavItem viewId={AppView.SCHEDULE} label="排程與歷史" active={view === AppView.SCHEDULE} onClick={setView} />
+          <NavItem viewId={AppView.SETTINGS} label="品牌設定" active={view === AppView.SETTINGS} onClick={setView} />
           
-          <div className="pt-4 mt-4 border-t border-gray-700 space-y-1">
-              <p className="px-4 text-[10px] text-gray-600 font-bold mb-2 tracking-widest uppercase">進階模組</p>
-              <button onClick={() => { if(hasAnalyticsAccess) setView(AppView.ANALYTICS); else alert("需 Starter 方案"); }} className={`w-full text-left px-4 py-3 rounded ${view === AppView.ANALYTICS ? 'bg-indigo-900 text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>📊 數據分析</button>
-              <button onClick={() => { if(hasAutomationAccess) setView(AppView.AUTOMATION); else alert("需 Business 方案"); }} className={`w-full text-left px-4 py-3 rounded ${view === AppView.AUTOMATION ? 'bg-indigo-900 text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>🤖 自動化中心</button>
-              <button onClick={() => { if(hasSeoAccess) setView(AppView.SEO_ARTICLES); else alert("需 Pro 方案"); }} className={`w-full text-left px-4 py-3 rounded ${view === AppView.SEO_ARTICLES ? 'bg-indigo-900 text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>📝 SEO 文章</button>
-              <button onClick={() => { if(hasThreadsAccess) setView(AppView.THREADS_NURTURE); else alert("需 Pro 方案"); }} className={`w-full text-left px-4 py-3 rounded ${view === AppView.THREADS_NURTURE ? 'bg-indigo-900 text-white font-bold' : 'text-gray-400 hover:bg-gray-800'}`}>🧵 Threads 養號</button>
-              <button onClick={() => setView(AppView.REFERRAL)} className={`w-full text-left px-4 py-3 rounded text-green-400 font-bold ${view === AppView.REFERRAL ? 'bg-green-900/30' : 'hover:bg-gray-800'}`}>🎁 推薦獎勵</button>
+          <div className="pt-8 mb-2 px-6">
+              <p className="text-[10px] text-gray-600 font-black tracking-[0.2em] uppercase">進階管理模組</p>
           </div>
+          
+          <NavItem viewId={AppView.ANALYTICS} label="數據分析中心" active={view === AppView.ANALYTICS} onClick={() => hasAnalyticsAccess ? setView(AppView.ANALYTICS) : alert("需升級至 Starter 方案")} disabled={!hasAnalyticsAccess} badge={!hasAnalyticsAccess ? "LOCK" : ""} />
+          <NavItem viewId={AppView.AUTOMATION} label="全自動化中心" active={view === AppView.AUTOMATION} onClick={() => hasAutomationAccess ? setView(AppView.AUTOMATION) : alert("需升級至 Business 方案")} disabled={!hasAutomationAccess} badge={!hasAutomationAccess ? "LOCK" : ""} />
+          <NavItem viewId={AppView.SEO_ARTICLES} label="SEO 文章生成" active={view === AppView.SEO_ARTICLES} onClick={() => hasSeoAccess ? setView(AppView.SEO_ARTICLES) : alert("需升級至 Pro 方案")} disabled={!hasSeoAccess} badge={!hasSeoAccess ? "LOCK" : ""} />
+          <NavItem viewId={AppView.THREADS_NURTURE} label="Threads 養號系統" active={view === AppView.THREADS_NURTURE} onClick={() => hasThreadsAccess ? setView(AppView.THREADS_NURTURE) : alert("需升級至 Pro 方案")} disabled={!hasThreadsAccess} badge={!hasThreadsAccess ? "LOCK" : ""} />
+          <NavItem viewId={AppView.REFERRAL} label="好友推薦計畫" active={view === AppView.REFERRAL} onClick={setView} />
         </nav>
 
-        <div className="p-4 border-t border-gray-700 space-y-2">
-          {isAdmin && <button onClick={() => setView(AppView.ADMIN)} className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-red-900/20 rounded">👮 管理員後台</button>}
-          <button onClick={handleLogout} className="w-full text-left px-4 py-2 text-sm text-gray-500 hover:text-red-400 transition-colors">🚪 登出系統</button>
+        <div className="p-4 border-t border-gray-800 bg-dark/20 space-y-2">
+          {isAdmin && (
+            <button onClick={() => setView(AppView.ADMIN)} className={`w-full text-left px-4 py-2 text-xs rounded transition-colors font-bold ${view === AppView.ADMIN ? 'bg-red-900 text-white' : 'text-red-400 hover:bg-red-900/10'}`}>
+              管理員後台
+            </button>
+          )}
+          <button onClick={handleLogout} className="w-full text-left px-4 py-2 text-xs text-gray-500 hover:text-red-400 transition-colors">
+            登出系統
+          </button>
         </div>
       </aside>
 
-      <main className="flex-1 p-4 md:p-8 overflow-y-auto h-screen">
+      <main className="flex-1 p-4 md:p-10 overflow-y-auto h-screen custom-scrollbar bg-dark/95">
         {view === AppView.CREATE && (
           <PostCreator 
             settings={settings} 
@@ -238,7 +258,7 @@ const App: React.FC = () => {
         {view === AppView.ADMIN && isAdmin && <AdminPanel currentUser={userProfile!} />}
       </main>
       
-      <button onClick={() => setShowReportModal(true)} className="fixed bottom-4 right-4 bg-red-900/80 text-white p-2 rounded-full z-40 shadow-xl">🐞</button>
+      <button onClick={() => setShowReportModal(true)} className="fixed bottom-6 right-6 bg-red-600 hover:bg-red-500 text-white w-10 h-10 rounded-full z-40 shadow-2xl transition-transform active:scale-90 flex items-center justify-center font-bold text-lg">!</button>
       {showReportModal && <ErrorReportModal user={userProfile} currentView={view} onClose={() => setShowReportModal(false)} />}
     </div>
   );
