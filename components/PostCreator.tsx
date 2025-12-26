@@ -121,6 +121,9 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
 
   const handleGenMedia = async () => {
     if (!user || isGeneratingMedia) return;
+    // Basic validation
+    if (!draft.imagePrompt.trim()) return alert("請輸入圖片提示詞 (Prompt)");
+
     const cost = mediaUrl ? 2 : 5;
     const allowed = await checkAndUseQuota(user.user_id, cost);
     if (!allowed) return alert(`配額不足 (需要 ${cost} 點)`);
@@ -129,6 +132,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     setMediaUrl(undefined);
     setIsGeneratingMedia(true);
     try {
+      // Use the potentially edited prompt from state
       let url = await generateImage(draft.imagePrompt, user.role, settings.brandStylePrompt);
       if (settings.logoUrl) url = await applyWatermark(url, settings.logoUrl);
       setMediaUrl(url);
@@ -262,21 +266,38 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                     <h3 className="font-black text-gray-300 tracking-tighter uppercase text-sm">內容編輯 ({mode === 'viral' ? '爆文模式' : '品牌模式'})</h3>
                     <button onClick={() => setStep(1)} className="text-[11px] font-bold text-red-400/80 hover:text-red-400 transition-colors uppercase tracking-widest underline underline-offset-4">返回更換主題</button>
                 </div>
+                
+                {/* Caption Editor */}
+                <label className="text-[10px] text-gray-500 font-bold mb-2 block uppercase tracking-wider">貼文文案</label>
                 <textarea 
                     value={draft.caption} 
                     onChange={e => setDraft({...draft, caption: e.target.value})} 
-                    className="w-full h-[450px] bg-dark/50 border border-gray-800 rounded-2xl p-6 text-white mb-6 resize-none focus:border-primary outline-none custom-scrollbar leading-relaxed text-[15px]" 
+                    className="w-full h-[300px] bg-dark/50 border border-gray-800 rounded-2xl p-6 text-white mb-6 resize-none focus:border-primary outline-none custom-scrollbar leading-relaxed text-[15px]" 
                 />
+
+                {/* Image Prompt Editor */}
+                <div className="mb-6">
+                    <div className="flex justify-between items-end mb-2">
+                        <label className="text-[10px] text-indigo-400 font-bold block uppercase tracking-wider">AI 繪圖指令 (PROMPT)</label>
+                        <span className="text-[9px] text-gray-500">可修改 • 支援中文輸入</span>
+                    </div>
+                    <textarea 
+                        value={draft.imagePrompt} 
+                        onChange={e => setDraft({...draft, imagePrompt: e.target.value})} 
+                        className="w-full h-24 bg-dark/30 border border-indigo-900/50 rounded-xl p-4 text-gray-300 text-xs focus:border-indigo-500 outline-none resize-none leading-relaxed" 
+                        placeholder="請輸入想要生成的圖片描述 (例如: 溫馨的家庭聚餐，桌上有火鍋...)"
+                    />
+                </div>
                 
                 <div className="space-y-4">
                     <button 
                         onClick={handleGenMedia} 
-                        className={`w-full py-5 rounded-2xl font-black text-white shadow-xl transition-all flex items-center justify-center gap-3 tracking-widest uppercase ${mediaUrl ? 'bg-indigo-900/50 border border-indigo-500/50' : 'bg-indigo-600'}`}
+                        className={`w-full py-5 rounded-2xl font-black text-white shadow-xl transition-all flex items-center justify-center gap-3 tracking-widest uppercase ${mediaUrl ? 'bg-indigo-900/50 border border-indigo-500/50' : 'bg-indigo-600 hover:bg-indigo-500'}`}
                     >
                         {mediaUrl ? (
-                            <>重新繪製圖片素材 <span className="text-[10px] font-black bg-white/10 px-2 py-0.5 rounded-full">2 點</span></>
+                            <>依指令重新繪製 <span className="text-[10px] font-black bg-white/10 px-2 py-0.5 rounded-full">2 點</span></>
                         ) : (
-                            <>生成視覺素材 <span className="text-[10px] font-black bg-white/10 px-2 py-0.5 rounded-full">5 點</span></>
+                            <>開始生成圖片 <span className="text-[10px] font-black bg-white/10 px-2 py-0.5 rounded-full">5 點</span></>
                         )}
                     </button>
                 </div>
@@ -298,8 +319,10 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                         <p className="text-black text-[14px] whitespace-pre-wrap mb-5 leading-relaxed font-sans">{draft.caption}</p>
                         {mediaUrl && <img src={mediaUrl} className="w-full h-auto rounded-xl shadow-lg border border-gray-100 animate-fade-in" />}
                         {!mediaUrl && (
-                            <div className="w-full aspect-square bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center text-gray-300">
-                                <span className="text-xs font-bold uppercase tracking-widest">尚未生成視覺素材</span>
+                            <div className="w-full aspect-square bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center text-gray-300 gap-2">
+                                <span className="text-3xl">🎨</span>
+                                <span className="text-xs font-bold uppercase tracking-widest">請先點擊左側生成圖片</span>
+                                <span className="text-[10px] text-gray-400 text-center max-w-[200px]">AI 將根據您的 Prompt 繪製專屬素材</span>
                             </div>
                         )}
                     </div>
