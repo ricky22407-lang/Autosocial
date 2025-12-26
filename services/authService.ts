@@ -408,4 +408,85 @@ export const logUserActivity = async (logData: Omit<UsageLog, 'ts'>) => {
 };
 export const getUserUsageLogs = async (userId: string): Promise<UsageLog[]> => [];
 export const deleteUserUsageLogs = async (userId: string): Promise<void> => {};
-export const redeemReferralCode = async (currentUserId: string, code: string) => ({ success: true, reward: 50 });
+
+export const redeemReferralCode = async (currentUserId: string, code: string): Promise<{ success: boolean; reward: number }> => {
+    const REWARD_AMOUNT = 50;
+    const cleanCode = code.trim().toUpperCase();
+
+    if (!isMock) {
+        try {
+            // 1. Find Referrer by Code
+            const referrerSnapshot = await db.collection('users').where('referralCode', '==', cleanCode).limit(1).get();
+            
+            if (referrerSnapshot.empty) {
+                throw new Error("邀請碼無效或不存在");
+            }
+
+            const referrerDoc = referrerSnapshot.docs[0];
+            const referrerRef = referrerDoc.ref;
+            const userRef = db.collection('users').doc(currentUserId);
+
+            // 2. Transaction
+            await db.runTransaction(async (t) => {
+                const currentUserDoc = await t.get(userRef);
+                if (!currentUserDoc.exists) throw new Error("Current user not found");
+                
+                const currentUserData = currentUserDoc.data() as UserProfile;
+
+                // Validation
+                if (currentUserData.referredBy) {
+                    throw new Error("您已經領取過新人獎勵了 (每人限一次)");
+                }
+                if (currentUserData.referralCode === cleanCode) {
+                    throw new Error("不能輸入自己的邀請碼");
+                }
+                if (currentUserDoc.id === referrerDoc.id) {
+                    throw new Error("不能輸入自己的邀請碼");
+                }
+
+                // Update Current User
+                t.update(userRef, {
+                    referredBy: cleanCode,
+                    quota_total: firebase.firestore.FieldValue.increment(REWARD_AMOUNT),
+                    updated_at: Date.now()
+                });
+
+                // Update Referrer
+                t.update(referrerRef, {
+                    referralCount: firebase.firestore.FieldValue.increment(1),
+                    quota_total: firebase.firestore.FieldValue.increment(REWARD_AMOUNT),
+                    updated_at: Date.now()
+                });
+            });
+
+            return { success: true, reward: REWARD_AMOUNT };
+
+        } catch (e: any) {
+            console.error("Referral Error:", e);
+            throw new Error(e.message || "兌換失敗，請稍後再試");
+        }
+    } else {
+        // --- Mock Mode Logic ---
+        const users = getMockDb(DB_USERS);
+        const me = users[currentUserId];
+        
+        if (!me) throw new Error("User not found");
+        if (me.referredBy) throw new Error("您已經領取過新人獎勵了");
+        if (me.referralCode === cleanCode) throw new Error("不能輸入自己的邀請碼");
+
+        const referrer = Object.values(users).find((u: any) => u.referralCode === cleanCode) as UserProfile;
+        
+        if (!referrer) throw new Error("邀請碼無效");
+        if (referrer.user_id === currentUserId) throw new Error("不能輸入自己的邀請碼");
+
+        // Execute Updates
+        me.referredBy = cleanCode;
+        me.quota_total = (me.quota_total || 0) + REWARD_AMOUNT;
+        
+        referrer.referralCount = (referrer.referralCount || 0) + 1;
+        referrer.quota_total = (referrer.quota_total || 0) + REWARD_AMOUNT;
+
+        saveMockDb(DB_USERS, users);
+        return { success: true, reward: REWARD_AMOUNT };
+    }
+};
