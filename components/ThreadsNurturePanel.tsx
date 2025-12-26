@@ -111,6 +111,7 @@ const LoadingOverlay: React.FC<{ message: string, detail?: string }> = ({ messag
 const generateStockUrl = (query: string, seed: string) => {
     const realismPrompt = `${query}, candid photography, shot on iPhone 15, natural lighting, grainy, unpolished, 4k, no 3d render, no illustration, hyperrealistic`;
     const encoded = encodeURIComponent(realismPrompt);
+    // Use Pollinations with unique seed
     return `https://image.pollinations.ai/prompt/${encoded}?n=${seed}&model=flux`;
 };
 
@@ -410,18 +411,39 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   };
 
   const handleImageModeChange = async (post: GeneratedPost, newMode: ImageSourceType) => {
-      // (Simplified: Reusing logic from previous version or implement full logic if needed)
-      // For brevity, just updating state locally for layout demo
-      setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageSourceType: newMode } : p));
+      // Logic Update: If switching to 'stock' OR currently 'stock', regenerate seed to force new image
+      if (newMode === 'stock') {
+          const newSeed = Date.now().toString();
+          const newUrl = generateStockUrl(post.imageQuery || post.imagePrompt, newSeed);
+          setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageSourceType: newMode, imageUrl: newUrl } : p));
+      } else {
+          setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageSourceType: newMode } : p));
+      }
   };
 
   const handlePublish = async (post: GeneratedPost) => {
+      // Validation Check
+      if (!post.targetAccountId) return alert("❌ 錯誤：未指定發佈帳號");
       const acc = accounts.find(a => a.id === post.targetAccountId);
-      if (!acc) return alert("找不到指定發佈的帳號");
-      setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, status: 'publishing' } : p));
-      const imgUrl = post.imageSourceType === 'none' ? undefined : getPreviewUrl(post);
-      const res = await publishThreadsPost(acc, post.caption, imgUrl);
-      setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, status: res.success ? 'done' : 'failed', log: res.success ? '發佈成功' : res.error } : p));
+      if (!acc) return alert("❌ 錯誤：找不到對應的帳號資料，請檢查帳號是否已被移除。");
+      
+      if (!post.caption) return alert("❌ 內容為空，無法發佈");
+
+      setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, status: 'publishing', log: '發佈中...' } : p));
+      
+      try {
+          const imgUrl = post.imageSourceType === 'none' ? undefined : getPreviewUrl(post);
+          const res = await publishThreadsPost(acc, post.caption, imgUrl);
+          
+          if (res.success) {
+              setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, status: 'done', log: '✅ 發佈成功！' } : p));
+          } else {
+              setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, status: 'failed', log: `❌ 發佈失敗: ${res.error}` } : p));
+              alert(`發佈失敗: ${res.error}`);
+          }
+      } catch (e: any) {
+          setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, status: 'failed', log: `❌ 系統錯誤: ${e.message}` } : p));
+      }
   };
 
   // ... (Interaction Handlers: handleScan, handleGenReply, handleSendReply - Same as before)
@@ -574,17 +596,33 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
               {genStep === 1 && (
                   <div className="bg-card p-6 rounded-xl border border-gray-700">
                        <h3 className="text-xl font-bold text-white mb-4">步驟 1: 選擇話題</h3>
-                       <div className="flex gap-4 mb-4 overflow-x-auto">
-                            <div onClick={() => loadTrends()} className="flex-shrink-0 w-32 h-32 bg-indigo-900/30 border border-indigo-500 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-indigo-900/50">
-                                <span className="text-2xl mb-2">🔎</span><span className="text-sm font-bold text-indigo-200">挖掘靈感</span>
+                       
+                       {/* UPDATED: Grid Layout for better use of space */}
+                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4 max-h-[60vh] overflow-y-auto custom-scrollbar p-1">
+                            <div onClick={() => loadTrends()} className="flex flex-col items-center justify-center bg-indigo-900/30 border border-indigo-500 rounded-lg p-6 cursor-pointer hover:bg-indigo-900/50 min-h-[160px] text-center shadow-lg transition-transform active:scale-95">
+                                <span className="text-4xl mb-3">🔎</span>
+                                <span className="text-lg font-bold text-indigo-200">挖掘最新靈感</span>
+                                <p className="text-xs text-indigo-300/60 mt-1">搜尋即時熱門新聞與社群話題</p>
                             </div>
                             {trendingTopics.map((t, i) => (
-                                <div key={i} onClick={() => selectTopic(t.title)} className={`flex-shrink-0 w-48 h-32 p-3 rounded-lg border cursor-pointer ${selectedTopics.includes(t.title) ? 'bg-primary/20 border-primary ring-2 ring-primary' : 'bg-dark border-gray-700'}`}>
-                                    <h4 className="font-bold text-white text-sm line-clamp-2 mb-1">{t.title}</h4>
+                                <div key={i} onClick={() => selectTopic(t.title)} className={`flex flex-col justify-between p-4 rounded-lg border cursor-pointer min-h-[160px] transition-all relative overflow-hidden ${selectedTopics.includes(t.title) ? 'bg-primary/20 border-primary ring-2 ring-primary' : 'bg-dark border-gray-700 hover:border-gray-500'}`}>
+                                    {t.imageUrl && <div className="absolute inset-0 opacity-10 bg-cover bg-center z-0" style={{backgroundImage: `url(${t.imageUrl})`}}></div>}
+                                    <div className="relative z-10">
+                                        <h4 className="font-bold text-white text-base line-clamp-2 mb-2 leading-tight">{t.title}</h4>
+                                        <p className="text-xs text-gray-400 line-clamp-3 leading-relaxed">{t.description || "點擊查看詳情，AI 將自動延伸話題..."}</p>
+                                    </div>
+                                    <div className="relative z-10 mt-2 text-[10px] text-gray-500 flex justify-between items-center">
+                                        <span>來源: {t.url ? new URL(t.url).hostname.replace('www.', '') : 'News'}</span>
+                                        {selectedTopics.includes(t.title) && <span className="text-primary font-bold">✓ 已選擇</span>}
+                                    </div>
                                 </div>
                             ))}
                        </div>
-                       <div className="mt-4"><input value={manualTopic} onChange={handleManualTopicChange} className="w-full bg-dark border border-gray-600 rounded p-3 text-white" placeholder="或手動輸入話題..." /></div>
+
+                       <div className="mt-6 pt-4 border-t border-gray-700">
+                           <label className="block text-xs text-gray-400 mb-1">自訂話題</label>
+                           <input value={manualTopic} onChange={handleManualTopicChange} className="w-full bg-dark border border-gray-600 rounded p-3 text-white" placeholder="或手動輸入您想聊的主題..." />
+                       </div>
                        <div className="mt-6 flex justify-end"><button onClick={proceedToGenerateUI} className="bg-primary hover:bg-blue-600 text-white px-8 py-3 rounded font-bold shadow-lg">下一步</button></div>
                   </div>
               )}
@@ -592,6 +630,16 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
               {genStep === 2 && (
                   <div className="space-y-6">
                       <div className="bg-card p-6 rounded-xl border border-gray-700">
+                           <div className="flex justify-between items-center mb-6">
+                               <h3 className="text-xl font-bold text-white">步驟 2: 生成與發佈</h3>
+                               <button 
+                                   onClick={() => setGenStep(1)} 
+                                   className="text-sm text-gray-400 hover:text-white border border-gray-600 px-3 py-1 rounded hover:bg-gray-700 transition-colors"
+                               >
+                                   ↩ 返回選題
+                               </button>
+                           </div>
+
                            <div className="mb-6 bg-blue-900/20 p-4 rounded border border-blue-800">
                                <label className="block text-sm text-blue-300 font-bold mb-2">1. 選擇發文帳號 (決定語氣與人設) *</label>
                                <select value={selectedGenAccountId} onChange={(e) => setSelectedGenAccountId(e.target.value)} className="w-full bg-dark border border-blue-500 rounded p-3 text-white">
@@ -601,7 +649,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                            
                            {/* Other settings same as before */}
                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                               <div className="bg-dark/50 p-4 rounded border border-gray-600"><label className="block text-sm text-gray-400 mb-2">話題</label><div className="font-bold text-xl text-white">{selectedTopics[0] || manualTopic}</div></div>
+                               <div className="bg-dark/50 p-4 rounded border border-gray-600"><label className="block text-sm text-gray-400 mb-2">當前話題</label><div className="font-bold text-xl text-white">{selectedTopics[0] || manualTopic}</div></div>
                                <div className="space-y-4">
                                    <div><label className="block text-sm text-gray-400 mb-1">數量</label><div className="flex gap-2">{[1,2,3].map(n => <button key={n} onClick={() => setGenCount(n as any)} className={`flex-1 py-2 rounded border ${genCount === n ? 'bg-white text-black' : 'border-gray-600'}`}>{n}</button>)}</div></div>
                                    <div><label className="block text-sm text-gray-400 mb-1">圖片</label><select value={preSelectedImageMode} onChange={(e) => setPreSelectedImageMode(e.target.value as any)} className="w-full bg-dark border border-gray-600 rounded p-2 text-white"><option value="none">無圖片</option><option value="stock">擬真圖庫</option><option value="ai">AI繪圖</option></select></div>
@@ -618,11 +666,21 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                                   <div key={post.id} className="bg-card rounded-xl border border-gray-700 overflow-hidden flex flex-col md:flex-row">
                                       <div className="w-full md:w-1/3 bg-black flex items-center justify-center relative min-h-[300px]">
                                           {getPreviewUrl(post) ? <img src={getPreviewUrl(post)} className="w-full h-full object-cover" /> : <span className="text-gray-500">無圖片</span>}
-                                          <div className="absolute bottom-2 left-2 flex gap-2"><button onClick={() => handleImageModeChange(post, 'stock')} className="text-xs bg-gray-700 text-white px-2 py-1 rounded">換圖</button></div>
+                                          <div className="absolute bottom-2 left-2 flex gap-2">
+                                              {/* Updated Change Image Button: Forces stock refresh */}
+                                              <button onClick={() => handleImageModeChange(post, 'stock')} className="text-xs bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded shadow-lg font-bold border border-gray-500">
+                                                  🔄 隨機換圖
+                                              </button>
+                                          </div>
                                       </div>
                                       <div className="flex-1 p-6 flex flex-col">
                                           <textarea value={post.caption} onChange={(e) => setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, caption: e.target.value } : p))} className="w-full flex-1 bg-dark border border-gray-600 rounded p-3 text-white mb-4 resize-none" />
-                                          <button onClick={() => handlePublish(post)} disabled={post.status === 'done'} className="w-full bg-white text-black py-3 rounded font-bold">{post.status === 'done' ? '已發佈' : '發佈'}</button>
+                                          <div className="flex justify-between items-center">
+                                              <span className={`text-xs font-bold ${post.status === 'done' ? 'text-green-400' : post.status === 'failed' ? 'text-red-400' : 'text-gray-500'}`}>{post.log || (post.status === 'idle' ? '準備就緒' : '')}</span>
+                                              <button onClick={() => handlePublish(post)} disabled={post.status === 'publishing' || post.status === 'done'} className={`px-6 py-3 rounded font-bold transition-all ${post.status === 'done' ? 'bg-green-600 text-white cursor-default' : 'bg-white text-black hover:bg-gray-200'}`}>
+                                                  {post.status === 'publishing' ? '發佈中...' : post.status === 'done' ? '已發佈' : '立即發佈'}
+                                              </button>
+                                          </div>
                                       </div>
                                   </div>
                               ))}
