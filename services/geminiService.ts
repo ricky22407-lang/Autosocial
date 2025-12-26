@@ -209,9 +209,19 @@ const extractImageUrlFromItem = (item: Element): string => {
 };
 
 const fetchRealtimeRss = async (keyword: string): Promise<TrendingTopic[]> => {
-    let rssUrl = ['台灣熱門時事', '今日新聞', '熱門話題', '新聞', 'News'].some(k => keyword.includes(k))
-        ? 'https://tw.news.yahoo.com/rss'
-        : `https://news.google.com/rss/search?q=${encodeURIComponent(keyword)}+when:1d&hl=zh-TW&gl=TW&ceid=TW:zh-Hant`;
+    // Fix: Force 'Taiwan' in query to prevent IP-based localization (US Server -> HK/Global Chinese results)
+    // Only add if not already present to avoid duplication
+    const queryTerm = keyword.includes('台灣') || keyword.includes('Taiwan') ? keyword : `${keyword} 台灣`;
+    
+    // Yahoo TW is mostly deprecated or redirects, sticking to Google News with strict location
+    const isYahooKeyword = ['台灣熱門時事', '今日新聞', '熱門話題', '新聞', 'News'].some(k => keyword.includes(k));
+    
+    // Construct Google News URL with explicit Taiwan bias
+    // q=KEYWORD+when:2d
+    // hl=zh-TW (UI Language)
+    // gl=TW (Geo Location)
+    // ceid=TW:zh-Hant (Content Edition)
+    const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(queryTerm)}+when:2d&hl=zh-TW&gl=TW&ceid=TW:zh-Hant`;
 
     try {
         const xmlString = await fetchRssContent(rssUrl);

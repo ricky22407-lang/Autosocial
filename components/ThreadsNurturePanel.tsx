@@ -113,7 +113,8 @@ const generateStockUrl = (query: string, seed: string) => {
     const realismPrompt = `${query}, candid photography, shot on iPhone 15, natural lighting, grainy, unpolished, 4k, no 3d render, no illustration, hyperrealistic`;
     const encoded = encodeURIComponent(realismPrompt);
     // Use Pollinations with unique seed
-    return `https://image.pollinations.ai/prompt/${encoded}?n=${seed}&model=flux`;
+    // Add cache buster 't' to force browser reload
+    return `https://image.pollinations.ai/prompt/${encoded}?n=${seed}&model=flux&t=${Date.now()}`;
 };
 
 const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, onQuotaUpdate }) => {
@@ -171,15 +172,12 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
     onSaveSettings({ ...settings, threadsAccounts: accounts });
     
     // FIX: Auto-select logic to handle additions or deletions of accounts
-    // Ensure selectedGenAccountId always points to a valid, existing account.
     if (accounts.length > 0) {
         const currentSelectionExists = accounts.some(a => a.id === selectedGenAccountId);
-        // If nothing selected OR current selection is invalid (e.g. was deleted), default to first
         if (!selectedGenAccountId || !currentSelectionExists) {
             setSelectedGenAccountId(accounts[0].id);
         }
     } else {
-        // No accounts available, clear selection
         if (selectedGenAccountId) setSelectedGenAccountId('');
     }
   }, [accounts]);
@@ -423,12 +421,6 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   };
 
   const handleImageModeChange = async (post: GeneratedPost, newMode: ImageSourceType) => {
-      // Logic Update:
-      // 1. If switching to 'stock' (REGENERATION):
-      //    - Charge Quota (2 points)
-      //    - Show Loading State
-      //    - Maintain Topic Adherence (Use imageQuery)
-      
       if (newMode === 'stock') {
           if (!user) return alert("請先登入");
           
@@ -443,18 +435,17 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
           // Start Loading
           setIsRegeneratingImage(post.id);
 
-          // Force new seed
-          const newSeed = Date.now().toString();
+          // Force new seed with higher entropy
+          const newSeed = Date.now().toString() + Math.floor(Math.random() * 9999);
           // IMPORTANT: Use imageQuery if available (more specific), fallback to topic
           const visualSubject = post.imageQuery || post.topic; 
           const newUrl = generateStockUrl(visualSubject, newSeed);
 
-          // Simulate slight delay for better UX (so user sees the spinner and knows something happened)
-          // and allow the browser to register the new image request
+          // Increase timeout to 1500ms to allow generation time and prevent "instant change" feel
           setTimeout(() => {
               setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageSourceType: newMode, imageUrl: newUrl } : p));
               setIsRegeneratingImage(null);
-          }, 800); 
+          }, 1500); 
 
       } else {
           // Just switching modes (e.g. to 'none' or 'upload'), no cost
@@ -706,7 +697,13 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
                               {generatedPosts.map((post) => (
                                   <div key={post.id} className="bg-card rounded-xl border border-gray-700 overflow-hidden flex flex-col md:flex-row">
                                       <div className="w-full md:w-1/3 bg-black flex items-center justify-center relative min-h-[300px]">
-                                          {getPreviewUrl(post) ? <img src={getPreviewUrl(post)} className="w-full h-full object-cover transition-opacity duration-500" /> : <span className="text-gray-500">無圖片</span>}
+                                          {getPreviewUrl(post) ? (
+                                              <img 
+                                                  key={getPreviewUrl(post) || 'empty'} // FORCE RE-RENDER ON URL CHANGE
+                                                  src={getPreviewUrl(post)} 
+                                                  className="w-full h-full object-cover transition-opacity duration-500" 
+                                              />
+                                          ) : <span className="text-gray-500">無圖片</span>}
                                           
                                           {/* Loading Overlay for Image Regeneration */}
                                           {isRegeneratingImage === post.id && (
