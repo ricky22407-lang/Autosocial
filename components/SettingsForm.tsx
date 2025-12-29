@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useRef } from 'react';
 import { BrandSettings } from '../types';
 import { fetchRecentPostCaptions } from '../services/facebookService';
 import { analyzeBrandTone } from '../services/geminiService';
 import { checkAndUseQuota, getCurrentUser } from '../services/authService';
+import { loginAndGetPages, initFacebookSdk } from '../services/facebookAuth';
 
 interface Props {
   initialSettings: BrandSettings;
@@ -12,6 +14,14 @@ interface Props {
 const SettingsForm: React.FC<Props> = ({ initialSettings, onSave }) => {
   const [formData, setFormData] = useState<BrandSettings>(initialSettings);
   const [isAnalyzingTone, setIsAnalyzingTone] = useState(false);
+  
+  // Facebook OAuth State
+  const [fbPages, setFbPages] = useState<any[]>([]);
+  const [isFbLoading, setIsFbLoading] = useState(false);
+  const [isFbSdkReady, setIsFbSdkReady] = useState(false);
+
+  // File Upload State
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setFormData(initialSettings);
@@ -47,6 +57,75 @@ const SettingsForm: React.FC<Props> = ({ initialSettings, onSave }) => {
       } finally {
           setIsAnalyzingTone(false);
       }
+  };
+
+  // --- Facebook OAuth Handlers ---
+  const handleConnectFacebook = async () => {
+      if (!formData.facebookAppId) {
+          alert("請先輸入 Facebook App ID 才能使用快速登入功能。");
+          return;
+      }
+
+      setIsFbLoading(true);
+      try {
+          if (!isFbSdkReady) {
+              await initFacebookSdk(formData.facebookAppId);
+              setIsFbSdkReady(true);
+          }
+          const pages = await loginAndGetPages();
+          setFbPages(pages);
+          if (pages.length > 0) {
+              // Automatically select the first page if none selected, or let user choose
+              // We'll show the dropdown if pages > 0
+          } else {
+              alert("您的帳號下沒有發現任何粉絲專頁，或您未授權管理權限。");
+          }
+      } catch (e: any) {
+          console.error(e);
+          alert(`FB 登入失敗: ${e.message}`);
+      } finally {
+          setIsFbLoading(false);
+      }
+  };
+
+  const handlePageSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const pageId = e.target.value;
+      const selectedPage = fbPages.find(p => p.id === pageId);
+      if (selectedPage) {
+          setFormData(prev => ({
+              ...prev,
+              facebookPageId: selectedPage.id,
+              facebookToken: selectedPage.access_token
+          }));
+      }
+  };
+
+  // --- Logo Upload Handler ---
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+          const base64 = event.target?.result as string;
+          // Ideally we should resize this to avoid huge strings in localStorage
+          // Simple client-side resize using Canvas
+          const img = new Image();
+          img.onload = () => {
+              const canvas = document.createElement('canvas');
+              const MAX_WIDTH = 300; // Limit logo size
+              const scale = MAX_WIDTH / img.width;
+              canvas.width = MAX_WIDTH;
+              canvas.height = img.height * scale;
+              const ctx = canvas.getContext('2d');
+              ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+              const resizedBase64 = canvas.toDataURL('image/png', 0.8);
+              
+              setFormData(prev => ({ ...prev, logoUrl: resizedBase64 }));
+          };
+          img.src = base64;
+      };
+      reader.readAsDataURL(file);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -163,13 +242,34 @@ const SettingsForm: React.FC<Props> = ({ initialSettings, onSave }) => {
                         </div>
                     </div>
                     <div className="md:col-span-2">
-                        <label className="block text-sm text-gray-400 mb-1">Logo 浮水印連結 (選填)</label>
-                        <input 
-                            value={formData.logoUrl || ''} 
-                            onChange={e => handleChange('logoUrl', e.target.value)}
-                            className="w-full bg-dark border border-gray-600 rounded p-3 text-white focus:border-primary outline-none"
-                            placeholder="https://... (PNG with transparency recommended)"
-                        />
+                        <label className="block text-sm text-gray-400 mb-1">Logo 浮水印 (支援 PNG 透明圖檔)</label>
+                        <div className="flex gap-2">
+                            <input 
+                                value={formData.logoUrl || ''} 
+                                onChange={e => handleChange('logoUrl', e.target.value)}
+                                className="flex-1 bg-dark border border-gray-600 rounded p-3 text-white focus:border-primary outline-none placeholder-gray-500"
+                                placeholder="可直接貼上圖片連結，或點擊右側上傳..."
+                            />
+                            <button 
+                                type="button"
+                                onClick={() => fileInputRef.current?.click()}
+                                className="bg-gray-700 hover:bg-gray-600 text-white px-4 rounded font-bold whitespace-nowrap flex items-center gap-2 transition-colors border border-gray-600"
+                            >
+                                📂 上傳
+                            </button>
+                            <input 
+                                type="file" 
+                                ref={fileInputRef}
+                                className="hidden"
+                                accept="image/png,image/jpeg"
+                                onChange={handleLogoUpload}
+                            />
+                        </div>
+                        {formData.logoUrl && (
+                            <div className="mt-2 p-2 bg-white/10 rounded inline-block">
+                                <img src={formData.logoUrl} alt="Logo Preview" className="h-8 object-contain" />
+                            </div>
+                        )}
                     </div>
                 </div>
             </section>
@@ -181,7 +281,47 @@ const SettingsForm: React.FC<Props> = ({ initialSettings, onSave }) => {
                 </h3>
                 <p className="text-xs text-gray-400">連接粉絲專頁以啟用「自動發文」與「品牌語氣分析」功能。</p>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* OAuth Section */}
+                <div className="bg-blue-900/10 p-4 rounded-lg border border-blue-900/30 mb-4">
+                    <div className="flex flex-col md:flex-row gap-4 items-end md:items-center">
+                        <div className="flex-1 w-full">
+                            <label className="block text-xs text-blue-300 font-bold mb-1">Facebook App ID (必填)</label>
+                            <input 
+                                value={formData.facebookAppId || ''} 
+                                onChange={e => handleChange('facebookAppId', e.target.value)}
+                                className="w-full bg-black/50 border border-blue-800 rounded p-2 text-white text-sm"
+                                placeholder="請輸入您的 FB App ID"
+                            />
+                        </div>
+                        <button 
+                            type="button"
+                            onClick={handleConnectFacebook}
+                            disabled={isFbLoading}
+                            className="w-full md:w-auto bg-[#1877F2] hover:bg-[#166fe5] text-white px-6 py-2 rounded font-bold shadow-lg transition-all flex items-center justify-center gap-2 h-[40px]"
+                        >
+                            {isFbLoading ? '連接中...' : '🔵 連接 Facebook 帳號'}
+                        </button>
+                    </div>
+                    {fbPages.length > 0 && (
+                        <div className="mt-4 animate-fade-in">
+                            <label className="block text-xs text-green-400 font-bold mb-1">✅ 驗證成功！請選擇要管理的粉絲專頁：</label>
+                            <select 
+                                onChange={handlePageSelect}
+                                className="w-full bg-dark border border-green-500/50 rounded p-2 text-white"
+                            >
+                                <option value="">-- 請選擇粉專 --</option>
+                                {fbPages.map(p => (
+                                    <option key={p.id} value={p.id}>{p.name} (ID: {p.id})</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative">
+                    <div className="absolute inset-0 bg-dark/50 z-10 flex items-center justify-center backdrop-blur-[1px] opacity-0 hover:opacity-100 transition-opacity pointer-events-none">
+                       <span className="bg-black text-white text-xs px-2 py-1 rounded">手動輸入模式</span>
+                    </div>
                     <div>
                         <label className="block text-sm text-gray-400 mb-1">Page ID</label>
                         <input 

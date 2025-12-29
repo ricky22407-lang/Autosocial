@@ -116,9 +116,12 @@ export interface BrandSettings {
   
   brandStylePrompt?: string; // For Image Generation Style (Legacy/Override)
   brandStyleGuide?: string; // NEW: For Text Generation Style (AI Analyzed)
+  
+  facebookAppId?: string; // NEW: For OAuth
   facebookPageId: string;
   facebookToken: string;
   tokenExpiry?: number;
+  
   threadsAccounts?: ThreadsAccount[];
   threadsAutoPilot?: ThreadsAutoPilotConfig;
   fixedHashtags: string;
