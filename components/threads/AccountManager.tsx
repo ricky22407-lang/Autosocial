@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { ThreadsAccount, UserProfile, BrandSettings } from '../../types';
 import { validateThreadsToken, fetchUserThreads } from '../../services/threadsService';
@@ -5,6 +6,7 @@ import { analyzeThreadsStyle } from '../../services/geminiService';
 import { checkAndUseQuota } from '../../services/authService';
 import { STYLE_PRESETS } from './ThreadsCommon';
 import TokenTutorialModal from '../TokenTutorialModal';
+import ThreadsConnectionFAQModal from './ThreadsConnectionFAQModal';
 
 interface Props {
     accounts: ThreadsAccount[];
@@ -35,6 +37,7 @@ const AccountManager: React.FC<Props> = ({ accounts, setAccounts, settings, onSa
     const [isVerifying, setIsVerifying] = useState(false);
     const [isAnalyzingStyle, setIsAnalyzingStyle] = useState<string | null>(null);
     const [showTutorial, setShowTutorial] = useState(false);
+    const [showFaq, setShowFaq] = useState(false);
 
     // --- OAuth Handler ---
     const handleConnectThreads = () => {
@@ -154,12 +157,21 @@ const AccountManager: React.FC<Props> = ({ accounts, setAccounts, settings, onSa
                     </p>
                 </div>
 
-                <button 
-                    onClick={handleConnectThreads}
-                    className="w-full md:w-auto bg-pink-600 hover:bg-pink-500 text-white px-8 py-4 rounded-lg font-bold shadow-lg transition-all flex items-center justify-center gap-2 whitespace-nowrap"
-                >
-                    <span className="text-xl">@</span> 一鍵連接新帳號
-                </button>
+                <div className="flex gap-2 w-full md:w-auto">
+                    <button 
+                        onClick={() => setShowFaq(true)}
+                        className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-4 py-4 rounded-lg font-bold border border-gray-600 transition-all flex items-center justify-center gap-2 whitespace-nowrap"
+                        title="連接問題排解"
+                    >
+                        <span>❓</span> FAQ
+                    </button>
+                    <button 
+                        onClick={handleConnectThreads}
+                        className="flex-1 bg-pink-600 hover:bg-pink-500 text-white px-8 py-4 rounded-lg font-bold shadow-lg transition-all flex items-center justify-center gap-2 whitespace-nowrap"
+                    >
+                        <span className="text-xl">@</span> 一鍵連接新帳號
+                    </button>
+                </div>
             </div>
 
             {/* Manual Add Account Form */}
@@ -261,6 +273,7 @@ const AccountManager: React.FC<Props> = ({ accounts, setAccounts, settings, onSa
                 ))}
             </div>
             {showTutorial && <TokenTutorialModal platform="threads" onClose={() => setShowTutorial(false)} />}
+            {showFaq && <ThreadsConnectionFAQModal onClose={() => setShowFaq(false)} />}
         </div>
     );
 };
