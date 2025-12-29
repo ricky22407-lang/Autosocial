@@ -86,6 +86,13 @@ const AdminPanel: React.FC<Props> = ({ currentUser }) => {
     loadAllData();
   };
 
+  const handleGeneratePointsKey = async (amount: number) => {
+    // Generate ADD_POINTS key
+    const key = await generateAdminKey(currentUser.user_id, 'ADD_POINTS', undefined, undefined, amount);
+    setGeneratedKey(key);
+    loadAllData();
+  };
+
   const toggleDryRun = () => { updateSystemConfig({ dryRunMode: !config.dryRunMode }); loadAllData(); };
   const toggleMaintenance = () => { updateSystemConfig({ maintenanceMode: !config.maintenanceMode }); loadAllData(); };
 
@@ -123,26 +130,57 @@ const AdminPanel: React.FC<Props> = ({ currentUser }) => {
       )}
 
       {activeTab === 'keys' && (
-          <div className="bg-card p-6 rounded-xl border border-gray-700">
-              <h3 className="text-xl font-bold text-white mb-4">🔑 生成管理金鑰 (Admin Key)</h3>
-              <div className="mb-6">
-                  <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider font-bold">配額與角色升級</p>
-                  <div className="flex flex-wrap gap-2">
-                       <button onClick={() => handleGenerateKey('UPGRADE_ROLE', 'starter')} className="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded font-bold">Starter Key</button>
-                       <button onClick={() => handleGenerateKey('UPGRADE_ROLE', 'pro')} className="bg-purple-700 hover:bg-purple-600 text-white px-4 py-2 rounded font-bold">Pro Key</button>
-                       <button onClick={() => handleGenerateKey('UPGRADE_ROLE', 'business')} className="bg-yellow-700 hover:bg-yellow-600 text-white px-4 py-2 rounded font-bold">Business Key</button>
-                       <button onClick={() => handleGenerateKey('RESET_QUOTA')} className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded font-bold">Reset Quota Key</button>
+          <div className="bg-card p-6 rounded-xl border border-gray-700 space-y-6">
+              <h3 className="text-xl font-bold text-white border-b border-gray-700 pb-2">🔑 生成管理金鑰 (Admin Key)</h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  {/* Left Column: Roles & Features */}
+                  <div className="space-y-6">
+                      <div>
+                          <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider font-bold">配額與角色升級 (會重置現有方案)</p>
+                          <div className="flex flex-wrap gap-2">
+                               <button onClick={() => handleGenerateKey('UPGRADE_ROLE', 'starter')} className="bg-green-700 hover:bg-green-600 text-white px-3 py-2 rounded font-bold text-xs">Starter Key</button>
+                               <button onClick={() => handleGenerateKey('UPGRADE_ROLE', 'pro')} className="bg-purple-700 hover:bg-purple-600 text-white px-3 py-2 rounded font-bold text-xs">Pro Key</button>
+                               <button onClick={() => handleGenerateKey('UPGRADE_ROLE', 'business')} className="bg-yellow-700 hover:bg-yellow-600 text-white px-3 py-2 rounded font-bold text-xs">Business Key</button>
+                               <button onClick={() => handleGenerateKey('RESET_QUOTA')} className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded font-bold text-xs">Reset Quota</button>
+                          </div>
+                      </div>
+                      <div>
+                          <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider font-bold">單項功能解鎖</p>
+                          <div className="flex flex-wrap gap-2">
+                               {['ANALYTICS', 'AUTOMATION', 'SEO', 'THREADS'].map(f => (
+                                   <button key={f} onClick={() => handleGenerateFeatureKey(f as any)} className="bg-blue-900/50 border border-blue-600 hover:bg-blue-900 text-blue-200 px-3 py-2 rounded font-bold text-xs">解鎖: {f}</button>
+                               ))}
+                          </div>
+                      </div>
+                  </div>
+
+                  {/* Right Column: Points Top-up */}
+                  <div className="bg-gradient-to-br from-gray-800 to-gray-900 p-4 rounded-xl border border-yellow-500/30">
+                      <p className="text-xs text-yellow-400 mb-3 uppercase tracking-wider font-bold flex items-center gap-2">
+                          💰 點數紅包 (優惠/讓利專用)
+                      </p>
+                      <p className="text-[10px] text-gray-400 mb-4">
+                          產生的金鑰有效期為 24 小時。兌換後，點數將加入用戶的帳戶中 (效期 1 年)。
+                      </p>
+                      <div className="flex flex-col gap-2">
+                           <button onClick={() => handleGeneratePointsKey(30)} className="w-full bg-yellow-600 hover:bg-yellow-500 text-black px-4 py-3 rounded font-black text-sm transition-all flex justify-between items-center shadow-lg hover:shadow-yellow-500/20">
+                               <span>🧧 加值 30 點</span>
+                               <span className="text-[10px] opacity-70">價值 $30</span>
+                           </button>
+                           <button onClick={() => handleGeneratePointsKey(50)} className="w-full bg-yellow-600 hover:bg-yellow-500 text-black px-4 py-3 rounded font-black text-sm transition-all flex justify-between items-center shadow-lg hover:shadow-yellow-500/20">
+                               <span>🧧 加值 50 點</span>
+                               <span className="text-[10px] opacity-70">價值 $50</span>
+                           </button>
+                           <button onClick={() => handleGeneratePointsKey(100)} className="w-full bg-yellow-600 hover:bg-yellow-500 text-black px-4 py-3 rounded font-black text-sm transition-all flex justify-between items-center shadow-lg hover:shadow-yellow-500/20">
+                               <span>🧧 加值 100 點</span>
+                               <span className="text-[10px] opacity-70">價值 $100</span>
+                           </button>
+                      </div>
                   </div>
               </div>
-              <div>
-                  <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider font-bold">單項功能解鎖</p>
-                  <div className="flex flex-wrap gap-2">
-                       {['ANALYTICS', 'AUTOMATION', 'SEO', 'THREADS'].map(f => (
-                           <button key={f} onClick={() => handleGenerateFeatureKey(f as any)} className="bg-blue-900/50 border border-blue-600 hover:bg-blue-900 text-blue-200 px-4 py-2 rounded font-bold text-sm">解鎖: {f}</button>
-                       ))}
-                  </div>
-              </div>
-              {generatedKey && <div className="mt-6 p-4 bg-black/30 border border-green-500 rounded text-center"><p className="text-green-400 font-bold mb-2">✅ 金鑰生成成功！請複製 (24小時內有效)：</p><p className="text-2xl font-mono text-white select-all tracking-wider">{generatedKey}</p></div>}
+
+              {generatedKey && <div className="mt-6 p-4 bg-black/50 border border-green-500 rounded text-center animate-pulse-slow"><p className="text-green-400 font-bold mb-2">✅ 金鑰生成成功！請複製 (24小時內有效)：</p><p className="text-3xl font-mono text-white select-all tracking-wider font-black">{generatedKey}</p></div>}
           </div>
       )}
 

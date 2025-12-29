@@ -26,11 +26,8 @@ export const AutomationClient = {
     if (!user) throw new Error("使用者未登入");
     
     // COST CALCULATION:
-    // Base Operation (Drafting): 10 pts (Matches PostCreator)
-    // Media (Image): +5 pts (Matches PostCreator New Price)
-    // Total: 15 pts
-    
-    // Check quota strictly
+    // [BILLING] FB Automation: 15 Points (Premium Service Fee)
+    // Includes Draft + Image + Search + Convenience Fee
     const COST = 15; 
     const hasQuota = await checkAndUseQuota(user.uid, COST, 'AUTOPILOT_FB_FULL_RUN');
     if (!hasQuota) throw new Error(`配額不足，自動化發文需 ${COST} 點`);
@@ -144,7 +141,7 @@ export const AutomationClient = {
 
       // COST CALCULATION:
       // Base: 2 pt (Pricing Update)
-      // Image (AI): +5 pts (Pricing Update)
+      // Image (AI): +5 pts (Total 7)
       // Image (Stock/News): +1 pt
       let COST = 2;
       if (config.imageMode === 'ai_url') COST += 5;

@@ -61,9 +61,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   const loadTrends = async () => {
       if (!user) return alert("請先登入");
       
-      // [BILLING LOGIC] Pay-Per-Click Enforced
-      // Deduct points BEFORE any service call or cache check.
-      // Even if the result comes from cache (0 cost for us), the user pays for the "Search" action.
+      // [BILLING] Search Trends: 3 Points
       const COST = 3; 
       const allowed = await checkAndUseQuota(user.user_id, COST, 'TREND_SEARCH'); 
       if (!allowed) return; 
@@ -81,7 +79,9 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
 
   const handleNext = async () => {
     if (!topic || !user) return;
-    const allowed = await checkAndUseQuota(user.user_id, 10, 'GENERATE_POST_DRAFT');
+    
+    // [BILLING] FB Draft: 5 Points (Lowered from 10)
+    const allowed = await checkAndUseQuota(user.user_id, 5, 'GENERATE_POST_DRAFT');
     if (!allowed) return; 
     
     onQuotaUpdate();
@@ -127,8 +127,8 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     if (!user || isGeneratingMedia) return;
     if (!draft.imagePrompt.trim()) return alert("請輸入圖片提示詞 (Prompt)");
 
-    // Pricing Update: Regen 1->2, New 3->5
-    const cost = mediaUrl ? 2 : 5; 
+    // [BILLING] FB Image: Regen 5 Points, First Time 8 Points
+    const cost = mediaUrl ? 5 : 8; 
     const allowed = await checkAndUseQuota(user.user_id, cost, 'GENERATE_IMAGE_AI', { prompt: draft.imagePrompt });
     if (!allowed) return;
     
@@ -252,7 +252,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
               )}
 
               <button onClick={handleNext} disabled={!topic} className={`w-full py-5 md:py-6 rounded-2xl font-black text-white shadow-2xl hover:opacity-90 transition-all disabled:opacity-30 text-lg md:text-xl tracking-widest uppercase relative z-10 ${mode === 'viral' ? 'bg-gradient-to-r from-orange-600 to-red-600' : 'bg-gradient-to-r from-blue-600 to-primary'}`}>
-                開始生成內容 <span className="text-sm font-normal opacity-70 ml-2">(10 點數)</span>
+                開始生成內容 <span className="text-sm font-normal opacity-70 ml-2">(5 點數)</span>
               </button>
           </div>
       </div>
@@ -301,9 +301,9 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                                 AI 設計師繪製中...
                             </>
                         ) : mediaUrl ? (
-                            <>重新繪製 <span className="text-[10px] font-black bg-white/20 px-2 py-0.5 rounded-full">2 點數</span></>
+                            <>重新繪製 <span className="text-[10px] font-black bg-white/20 px-2 py-0.5 rounded-full">5 點數</span></>
                         ) : (
-                            <>生成商業設計圖 (Ideogram/Imagen) <span className="text-[10px] font-black bg-white/20 px-2 py-0.5 rounded-full">5 點數</span></>
+                            <>生成商業設計圖 (Ideogram/Imagen) <span className="text-[10px] font-black bg-white/20 px-2 py-0.5 rounded-full">8 點數</span></>
                         )}
                     </button>
                 </div>

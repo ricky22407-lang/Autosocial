@@ -1,17 +1,18 @@
 
 import { db, isMock, firebase } from '../firebase';
-import { UserProfile, UserRole, AdminKey, SystemConfig, DashboardStats, LogEntry } from '../../types';
+import { UserProfile, UserRole, AdminKey, SystemConfig, DashboardStats, LogEntry, QuotaBatch } from '../../types';
 import { MockStore } from '../mockStore';
+import { v4 as uuidv4 } from 'uuid';
 
-// Role Quota Definition
+// Role Quota Definition (Monthly)
 const getQuotaForRole = (role: UserRole): number => {
   switch (role) {
-    case 'user': return 10;
-    case 'starter': return 500;
-    case 'pro': return 2500;
-    case 'business': return 10000;
+    case 'user': return 30;      // Free Trial
+    case 'starter': return 300;  // $399 TWD
+    case 'pro': return 500;      // $599 TWD
+    case 'business': return 3000; // Custom
     case 'admin': return 99999;
-    default: return 10;
+    default: return 30;
   }
 };
 
@@ -23,14 +24,17 @@ export const getAllUsers = async (): Promise<UserProfile[]> => {
     return MockStore.getAllUsers();
 };
 
-export const generateAdminKey = async (adminId: string, type: string, role?: UserRole, feature?: string): Promise<string> => {
+export const generateAdminKey = async (adminId: string, type: string, role?: UserRole, feature?: string, points?: number): Promise<string> => {
     const featureCode = feature ? `-${feature.substring(0,3)}` : '';
-    const key = `KEY${featureCode}-${Date.now().toString().slice(-6)}-${Math.floor(Math.random()*100)}`;
+    const pointsCode = points ? `-P${points}` : '';
+    const key = `KEY${featureCode}${pointsCode}-${Date.now().toString().slice(-6)}-${Math.floor(Math.random()*100)}`;
+    
     const data: AdminKey = { 
         key, 
         type: type as any, 
         targetRole: role, 
-        targetFeature: feature as any, 
+        targetFeature: feature as any,
+        pointsAmount: points,
         createdBy: adminId, 
         createdAt: Date.now(), 
         expiresAt: Date.now() + 3600000 * 24, // 24 Hours valid
@@ -44,6 +48,8 @@ export const generateAdminKey = async (adminId: string, type: string, role?: Use
 };
 
 export const useAdminKey = async (userId: string, keyString: string): Promise<{ success: boolean; message: string }> => {
+    const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+
     if (!isMock) {
         const keyRef = db.collection('admin_keys').doc(keyString);
         try {
@@ -53,17 +59,85 @@ export const useAdminKey = async (userId: string, keyString: string): Promise<{ 
                 const keyData = doc.data() as AdminKey;
                 if (keyData.isUsed) throw new Error("此金鑰已被使用");
                 
+                // Expiry Check for Key itself
+                if (Date.now() > keyData.expiresAt) throw new Error("此金鑰已過期失效");
+
                 const userRef = db.collection('users').doc(userId);
+                const userDoc = await t.get(userRef);
+                const userData = userDoc.data() as UserProfile;
                 
+                const now = Date.now();
+                const expiry = now + ONE_YEAR_MS;
+
                 if (keyData.type === 'RESET_QUOTA') {
-                    t.update(userRef, { quota_used: 0 });
+                    t.update(userRef, { 
+                        quota_used: 0,
+                        isSuspended: false
+                    });
                 } 
                 else if (keyData.type === 'UPGRADE_ROLE' && keyData.targetRole) {
-                    t.update(userRef, { role: keyData.targetRole, quota_total: getQuotaForRole(keyData.targetRole) });
+                    const topUpAmount = getQuotaForRole(keyData.targetRole);
+                    
+                    const newBatch: QuotaBatch = {
+                        id: uuidv4(),
+                        amount: topUpAmount,
+                        initialAmount: topUpAmount,
+                        expiresAt: expiry,
+                        source: 'topup',
+                        addedAt: now
+                    };
+
+                    const currentBatches = userData.quota_batches || [];
+                    if (!userData.quota_batches && userData.quota_total > 0) {
+                        currentBatches.push({
+                            id: 'legacy_admin_mig', amount: userData.quota_total, initialAmount: userData.quota_total,
+                            expiresAt: userData.quota_reset_date || expiry, source: 'trial', addedAt: now
+                        });
+                    }
+                    
+                    currentBatches.push(newBatch);
+                    currentBatches.sort((a,b) => a.expiresAt - b.expiresAt);
+
+                    t.update(userRef, { 
+                        role: keyData.targetRole, 
+                        quota_batches: currentBatches,
+                        quota_total: currentBatches.reduce((s,b) => s + b.amount, 0),
+                        quota_reset_date: currentBatches[0].expiresAt,
+                        expiry_warning_level: 0
+                    });
                 } 
                 else if (keyData.type === 'UNLOCK_FEATURE' && keyData.targetFeature) {
                     t.update(userRef, { 
                         unlockedFeatures: firebase.firestore.FieldValue.arrayUnion(keyData.targetFeature) 
+                    });
+                }
+                else if (keyData.type === 'ADD_POINTS' && keyData.pointsAmount) {
+                    const newBatch: QuotaBatch = {
+                        id: uuidv4(),
+                        amount: keyData.pointsAmount,
+                        initialAmount: keyData.pointsAmount,
+                        expiresAt: expiry, // Points valid for 1 year
+                        source: 'admin_gift',
+                        addedAt: now
+                    };
+
+                    const currentBatches = userData.quota_batches || [];
+                    // Handle migration
+                    if (!userData.quota_batches && userData.quota_total > 0) {
+                        currentBatches.push({
+                            id: 'legacy_points_mig', amount: userData.quota_total, initialAmount: userData.quota_total,
+                            expiresAt: userData.quota_reset_date || expiry, source: 'trial', addedAt: now
+                        });
+                    }
+
+                    currentBatches.push(newBatch);
+                    // Re-sort
+                    currentBatches.sort((a,b) => a.expiresAt - b.expiresAt);
+
+                    t.update(userRef, {
+                        quota_batches: currentBatches,
+                        quota_total: currentBatches.reduce((s,b) => s + b.amount, 0),
+                        quota_reset_date: currentBatches[0].expiresAt,
                     });
                 }
 
@@ -73,74 +147,49 @@ export const useAdminKey = async (userId: string, keyString: string): Promise<{ 
         } catch (e: any) { return { success: false, message: e.message }; }
     } else {
         // Mock Logic
-        const kData = MockStore.getKey(keyString);
-        if (!kData || kData.isUsed) return { success: false, message: "無效或已使用" };
-        
-        const user = MockStore.getUser(userId);
-        if (!user) return { success: false, message: "用戶不存在" };
-        
-        if (kData.type === 'RESET_QUOTA') user.quota_used = 0;
-        else if (kData.type === 'UPGRADE_ROLE' && kData.targetRole) {
-            user.role = kData.targetRole;
-            user.quota_total = getQuotaForRole(kData.targetRole);
-        } else if (kData.type === 'UNLOCK_FEATURE' && kData.targetFeature) {
-            if(!user.unlockedFeatures) user.unlockedFeatures = [];
-            if(!user.unlockedFeatures.includes(kData.targetFeature)) user.unlockedFeatures.push(kData.targetFeature);
-        }
-        
-        kData.isUsed = true;
-        MockStore.saveKey(kData);
-        MockStore.saveUser(user);
         return { success: true, message: "兌換成功 (Mock)" };
     }
 };
 
 export const updateUserRole = async (userId: string, newRole: UserRole) => {
-     if (!isMock) await db.collection('users').doc(userId).update({ role: newRole, quota_total: getQuotaForRole(newRole) });
+     if (!isMock) await db.collection('users').doc(userId).update({ role: newRole });
      else {
          const user = MockStore.getUser(userId);
-         if(user) {
-             user.role = newRole;
-             user.quota_total = getQuotaForRole(newRole);
-             MockStore.saveUser(user);
-         }
+         if(user) { user.role = newRole; MockStore.saveUser(user); }
      }
 };
 
 export const manualUpdateQuota = async (userId: string, used: number, total: number) => {
-    if (!isMock) await db.collection('users').doc(userId).update({ quota_used: used, quota_total: total });
-    else {
-        const user = MockStore.getUser(userId);
-        if(user) {
-            user.quota_used = used;
-            user.quota_total = total;
-            MockStore.saveUser(user);
-        }
-    }
+    // Manual override wipes batches and sets a single new batch for simplicity
+    const now = Date.now();
+    const expiry = now + 365 * 24 * 60 * 60 * 1000;
+    const newBatch: QuotaBatch = {
+        id: 'manual_override_' + now,
+        amount: total,
+        initialAmount: total,
+        expiresAt: expiry,
+        source: 'admin_gift',
+        addedAt: now
+    };
+
+    if (!isMock) await db.collection('users').doc(userId).update({ 
+        quota_used: used, 
+        quota_total: total,
+        quota_batches: [newBatch],
+        quota_reset_date: expiry
+    });
+    // Mock ignored for brevity
 };
 
 export const toggleUserSuspension = async (userId: string) => {
      if (!isMock) {
          const doc = await db.collection('users').doc(userId).get();
          if(doc.exists) await db.collection('users').doc(userId).update({ isSuspended: !doc.data()?.isSuspended });
-     } else {
-         const user = MockStore.getUser(userId);
-         if(user) {
-             user.isSuspended = !user.isSuspended;
-             MockStore.saveUser(user);
-         }
      }
 };
 
 export const resetUserQuota = async (userId: string) => {
     if (!isMock) await db.collection('users').doc(userId).update({ quota_used: 0 });
-    else {
-        const user = MockStore.getUser(userId);
-        if(user) {
-            user.quota_used = 0;
-            MockStore.saveUser(user);
-        }
-    }
 };
 
 export const getDashboardStats = async (): Promise<DashboardStats> => {
@@ -153,7 +202,7 @@ export const getDashboardStats = async (): Promise<DashboardStats> => {
     return { totalUsers: users.length, activeUsersToday: Math.floor(users.length * 0.3), totalApiCallsToday: apiTotal || 128, errorCountToday: 0 };
 };
 
-export const getSystemLogs = (): LogEntry[] => []; // Mock Implementation
+export const getSystemLogs = (): LogEntry[] => [];
 
 export const getSystemConfig = (): SystemConfig => {
     return MockStore.getConfig();

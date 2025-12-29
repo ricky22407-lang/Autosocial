@@ -27,19 +27,31 @@ export enum ErrorCode {
 
 export type UserRole = 'user' | 'starter' | 'pro' | 'business' | 'admin';
 
+// NEW: Batch Tracking
+export interface QuotaBatch {
+  id: string;
+  amount: number;        // Current remaining balance in this batch
+  initialAmount: number; // Original amount (for records)
+  expiresAt: number;     // Expiration Timestamp
+  source: 'subscription' | 'topup' | 'referral' | 'admin_gift' | 'trial';
+  addedAt: number;
+}
+
 export interface UserProfile {
   user_id: string;
   email: string;
   role: UserRole;
-  quota_total: number;
-  quota_used: number;
-  quota_reset_date: number;
+  quota_total: number; // Sum of all valid batches (Read-only view)
+  quota_used: number;  // Lifetime usage stats
+  quota_reset_date: number; // Deprecated but kept for legacy UI compatibility (represents earliest expiry)
+  quota_batches?: QuotaBatch[]; // NEW: The source of truth
+  expiry_warning_level?: 0 | 1 | 2; 
   isSuspended: boolean;
-  unlockedFeatures: string[]; // ['SEO', 'THREADS', 'AUTOMATION', 'ANALYTICS']
+  unlockedFeatures: string[]; 
   referralCode?: string;
   referredBy?: string;
   referralCount?: number;
-  last_api_call_timestamp?: number; // Rate Limiting
+  last_api_call_timestamp?: number; 
   created_at: number;
   updated_at: number;
 }
@@ -231,13 +243,16 @@ export interface TopPostData {
 
 export interface AdminKey {
   key: string;
-  type: 'RESET_QUOTA' | 'UPGRADE_ROLE' | 'UNLOCK_FEATURE';
+  type: 'RESET_QUOTA' | 'UPGRADE_ROLE' | 'UNLOCK_FEATURE' | 'ADD_POINTS'; // Added ADD_POINTS
   targetRole?: UserRole;
-  targetFeature?: 'ANALYTICS' | 'AUTOMATION' | 'SEO' | 'THREADS'; // restored feature unlock
+  targetFeature?: 'ANALYTICS' | 'AUTOMATION' | 'SEO' | 'THREADS';
+  pointsAmount?: number; // Added for point value
   createdBy: string;
   createdAt: number;
   expiresAt: number;
   isUsed: boolean;
+  usedBy?: string;
+  usedAt?: number;
 }
 
 export interface SystemConfig {

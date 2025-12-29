@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { BrandSettings } from '../types';
 import { fetchRecentPostCaptions } from '../services/facebookService';
@@ -10,9 +11,30 @@ interface Props {
   onSave: (settings: BrandSettings) => void;
 }
 
+// Predefined Industries list
+const INDUSTRIES = [
+    "數位行銷", 
+    "餐飲美食", 
+    "美妝保養", 
+    "旅遊住宿", 
+    "3C電子", 
+    "服飾穿搭", 
+    "教育培訓", 
+    "房地產", 
+    "金融理財", 
+    "醫療保健", 
+    "寵物用品",
+    "居家生活",
+    "運動健身"
+];
+
 const SettingsForm: React.FC<Props> = ({ initialSettings, onSave }) => {
   const [formData, setFormData] = useState<BrandSettings>(initialSettings);
   const [isAnalyzingTone, setIsAnalyzingTone] = useState(false);
+  
+  // Industry Selection State
+  const [industrySelectValue, setIndustrySelectValue] = useState<string>('');
+  const [showCustomIndustry, setShowCustomIndustry] = useState(false);
   
   // Facebook OAuth State
   const [fbPages, setFbPages] = useState<any[]>([]);
@@ -24,10 +46,37 @@ const SettingsForm: React.FC<Props> = ({ initialSettings, onSave }) => {
 
   useEffect(() => {
     setFormData(initialSettings);
+    
+    // Initialize Industry Dropdown Logic
+    if (initialSettings.industry) {
+        if (INDUSTRIES.includes(initialSettings.industry)) {
+            setIndustrySelectValue(initialSettings.industry);
+            setShowCustomIndustry(false);
+        } else {
+            setIndustrySelectValue('other');
+            setShowCustomIndustry(true);
+        }
+    } else {
+        setIndustrySelectValue('');
+        setShowCustomIndustry(false);
+    }
   }, [initialSettings]);
 
   const handleChange = (field: keyof BrandSettings, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleIndustrySelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const val = e.target.value;
+      setIndustrySelectValue(val);
+      
+      if (val === 'other') {
+          setShowCustomIndustry(true);
+          handleChange('industry', ''); // Clear value, wait for user input
+      } else {
+          setShowCustomIndustry(false);
+          handleChange('industry', val);
+      }
   };
 
   const handleAutoAnalyzeStyle = async () => {
@@ -155,15 +204,35 @@ const SettingsForm: React.FC<Props> = ({ initialSettings, onSave }) => {
                             placeholder="例如: AutoSocial"
                         />
                     </div>
+                    
+                    {/* Industry Category Dropdown + Input */}
                     <div>
                         <label className="block text-sm text-gray-400 mb-1">產業類別</label>
-                        <input 
-                            value={formData.industry} 
-                            onChange={e => handleChange('industry', e.target.value)}
-                            className="w-full bg-dark border border-gray-600 rounded p-3 text-white focus:border-primary outline-none"
-                            placeholder="例如: 數位行銷、餐飲、美妝"
-                        />
+                        <div className="flex flex-col gap-2">
+                            <select 
+                                value={industrySelectValue}
+                                onChange={handleIndustrySelectChange}
+                                className="w-full bg-dark border border-gray-600 rounded p-3 text-white focus:border-primary outline-none"
+                            >
+                                <option value="" disabled>-- 請選擇產業 --</option>
+                                {INDUSTRIES.map(ind => (
+                                    <option key={ind} value={ind}>{ind}</option>
+                                ))}
+                                <option value="other">✎ 其他 (手動輸入)</option>
+                            </select>
+                            
+                            {showCustomIndustry && (
+                                <input 
+                                    value={formData.industry} 
+                                    onChange={e => handleChange('industry', e.target.value)}
+                                    className="w-full bg-dark border border-blue-500 rounded p-3 text-white focus:border-primary outline-none animate-fade-in"
+                                    placeholder="請輸入您的產業類別..."
+                                    autoFocus
+                                />
+                            )}
+                        </div>
                     </div>
+
                     <div className="md:col-span-2">
                         <label className="block text-sm text-gray-400 mb-1">產品/服務描述</label>
                         <textarea 

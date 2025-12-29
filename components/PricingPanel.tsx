@@ -1,24 +1,25 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { UserProfile } from '../types';
+import TermsModal from './TermsModal';
 
 interface Props {
     user: UserProfile | null;
+    onContactClick: () => void; // New prop to handle navigation
 }
 
-const PricingPanel: React.FC<Props> = ({ user }) => {
-    // Helper for role display
-    const getRoleBadge = (role?: string) => {
-        switch (role) {
-            case 'admin': return { label: 'ADMINISTRATOR', color: 'text-red-400 bg-red-900/20 border-red-500/50' };
-            case 'business': return { label: 'BUSINESS', color: 'text-yellow-400 bg-yellow-900/20 border-yellow-500/50' };
-            case 'pro': return { label: 'PRO PLAN', color: 'text-purple-400 bg-purple-900/20 border-purple-500/50' };
-            case 'starter': return { label: 'STARTER', color: 'text-green-400 bg-green-900/20 border-green-500/50' };
-            default: return { label: 'FREE USER', color: 'text-gray-400 bg-gray-800 border-gray-600' };
-        }
-    };
+const PricingPanel: React.FC<Props> = ({ user, onContactClick }) => {
+    const [showTerms, setShowTerms] = useState(false);
 
-    const roleInfo = getRoleBadge(user?.role);
+    // Determine earliest expiry
+    let earliestExpiry: number | null = null;
+    if (user?.quota_batches && user.quota_batches.length > 0) {
+        // Assume sorted, or sort locally
+        const sorted = [...user.quota_batches].sort((a,b) => a.expiresAt - b.expiresAt);
+        earliestExpiry = sorted[0].expiresAt;
+    } else if (user?.quota_reset_date) {
+        earliestExpiry = user.quota_reset_date;
+    }
 
     return (
         <div className="max-w-6xl mx-auto p-4 md:p-8 animate-fade-in pb-24">
@@ -26,72 +27,101 @@ const PricingPanel: React.FC<Props> = ({ user }) => {
             {/* Header */}
             <div className="text-center mb-10">
                 <h2 className="text-3xl md:text-4xl font-black text-white tracking-tighter mb-3">
-                    點數與費率說明
+                    會員訂閱與點數說明
                 </h2>
-                <p className="text-gray-400 font-medium text-sm md:text-base">
-                    簡單透明，用多少扣多少。 <span className="text-primary font-bold">1 點數 = 1 元新台幣 (TWD)</span>。
+                <p className="text-gray-400 font-medium text-sm md:text-base max-w-2xl mx-auto">
+                    我們的訂閱模式：<span className="text-primary font-bold">支付月費取得「功能權限」與「贈送點數」</span>。
+                    <br/>
+                    {earliestExpiry && user?.quota_total > 0 && (
+                        <span className="text-yellow-400 font-bold block mt-2">
+                            ⚠️ 您最近的一批點數將於 {new Date(earliestExpiry).toLocaleDateString()} 到期。
+                        </span>
+                    )}
                 </p>
             </div>
 
-            {/* Top Metrics Cards (Responsive Grid) */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+            {/* Subscription Tiers Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
                 
-                {/* Card 1: Role */}
-                <div className="bg-gradient-to-br from-gray-800 to-gray-900 p-6 rounded-2xl border border-gray-700 shadow-lg relative overflow-hidden group hover:border-gray-600 transition-all">
-                    <div className="absolute top-0 right-0 p-4 opacity-10 text-6xl group-hover:scale-110 transition-transform">👑</div>
-                    <h3 className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-2">當前會員等級</h3>
-                    <div className={`inline-block px-3 py-1 rounded text-sm font-black border ${roleInfo.color}`}>
-                        {roleInfo.label}
+                {/* Starter Plan */}
+                <div className="bg-card p-8 rounded-3xl border border-gray-700 flex flex-col relative overflow-hidden group hover:border-primary/50 transition-all">
+                    <h3 className="text-xl font-bold text-white mb-2">Starter 方案</h3>
+                    <div className="flex items-baseline gap-1 mb-4">
+                        <span className="text-4xl font-black text-primary">NT$399</span>
+                        <span className="text-gray-500 text-sm">/ 月</span>
                     </div>
-                    <p className="text-xs text-gray-500 mt-4">
-                        {user?.role === 'user' ? '升級解鎖更多高級模型' : '享有優先生成權限'}
+                    <div className="bg-primary/10 text-primary px-3 py-1 rounded-lg text-xs font-bold inline-block w-fit mb-6 border border-primary/20">
+                        🎁 每月贈送 300 點 (價值 $300)
+                    </div>
+                    <ul className="space-y-3 text-sm text-gray-400 mb-8 flex-1">
+                        <li className="flex items-center gap-2">✅ 解鎖 數據分析儀表板</li>
+                        <li className="flex items-center gap-2">✅ 基礎 FB 圖文生成</li>
+                        <li className="flex items-center gap-2">✅ 基礎 Threads 發文</li>
+                        <li className="flex items-center gap-2">❌ SEO 文章生成 (鎖定)</li>
+                        <li className="flex items-center gap-2">❌ 自動化排程 (鎖定)</li>
+                    </ul>
+                    
+                    <button onClick={onContactClick} className="w-full py-3 rounded-xl border border-gray-600 text-gray-300 hover:text-white hover:border-white font-bold transition-all text-sm mb-2">
+                        聯繫客服開通
+                    </button>
+                    <p className="text-xs text-gray-500 text-center">
+                        實質軟體費用僅 $99/月
                     </p>
                 </div>
 
-                {/* Card 2: Balance (Highlight) */}
-                <div className="bg-gradient-to-br from-blue-900/40 to-indigo-900/40 p-6 rounded-2xl border border-blue-500/30 shadow-[0_0_30px_rgba(59,130,246,0.1)] relative overflow-hidden group">
-                    <div className="absolute -top-10 -right-10 w-32 h-32 bg-blue-500/20 rounded-full blur-3xl group-hover:bg-blue-500/30 transition-all"></div>
-                    <h3 className="text-blue-300 text-xs font-bold uppercase tracking-widest mb-1">剩餘點數餘額</h3>
-                    <div className="flex items-baseline gap-1">
-                        <span className={`text-4xl font-black ${user && user.quota_used >= user.quota_total ? 'text-red-400' : 'text-white'}`}>
-                            {(user ? user.quota_total - user.quota_used : 0).toLocaleString()}
-                        </span>
-                        <span className="text-sm font-bold text-blue-400">PTS</span>
+                {/* Pro Plan - UPDATED */}
+                <div className="bg-gradient-to-b from-purple-900/40 to-card p-8 rounded-3xl border border-purple-500/50 flex flex-col relative overflow-hidden shadow-[0_0_30px_rgba(168,85,247,0.15)] transform md:-translate-y-4">
+                    <div className="absolute top-0 right-0 bg-purple-600 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl uppercase tracking-wider">主力推薦</div>
+                    <h3 className="text-xl font-bold text-white mb-2">Pro 專業版</h3>
+                    <div className="flex items-baseline gap-1 mb-4">
+                        <span className="text-4xl font-black text-purple-400">NT$599</span>
+                        <span className="text-gray-500 text-sm">/ 月</span>
                     </div>
-                    <div className="w-full bg-gray-800 h-1.5 rounded-full mt-4 overflow-hidden">
-                        <div 
-                            className="h-full bg-blue-500 shadow-[0_0_10px_#3b82f6]" 
-                            style={{ width: `${user ? Math.min(100, ((user.quota_total - user.quota_used) / user.quota_total) * 100) : 0}%` }}
-                        ></div>
+                    <div className="bg-purple-500/20 text-purple-300 px-3 py-1 rounded-lg text-xs font-bold inline-block w-fit mb-6 border border-purple-500/30">
+                        🎁 每月贈送 500 點 (價值 $500)
                     </div>
-                    <p className="text-[10px] text-blue-200/60 mt-2 text-right">
-                        總額度: {user?.quota_total.toLocaleString()}
-                    </p>
+                    <ul className="space-y-3 text-sm text-gray-300 mb-8 flex-1 font-medium">
+                        <li className="flex items-center gap-2">✅ <span className="text-white">包含 Starter 所有功能</span></li>
+                        <li className="flex items-center gap-2">✅ <span className="text-yellow-400 font-bold">解鎖 自動化排程 (AutoPilot)</span></li>
+                        <li className="flex items-center gap-2">✅ 解鎖 SEO 長文章生成</li>
+                        <li className="flex items-center gap-2">✅ 解鎖 Threads 養號農場</li>
+                        <li className="flex items-center gap-2">✅ 優先使用高級繪圖模型</li>
+                    </ul>
+                    <button onClick={onContactClick} className="w-full py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold transition-colors shadow-lg hover:shadow-purple-500/50">
+                        聯繫客服升級 Pro
+                    </button>
                 </div>
 
-                {/* Card 3: Account Status */}
-                <div className="bg-gradient-to-br from-gray-800 to-gray-900 p-6 rounded-2xl border border-gray-700 shadow-lg relative overflow-hidden group hover:border-gray-600 transition-all">
-                    <div className="absolute top-0 right-0 p-4 opacity-10 text-6xl group-hover:scale-110 transition-transform">🛡️</div>
-                    <h3 className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-2">帳號狀態</h3>
-                    <div className="flex items-center gap-2 mb-4">
-                        <div className={`w-3 h-3 rounded-full ${user?.isSuspended ? 'bg-red-500' : 'bg-green-500 animate-pulse'}`}></div>
-                        <span className="text-white font-bold text-lg">{user?.isSuspended ? '已停用' : '正常運作中'}</span>
+                {/* Business Plan */}
+                <div className="bg-card p-8 rounded-3xl border border-gray-700 flex flex-col relative overflow-hidden group hover:border-yellow-500/50 transition-all">
+                    <h3 className="text-xl font-bold text-white mb-2">Business 企業版</h3>
+                    <div className="flex items-baseline gap-1 mb-4">
+                        <span className="text-2xl font-black text-yellow-400">聯繫報價</span>
                     </div>
-                    <p className="text-xs text-gray-500">
-                        下次重置日: {user?.quota_reset_date ? new Date(user.quota_reset_date).toLocaleDateString() : '無期限'}
+                    <div className="bg-yellow-500/10 text-yellow-400 px-3 py-1 rounded-lg text-xs font-bold inline-block w-fit mb-6 border border-yellow-500/20">
+                        🎁 客製化點數方案
+                    </div>
+                    <ul className="space-y-3 text-sm text-gray-400 mb-8 flex-1">
+                        <li className="flex items-center gap-2">✅ <span className="text-white">全功能解鎖 (Full Access)</span></li>
+                        <li className="flex items-center gap-2">✅ 多帳號與團隊管理</li>
+                        <li className="flex items-center gap-2">✅ 專屬客服經理 (Line 群組)</li>
+                        <li className="flex items-center gap-2">✅ API 優先通道與客製開發</li>
+                    </ul>
+                    <button onClick={onContactClick} className="w-full py-3 rounded-xl border border-yellow-600/50 text-yellow-500 hover:bg-yellow-900/20 font-bold transition-all text-sm mb-2">
+                        企業諮詢
+                    </button>
+                    <p className="text-xs text-gray-500 text-center">
+                        適合代操公司與大型團隊
                     </p>
                 </div>
             </div>
 
-            {/* Pricing Table (Full Width) */}
+            {/* Cost Table */}
             <div className="bg-card rounded-3xl border border-gray-700 shadow-xl overflow-hidden mb-10">
                 <div className="p-6 border-b border-gray-700 flex justify-between items-center bg-gray-800/50">
                     <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                        💰 功能價目表 (Cost per Action)
+                        💰 扣點價目表 (1點 = $1 TWD)
                     </h3>
-                    <span className="text-xs text-gray-400 bg-black/30 px-3 py-1 rounded-full border border-gray-600">
-                        費率更新於: 2024/05
-                    </span>
                 </div>
                 
                 <div className="overflow-x-auto">
@@ -100,66 +130,39 @@ const PricingPanel: React.FC<Props> = ({ user }) => {
                             <tr>
                                 <th className="p-5 font-bold border-b border-gray-700 w-1/4">功能項目</th>
                                 <th className="p-5 font-bold text-right border-b border-gray-700 w-1/6">消耗點數</th>
-                                <th className="p-5 font-bold border-b border-gray-700 hidden sm:table-cell">詳細說明與價值</th>
+                                <th className="p-5 font-bold border-b border-gray-700 hidden sm:table-cell">說明</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-700/50 bg-gray-800/20">
-                            <tr className="hover:bg-white/5 transition-colors group">
-                                <td className="p-5 font-bold text-white group-hover:text-primary transition-colors">FB 企業貼文生成</td>
-                                <td className="p-5 text-right text-yellow-400 font-black text-lg">10 點</td>
-                                <td className="p-5 text-gray-400 text-xs leading-relaxed hidden sm:table-cell">
-                                    使用 <span className="text-white">Gemini Pro 1.5/3.0</span> 高智商模型。針對品牌語氣進行深度仿寫，包含 Emoji、Hashtag 策略與多段落排版。
-                                </td>
-                            </tr>
-                            <tr className="hover:bg-white/5 transition-colors group">
-                                <td className="p-5 font-bold text-white group-hover:text-primary transition-colors">SEO 部落格長文</td>
-                                <td className="p-5 text-right text-yellow-400 font-black text-lg">20 點</td>
-                                <td className="p-5 text-gray-400 text-xs leading-relaxed hidden sm:table-cell">
-                                    生成 1500+ 字結構化文章。包含 H2/H3 標題、Meta Description、FAQ 與關鍵字佈局，適合官網 SEO 經營。
-                                </td>
-                            </tr>
-                            <tr className="hover:bg-white/5 transition-colors group">
-                                <td className="p-5 font-bold text-white group-hover:text-primary transition-colors">熱門趨勢搜尋</td>
-                                <td className="p-5 text-right text-primary font-black text-lg">3 點</td>
-                                <td className="p-5 text-gray-400 text-xs leading-relaxed hidden sm:table-cell">
-                                    即時連網 (Google Search Grounding) 分析新聞與社群熱點。
-                                </td>
-                            </tr>
-                            <tr className="hover:bg-white/5 transition-colors group">
-                                <td className="p-5 font-bold text-white group-hover:text-primary transition-colors">AI 圖片生成 (標準)</td>
-                                <td className="p-5 text-right text-primary font-black text-lg">5 點</td>
-                                <td className="p-5 text-gray-400 text-xs leading-relaxed hidden sm:table-cell">
-                                    使用 Pollinations/Flux 模型快速生成。支援相片寫實風格、插畫風格。(含 Ideogram/Imagen 後端支援)
-                                </td>
-                            </tr>
-                            <tr className="hover:bg-white/5 transition-colors group">
-                                <td className="p-5 font-bold text-white group-hover:text-primary transition-colors">Threads 快速發文</td>
-                                <td className="p-5 text-right text-blue-400 font-black text-lg">2 點</td>
-                                <td className="p-5 text-gray-400 text-xs leading-relaxed hidden sm:table-cell">
-                                    使用 Flash 模型，適合口語化、生活感短文。包含風格模仿與廢文模式。
-                                </td>
-                            </tr>
-                            <tr className="hover:bg-white/5 transition-colors group">
-                                <td className="p-5 font-bold text-white group-hover:text-primary transition-colors">自動化排程 (每次)</td>
-                                <td className="p-5 text-right text-blue-400 font-black text-lg">2 點 + 內容費</td>
-                                <td className="p-5 text-gray-400 text-xs leading-relaxed hidden sm:table-cell">
-                                    觸發自動化任務的基礎費用。實際生成的貼文與圖片會另行計費。
-                                </td>
-                            </tr>
+                            <tr><td className="p-5 font-bold text-white">FB 貼文生成</td><td className="p-5 text-right text-yellow-400 font-bold">5 點</td><td className="p-5 text-gray-400 text-xs hidden sm:table-cell">Gemini Pro 高品質文案</td></tr>
+                            <tr><td className="p-5 font-bold text-white">AI 圖片 (首次/重繪)</td><td className="p-5 text-right text-primary font-bold">8 / 5 點</td><td className="p-5 text-gray-400 text-xs hidden sm:table-cell">DALL-E 3 / Ideogram 商業授權圖</td></tr>
+                            <tr><td className="p-5 font-bold text-white">Threads 發文</td><td className="p-5 text-right text-blue-400 font-bold">2 點</td><td className="p-5 text-gray-400 text-xs hidden sm:table-cell">Flash 模型快速生成</td></tr>
+                            <tr><td className="p-5 font-bold text-white">SEO 長文章</td><td className="p-5 text-right text-yellow-400 font-bold">15 點</td><td className="p-5 text-gray-400 text-xs hidden sm:table-cell">1500字以上結構化文章</td></tr>
+                            <tr><td className="p-5 font-bold text-white">自動化全套 (AutoPilot)</td><td className="p-5 text-right text-blue-400 font-bold">15 點</td><td className="p-5 text-gray-400 text-xs hidden sm:table-cell">包含趨勢搜尋、文案、製圖與排程 (含服務費)</td></tr>
                         </tbody>
                     </table>
                 </div>
             </div>
 
-            {/* Disclaimer */}
-            <div className="bg-gray-900/50 p-6 rounded-2xl border border-gray-800 text-center">
-                <h4 className="text-gray-300 font-bold mb-2 text-sm">⚠️ 法律與退款聲明</h4>
-                <p className="text-xs text-gray-500 max-w-3xl mx-auto leading-relaxed">
-                    本服務採用預付點數制 (Pre-paid Credits)。使用者了解 AI 生成內容具有隨機性，扣點後不保證生成結果完全符合您的審美預期，但我們會盡力提供最佳模型。
-                    點數一經購買或使用，除非系統發生重大故障（如：扣點後未產出任何內容），否則不予退款。
-                    詳細條款請參閱 <a href="/terms.html" className="text-primary hover:underline">服務條款</a>。
+            {/* Disclaimer & Terms Footer */}
+            <div className="bg-gray-900/50 p-8 rounded-2xl border border-gray-800 text-center">
+                <h4 className="text-gray-300 font-bold mb-4 text-sm uppercase tracking-widest">⚠️ 重要聲明與服務條款</h4>
+                <p className="text-xs text-gray-500 max-w-4xl mx-auto leading-relaxed mb-6">
+                    本服務採預付儲值制，<strong>點數一經購買或發放即無法退還</strong>。
+                    若您使用本程式，即代表您同意本服務之使用條款。
+                    我們會優先扣除即將到期的點數 (先進先出原則)。
+                    請注意：取消訂閱僅停止下期扣款，已支付之費用與點數恕不退費。
                 </p>
+                
+                <button 
+                    onClick={() => setShowTerms(true)}
+                    className="text-primary hover:text-white border-b border-primary hover:border-white text-xs font-bold transition-colors pb-0.5"
+                >
+                    閱讀完整服務條款與退款政策 ↗
+                </button>
             </div>
+
+            {showTerms && <TermsModal onClose={() => setShowTerms(false)} />}
         </div>
     );
 };

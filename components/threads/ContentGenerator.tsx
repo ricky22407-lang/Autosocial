@@ -60,9 +60,8 @@ const ContentGenerator: React.FC<Props> = ({ settings, accounts, user, onQuotaUp
     const loadTrends = async (overrideKeyword?: string) => {
         if (!user) return alert("請先登入");
         
-        // [BILLING LOGIC] Pay-Per-Click Enforced
-        // Always deduct points for trend search action, regardless of cache state.
-        const COST = 2; 
+        // [BILLING] Trend Search: 3 Points
+        const COST = 3; 
         const allowed = await checkAndUseQuota(user.user_id, COST, 'TREND_SEARCH');
         if (!allowed) return; 
         
@@ -100,9 +99,10 @@ const ContentGenerator: React.FC<Props> = ({ settings, accounts, user, onQuotaUp
     };
 
     const calculateCost = (count: number, mode: ImageSourceType) => {
-        const baseCost = 2; 
+        const baseCost = 2; // Text generation base
         let extraCost = 0;
-        if (mode === 'ai') extraCost = 5; 
+        // [BILLING] AI Image (First): 6 Points Total -> Base 2 + Extra 4
+        if (mode === 'ai') extraCost = 4; 
         else if (mode === 'news') extraCost = 1;
         else if (mode === 'stock') extraCost = 1;
         return (baseCost + extraCost) * count;
@@ -195,7 +195,9 @@ const ContentGenerator: React.FC<Props> = ({ settings, accounts, user, onQuotaUp
     const handleImageModeChange = async (post: GeneratedPost, newMode: ImageSourceType) => {
         if (newMode === 'stock' || newMode === 'ai') { 
             if (!user) return alert("請先登入");
-            const COST = 2; 
+            
+            // [BILLING] Threads Image Regen: 4 Points
+            const COST = 4; 
             const allowed = await checkAndUseQuota(user.user_id, COST, 'THREADS_REGEN_IMAGE');
             if (!allowed) return; 
             onQuotaUpdate();
@@ -256,7 +258,7 @@ const ContentGenerator: React.FC<Props> = ({ settings, accounts, user, onQuotaUp
                                  onClick={() => loadTrends()} 
                                  className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 md:py-0 rounded font-bold transition-colors whitespace-nowrap flex items-center justify-center gap-2"
                              >
-                                 搜尋趨勢 (2點)
+                                 搜尋趨勢 (3點)
                              </button>
                          </div>
                          <p className="text-[10px] text-gray-500 mt-2">提示：輸入關鍵字後點擊「搜尋」，AI 將為您挖掘該領域的最新熱門新聞。</p>
@@ -264,7 +266,7 @@ const ContentGenerator: React.FC<Props> = ({ settings, accounts, user, onQuotaUp
                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4 max-h-[60vh] overflow-y-auto custom-scrollbar p-1">
                           <div onClick={() => loadTrends(settings.industry)} className="flex flex-col items-center justify-center bg-gray-800/50 border border-gray-600 hover:border-gray-400 rounded-lg p-6 cursor-pointer min-h-[160px] text-center shadow-lg transition-transform active:scale-95 group">
                               <span className="text-lg font-bold text-gray-300 group-hover:text-white">挖掘綜合熱門靈感</span>
-                              <span className="text-[10px] bg-primary/20 text-primary px-2 py-0.5 rounded mt-2 font-bold tracking-wider">2 點數</span>
+                              <span className="text-[10px] bg-primary/20 text-primary px-2 py-0.5 rounded mt-2 font-bold tracking-wider">3 點數</span>
                               <p className="text-xs text-gray-500 mt-2">查看 {settings.industry || '台灣'} 目前最紅的話題</p>
                           </div>
                           {trendingTopics.map((t, i) => (
@@ -318,7 +320,7 @@ const ContentGenerator: React.FC<Props> = ({ settings, accounts, user, onQuotaUp
                                         ) : <span className="text-gray-500">無圖片</span>}
                                         <div className="absolute bottom-2 left-2 flex gap-2">
                                             <button onClick={() => handleImageModeChange(post, 'stock')} disabled={isRegeneratingImage === post.id} className="text-xs bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded shadow-lg font-bold border border-gray-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1">
-                                                {isRegeneratingImage === post.id ? (<><div className="loader w-3 h-3 border-2 border-t-white"></div>生成中...</>) : '隨機換圖 (2點)'}
+                                                {isRegeneratingImage === post.id ? (<><div className="loader w-3 h-3 border-2 border-t-white"></div>生成中...</>) : '隨機換圖 (4點)'}
                                             </button>
                                         </div>
                                     </div>
