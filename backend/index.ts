@@ -33,6 +33,7 @@ app.use(express.json() as any);
 const authRouter = express.Router();
 // Fix: Cast handlers to any to resolve RequestHandler type mismatch errors
 authRouter.get('/me', isAuthenticated as any, AuthController.getMe as any);
+authRouter.post('/threads/exchange', isAuthenticated as any, AuthController.exchangeThreads as any);
 app.use('/api/auth', authRouter as any);
 
 // Content Module

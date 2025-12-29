@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { AppView, BrandSettings, Post, UserProfile } from './types';
+import { AppView, BrandSettings, Post, UserProfile, ThreadsAccount } from './types';
 
 // #region Components Import
 import SettingsForm from './components/SettingsForm';
@@ -21,7 +21,7 @@ import AiAssistantBubble from './components/AiAssistantBubble'; // New Import
 // #endregion
 
 // #region Services & Auth Import
-import { subscribeAuth, logout, getUserProfile, fetchUserPostsFromCloud, syncPostToCloud, deletePostFromCloud } from './services/authService';
+import { subscribeAuth, logout, getUserProfile, fetchUserPostsFromCloud, syncPostToCloud, deletePostFromCloud, exchangeThreadsAuth } from './services/authService';
 // #endregion
 
 // #region Icons
@@ -82,7 +82,8 @@ const App: React.FC = () => {
   const [editingPost, setEditingPost] = useState<Post | null>(null);
   const [showReportModal, setShowReportModal] = useState(false);
   const [showKeyModal, setShowKeyModal] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false); 
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isProcessingThreads, setIsProcessingThreads] = useState(false);
 
   useEffect(() => {
     const unsubscribe = subscribeAuth(async (currentUser) => {
@@ -102,6 +103,73 @@ const App: React.FC = () => {
     });
     return () => unsubscribe();
   }, []);
+
+  // Handle Threads OAuth Redirect
+  useEffect(() => {
+      const handleThreadsCallback = async () => {
+          if (loadingAuth || !user) return; // Wait for auth
+          
+          const params = new URLSearchParams(window.location.search);
+          const code = params.get('code');
+          
+          if (code) {
+              // Only process if we haven't already processed it (prevent double effect)
+              if (isProcessingThreads) return;
+              setIsProcessingThreads(true);
+
+              try {
+                  // Restore pending settings (containing Secret)
+                  const pendingStr = localStorage.getItem('autosocial_pending_settings');
+                  const currentSettings = pendingStr ? JSON.parse(pendingStr) : settings;
+                  
+                  if (!currentSettings.threadsAppId || !currentSettings.threadsAppSecret) {
+                      throw new Error("遺失 App ID 或 Secret，請重新嘗試。");
+                  }
+
+                  // Call Backend Exchange
+                  const result = await exchangeThreadsAuth(
+                      code, 
+                      currentSettings.threadsAppId, 
+                      currentSettings.threadsAppSecret, 
+                      window.location.origin
+                  );
+
+                  // Add new account
+                  const newAccount: ThreadsAccount = {
+                      id: Date.now().toString(),
+                      userId: result.userId,
+                      token: result.token,
+                      username: result.username || `User_${result.userId.slice(-4)}`,
+                      isActive: true,
+                      accountType: 'personal',
+                      styleGuide: ''
+                  };
+
+                  const updatedSettings = {
+                      ...currentSettings,
+                      threadsAccounts: [...(currentSettings.threadsAccounts || []), newAccount]
+                  };
+
+                  setSettings(updatedSettings);
+                  localStorage.setItem('autosocial_settings', JSON.stringify(updatedSettings));
+                  localStorage.removeItem('autosocial_pending_settings'); // Cleanup
+
+                  alert(`Threads 帳號 ${newAccount.username} 連接成功！`);
+                  
+                  // Clean URL
+                  window.history.replaceState({}, document.title, window.location.pathname);
+                  setView(AppView.THREADS_NURTURE);
+
+              } catch (e: any) {
+                  alert(`Threads 串接失敗: ${e.message}`);
+              } finally {
+                  setIsProcessingThreads(false);
+              }
+          }
+      };
+
+      handleThreadsCallback();
+  }, [loadingAuth, user]);
 
   const loadLocalSettings = () => {
     const savedSettings = localStorage.getItem('autosocial_settings');
@@ -191,6 +259,7 @@ const App: React.FC = () => {
   const hasThreadsAccess = isProPlus || userProfile?.unlockedFeatures?.includes('THREADS');
 
   if (loadingAuth) return <div className="h-screen flex items-center justify-center bg-bg text-primary text-xl animate-pulse font-mono tracking-widest">INITIALIZING SYSTEM...</div>;
+  if (isProcessingThreads) return <div className="h-screen flex items-center justify-center bg-bg text-pink-500 text-xl font-bold animate-pulse">正在與 Threads 進行安全連線...</div>;
   if (view === AppView.LOGIN) return <Login onLoginSuccess={() => {}} />;
 
   const NavItem = ({ viewId, label, active, onClick, disabled = false, badge = "", icon }: any) => (

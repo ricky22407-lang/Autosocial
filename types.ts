@@ -120,6 +120,11 @@ export interface BrandSettings {
   facebookAppId?: string; // NEW: For OAuth
   facebookPageId: string;
   facebookToken: string;
+  
+  // NEW: Threads OAuth
+  threadsAppId?: string;
+  threadsAppSecret?: string;
+
   tokenExpiry?: number;
   
   threadsAccounts?: ThreadsAccount[];

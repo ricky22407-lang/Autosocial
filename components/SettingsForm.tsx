@@ -285,7 +285,7 @@ const SettingsForm: React.FC<Props> = ({ initialSettings, onSave }) => {
                 <div className="bg-blue-900/10 p-4 rounded-lg border border-blue-900/30 mb-4">
                     <div className="flex flex-col md:flex-row gap-4 items-end md:items-center">
                         <div className="flex-1 w-full">
-                            <label className="block text-xs text-blue-300 font-bold mb-1">Facebook App ID (必填)</label>
+                            <label className="block text-xs text-blue-300 font-bold mb-1">Facebook App ID</label>
                             <input 
                                 value={formData.facebookAppId || ''} 
                                 onChange={e => handleChange('facebookAppId', e.target.value)}
@@ -299,7 +299,7 @@ const SettingsForm: React.FC<Props> = ({ initialSettings, onSave }) => {
                             disabled={isFbLoading}
                             className="w-full md:w-auto bg-[#1877F2] hover:bg-[#166fe5] text-white px-6 py-2 rounded font-bold shadow-lg transition-all flex items-center justify-center gap-2 h-[40px]"
                         >
-                            {isFbLoading ? '連接中...' : '🔵 連接 Facebook 帳號'}
+                            {isFbLoading ? '連接中...' : '🔵 連接 Facebook'}
                         </button>
                     </div>
                     {fbPages.length > 0 && (

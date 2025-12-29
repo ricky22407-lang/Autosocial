@@ -16,10 +16,20 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   const [activeTab, setActiveTab] = useState<'accounts' | 'interaction' | 'generator'>('accounts');
   const [accounts, setAccounts] = useState<ThreadsAccount[]>(settings.threadsAccounts || []);
 
-  // Update parent settings whenever accounts change
+  // Sync state when external settings change (e.g. from OAuth callback in App.tsx)
   useEffect(() => {
-    onSaveSettings({ ...settings, threadsAccounts: accounts });
-  }, [accounts]);
+      if (JSON.stringify(settings.threadsAccounts) !== JSON.stringify(accounts)) {
+          setAccounts(settings.threadsAccounts || []);
+      }
+  }, [settings.threadsAccounts]);
+
+  // Update parent settings whenever local accounts change
+  // Note: We need to be careful not to create an infinite loop with the above effect.
+  // The check JSON.stringify in the above effect helps.
+  const handleAccountsChange = (newAccounts: ThreadsAccount[]) => {
+      setAccounts(newAccounts);
+      onSaveSettings({ ...settings, threadsAccounts: newAccounts });
+  };
 
   return (
     <div className="max-w-6xl mx-auto p-4 animate-fade-in pb-20">
@@ -37,7 +47,9 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
       {activeTab === 'accounts' && (
           <AccountManager 
               accounts={accounts} 
-              setAccounts={setAccounts} 
+              setAccounts={handleAccountsChange}
+              settings={settings}
+              onSaveSettings={onSaveSettings}
               user={user} 
               onQuotaUpdate={onQuotaUpdate} 
           />

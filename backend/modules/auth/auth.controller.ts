@@ -15,4 +15,65 @@ export class AuthController {
       next(err);
     }
   }
+
+  static async exchangeThreads(req: Request, res: Response, next: NextFunction) {
+    try {
+        const { code, clientId, clientSecret, redirectUri } = req.body;
+        
+        if (!code || !clientId || !clientSecret || !redirectUri) {
+            return ResponseBuilder.error(res, "Missing parameters", 'AUTH_002' as any, 400);
+        }
+
+        // 1. Exchange Code for Short Token
+        const params = new URLSearchParams();
+        params.append('client_id', clientId);
+        params.append('client_secret', clientSecret);
+        params.append('grant_type', 'authorization_code');
+        params.append('redirect_uri', redirectUri);
+        params.append('code', code);
+
+        const tokenRes = await fetch('https://graph.threads.net/oauth/access_token', {
+            method: 'POST',
+            body: params
+        });
+        
+        const tokenData = await tokenRes.json();
+        if (tokenData.error) {
+            throw new Error(`Meta API Error (Step 1): ${tokenData.error.message}`);
+        }
+        
+        const shortToken = tokenData.access_token;
+        const userId = tokenData.user_id;
+
+        // 2. Exchange for Long Token
+        const longTokenUrl = `https://graph.threads.net/access_token?grant_type=th_exchange_token&client_secret=${clientSecret}&access_token=${shortToken}`;
+        const longRes = await fetch(longTokenUrl);
+        const longData = await longRes.json();
+        
+        if (longData.error) {
+             throw new Error(`Meta API Error (Step 2): ${longData.error.message}`);
+        }
+        
+        const longToken = longData.access_token;
+
+        // 3. Get Username (Optional, but good for UI)
+        let username = 'Unknown';
+        try {
+            const userRes = await fetch(`https://graph.threads.net/v1.0/me?fields=id,username,name&access_token=${longToken}`);
+            const userData = await userRes.json();
+            if (userData.username) username = userData.username;
+        } catch (e) {
+            console.warn("Failed to fetch username", e);
+        }
+
+        ResponseBuilder.success(res, {
+            token: longToken,
+            userId: userId,
+            username: username
+        });
+
+    } catch(e: any) {
+        next(e);
+    }
+  }
 }

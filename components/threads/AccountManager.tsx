@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { ThreadsAccount, UserProfile } from '../../types';
+import { ThreadsAccount, UserProfile, BrandSettings } from '../../types';
 import { validateThreadsToken, fetchUserThreads } from '../../services/threadsService';
 import { analyzeThreadsStyle } from '../../services/geminiService';
 import { checkAndUseQuota } from '../../services/authService';
@@ -10,11 +10,13 @@ import TokenTutorialModal from '../TokenTutorialModal';
 interface Props {
     accounts: ThreadsAccount[];
     setAccounts: (accs: ThreadsAccount[]) => void;
+    settings: BrandSettings;
+    onSaveSettings: (settings: BrandSettings) => void;
     user: UserProfile | null;
     onQuotaUpdate: () => void;
 }
 
-const AccountManager: React.FC<Props> = ({ accounts, setAccounts, user, onQuotaUpdate }) => {
+const AccountManager: React.FC<Props> = ({ accounts, setAccounts, settings, onSaveSettings, user, onQuotaUpdate }) => {
     const [newAccountInput, setNewAccountInput] = useState<{
         userIdInput: string;
         token: string;
@@ -34,6 +36,25 @@ const AccountManager: React.FC<Props> = ({ accounts, setAccounts, user, onQuotaU
     const [isVerifying, setIsVerifying] = useState(false);
     const [isAnalyzingStyle, setIsAnalyzingStyle] = useState<string | null>(null);
     const [showTutorial, setShowTutorial] = useState(false);
+    const [showAppConfig, setShowAppConfig] = useState(false);
+
+    // --- OAuth Handler ---
+    const handleConnectThreads = () => {
+        if (!settings.threadsAppId || !settings.threadsAppSecret) {
+            alert("請先展開「OAuth 平台設定」並填寫 App ID 與 Secret 才能啟用一鍵串接。");
+            setShowAppConfig(true);
+            return;
+        }
+        
+        // Save current form state to localStorage
+        localStorage.setItem('autosocial_pending_settings', JSON.stringify(settings));
+
+        const redirectUri = window.location.origin; 
+        const scope = 'threads_basic,threads_content_publish';
+        const authUrl = `https://threads.net/oauth/authorize?client_id=${settings.threadsAppId}&redirect_uri=${redirectUri}&scope=${scope}&response_type=code`;
+        
+        window.location.href = authUrl;
+    };
 
     const handleVerifyAccount = async () => {
         const { userIdInput, token } = newAccountInput;
@@ -117,11 +138,72 @@ const AccountManager: React.FC<Props> = ({ accounts, setAccounts, user, onQuotaU
         }
     };
 
+    // Helper to update settings
+    const handleConfigChange = (key: keyof BrandSettings, value: string) => {
+        onSaveSettings({ ...settings, [key]: value });
+    };
+
     return (
         <div className="space-y-6">
-            {/* Add New Account Form */}
+            
+            {/* OAuth Connection Section */}
+            <div className="bg-pink-900/10 p-6 rounded-xl border border-pink-900/30">
+                <div className="flex justify-between items-start mb-4">
+                    <div>
+                        <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                            🔗 快速連接 (OAuth)
+                        </h3>
+                        <p className="text-xs text-pink-300 mt-1">
+                            無需手動複製 Token，登入 Instagram 即可完成授權。
+                        </p>
+                    </div>
+                    <button 
+                        onClick={() => setShowAppConfig(!showAppConfig)} 
+                        className="text-xs text-gray-400 hover:text-white underline"
+                    >
+                        {showAppConfig ? '隱藏設定' : '⚙️ 平台設定 (App ID)'}
+                    </button>
+                </div>
+
+                {showAppConfig && (
+                    <div className="bg-black/40 p-4 rounded-lg mb-4 animate-fade-in border border-pink-800/30">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-xs text-pink-300 font-bold mb-1">Threads App ID</label>
+                                <input 
+                                    value={settings.threadsAppId || ''} 
+                                    onChange={e => handleConfigChange('threadsAppId', e.target.value)}
+                                    className="w-full bg-black/50 border border-pink-800 rounded p-2 text-white text-sm"
+                                    placeholder="填入您的 App ID"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs text-pink-300 font-bold mb-1">Threads App Secret</label>
+                                <input 
+                                    type="password"
+                                    value={settings.threadsAppSecret || ''} 
+                                    onChange={e => handleConfigChange('threadsAppSecret', e.target.value)}
+                                    className="w-full bg-black/50 border border-pink-800 rounded p-2 text-white text-sm"
+                                    placeholder="填入 App Secret (用於交換 Token)"
+                                />
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                <button 
+                    onClick={handleConnectThreads}
+                    className="w-full bg-pink-600 hover:bg-pink-500 text-white px-6 py-3 rounded-lg font-bold shadow-lg transition-all flex items-center justify-center gap-2"
+                >
+                    <span className="text-xl">@</span> 一鍵連接新帳號
+                </button>
+            </div>
+
+            {/* Manual Add Account Form */}
             <div className="bg-card p-6 rounded-xl border border-gray-700">
-                <h3 className="font-bold text-white mb-4">新增帳號</h3>
+                <h3 className="font-bold text-gray-400 mb-4 text-xs uppercase tracking-widest border-b border-gray-700 pb-2">
+                    進階選項：手動新增帳號 (Developer Mode)
+                </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div><label className="block text-xs text-gray-400 mb-1">Threads User ID *</label><input value={newAccountInput.userIdInput} onChange={e => setNewAccountInput({...newAccountInput, userIdInput: e.target.value})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white" placeholder="數值 ID" /></div>
                     <div>
@@ -166,6 +248,7 @@ const AccountManager: React.FC<Props> = ({ accounts, setAccounts, user, onQuotaU
             </div>
 
             {/* List Accounts */}
+            <h3 className="font-bold text-white mt-8 mb-4 border-l-4 border-pink-500 pl-3">已連結的帳號 ({accounts.length})</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {accounts.map((acc) => (
                     <div key={acc.id} className="bg-dark p-4 rounded border border-gray-600 relative group">

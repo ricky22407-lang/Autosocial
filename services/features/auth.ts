@@ -130,3 +130,36 @@ export const sendPasswordReset = async (email: string) => {
     if (!isMock) await auth.sendPasswordResetEmail(email);
     else console.log(`[Mock] Password reset sent to ${email}`);
 };
+
+/**
+ * Exchange Threads OAuth Code for Long-Lived Token via Backend
+ */
+export const exchangeThreadsAuth = async (code: string, clientId: string, clientSecret: string, redirectUri: string) => {
+    if (isMock) {
+        return { 
+            token: 'mock_threads_long_token_' + Date.now(), 
+            userId: 'mock_user_123',
+            username: 'mock_threads_user'
+        };
+    }
+
+    const user = getCurrentUser();
+    if (!user) throw new Error("Authentication required for token exchange");
+
+    const token = await user.getIdToken();
+    
+    const res = await fetch('/api/auth/threads/exchange', {
+        method: 'POST',
+        headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ code, clientId, clientSecret, redirectUri })
+    });
+
+    const data = await res.json();
+    if (!data.success) {
+        throw new Error(data.error?.message || 'Token exchange failed');
+    }
+    return data.data;
+};
