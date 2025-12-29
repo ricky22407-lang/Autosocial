@@ -32,7 +32,7 @@ const PricingPanel: React.FC<Props> = ({ user, onContactClick }) => {
                 <p className="text-gray-400 font-medium text-sm md:text-base max-w-2xl mx-auto">
                     我們的訂閱模式：<span className="text-primary font-bold">支付月費取得「功能權限」與「贈送點數」</span>。
                     <br/>
-                    {earliestExpiry && user?.quota_total > 0 && (
+                    {earliestExpiry && (user?.quota_total ?? 0) > 0 && (
                         <span className="text-yellow-400 font-bold block mt-2">
                             ⚠️ 您最近的一批點數將於 {new Date(earliestExpiry).toLocaleDateString()} 到期。
                         </span>
