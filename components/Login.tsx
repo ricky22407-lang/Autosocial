@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { login, register, sendPasswordReset } from '../services/authService';
 
 interface Props {
@@ -10,9 +10,18 @@ const Login: React.FC<Props> = ({ onLoginSuccess }) => {
   const [mode, setMode] = useState<'LOGIN' | 'REGISTER' | 'FORGOT'>('LOGIN');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const savedEmail = localStorage.getItem('autosocial_remembered_email');
+    if (savedEmail) {
+      setEmail(savedEmail);
+      setRememberMe(true);
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,6 +35,14 @@ const Login: React.FC<Props> = ({ onLoginSuccess }) => {
         onLoginSuccess();
       } else if (mode === 'LOGIN') {
         await login(email.trim(), password.trim());
+        
+        // Handle Remember Me
+        if (rememberMe) {
+          localStorage.setItem('autosocial_remembered_email', email.trim());
+        } else {
+          localStorage.removeItem('autosocial_remembered_email');
+        }
+        
         onLoginSuccess();
       } else if (mode === 'FORGOT') {
         await sendPasswordReset(email.trim());
@@ -69,7 +86,9 @@ const Login: React.FC<Props> = ({ onLoginSuccess }) => {
             <label className="block text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider">Email</label>
             <input 
               type="email" 
+              name="email"
               required
+              autoComplete="username"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full p-4 rounded-xl outline-none text-white font-medium"
@@ -81,12 +100,29 @@ const Login: React.FC<Props> = ({ onLoginSuccess }) => {
             <div>
               <label className="block text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider">Password</label>
               <input 
-                type="password" 
+                type="password"
+                name="password" 
                 required
+                autoComplete={mode === 'REGISTER' ? "new-password" : "current-password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full p-4 rounded-xl outline-none text-white font-medium"
               />
+            </div>
+          )}
+
+          {mode === 'LOGIN' && (
+            <div className="flex items-center gap-2">
+              <input 
+                type="checkbox" 
+                id="rememberMe"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-600 bg-black/30 text-primary focus:ring-primary cursor-pointer"
+              />
+              <label htmlFor="rememberMe" className="text-sm text-gray-400 cursor-pointer select-none">
+                記住帳號 (Remember Email)
+              </label>
             </div>
           )}
 
@@ -105,15 +141,15 @@ const Login: React.FC<Props> = ({ onLoginSuccess }) => {
         <div className="mt-8 flex flex-col gap-3 text-center text-xs font-medium">
           {mode === 'LOGIN' && (
              <>
-                <button onClick={() => setMode('REGISTER')} className="text-gray-400 hover:text-white transition-colors">還沒有帳號？ <span className="text-primary underline decoration-primary/50 underline-offset-4">免費註冊</span></button>
-                <button onClick={() => setMode('FORGOT')} className="text-gray-500 hover:text-gray-400">忘記密碼？</button>
+                <button type="button" onClick={() => setMode('REGISTER')} className="text-gray-400 hover:text-white transition-colors">還沒有帳號？ <span className="text-primary underline decoration-primary/50 underline-offset-4">免費註冊</span></button>
+                <button type="button" onClick={() => setMode('FORGOT')} className="text-gray-500 hover:text-gray-400">忘記密碼？</button>
              </>
           )}
           {mode === 'REGISTER' && (
-             <button onClick={() => setMode('LOGIN')} className="text-gray-400 hover:text-white transition-colors">已有帳號？ <span className="text-primary underline decoration-primary/50 underline-offset-4">點此登入</span></button>
+             <button type="button" onClick={() => setMode('LOGIN')} className="text-gray-400 hover:text-white transition-colors">已有帳號？ <span className="text-primary underline decoration-primary/50 underline-offset-4">點此登入</span></button>
           )}
           {mode === 'FORGOT' && (
-             <button onClick={() => setMode('LOGIN')} className="text-gray-400 hover:text-white transition-colors">想起密碼了？ <span className="text-primary underline decoration-primary/50 underline-offset-4">返回登入</span></button>
+             <button type="button" onClick={() => setMode('LOGIN')} className="text-gray-400 hover:text-white transition-colors">想起密碼了？ <span className="text-primary underline decoration-primary/50 underline-offset-4">返回登入</span></button>
           )}
         </div>
       </div>
