@@ -13,13 +13,27 @@ interface Message {
     text: string;
 }
 
+// 固定問題列表
 const QUICK_QUESTIONS = [
     "怎麼開始寫第一篇貼文？",
     "點數不夠了怎麼辦？",
-    "圖片風格要怎麼選比較好？",
+    "圖片風格要怎麼選？",
     "什麼是 SEO 文章？",
     "幫我聯絡真人客服"
 ];
+
+// 固定回答內容 (不消耗 AI Token)
+const PREDEFINED_ANSWERS: Record<string, string> = {
+    "怎麼開始寫第一篇貼文？": "👋 歡迎使用！請依照以下簡單步驟：\n\n1. 點擊左側選單的 **「內容創作」**。\n2. 在中間的輸入框填寫您想寫的主題 (例如：夏季保養、新品上市)。\n3. 選擇 **「品牌模式」** (適合粉專經營) 或 **「爆文模式」** (適合 IG/小紅書)。\n4. 點擊 **「開始生成內容」**，AI 就會幫您寫好文案並畫好圖囉！✨",
+    
+    "點數不夠了怎麼辦？": "別擔心！您有幾種方式獲取點數：\n\n💰 **儲值方案**：請聯繫真人客服進行儲值。\n🎁 **推薦獎勵**：到「推薦計畫」複製您的邀請碼分享給朋友，雙方都能獲得 50 點！\n🔑 **兌換序號**：若您有獲得活動序號，請點擊左下角的「兌換序號」按鈕。",
+    
+    "圖片風格要怎麼選？": "這取決於您的品牌形象喔！🎨\n\n- **極簡主義 (Minimalist)**：適合 3C、高單價精品，乾淨俐落。\n- **溫馨居家 (Warm)**：適合親子、寵物、食品，給人親切感。\n- **鮮豔流行 (Vibrant)**：適合促銷活動、年輕潮流品牌，非常吸睛。\n\n您可以在「品牌設定」中調整預設風格！",
+    
+    "什麼是 SEO 文章？": "🔍 **SEO (搜尋引擎優化) 文章** 是專門寫給 Google 看的長篇文章。\n\nAutoSocial 會幫您生成 1500 字以上的結構化內容，包含 H2/H3 標題與關鍵字佈局。這能幫助您的品牌官網在 Google 搜尋結果中排名更靠前，帶來長期的免費流量！📈",
+    
+    "幫我聯絡真人客服": "沒問題！您可以透過以下方式找到我們：\n\n1. 點擊左側選單底部的 **「聯繫客服」** 按鈕。\n2. 直接加 LINE ID：**ricky50517**\n3. 撥打專線：**0983-949-997**\n\n我們服務時間是週一至週五 10:00-18:00 喔！😊"
+};
 
 const AiAssistantBubble: React.FC<Props> = ({ currentView, settings }) => {
     const [isOpen, setIsOpen] = useState(false);
@@ -39,14 +53,25 @@ const AiAssistantBubble: React.FC<Props> = ({ currentView, settings }) => {
     const handleSend = async (text: string = input) => {
         if (!text.trim() || isTyping) return;
 
-        // Immediate input clear to prevent double send and improve UX
-        const userText = text;
-        setInput(''); 
+        // 1. 立即清除輸入框 (UX Fix: Ensure this runs synchronously first)
+        setInput('');
         
+        const userText = text;
         const userMsg: Message = { role: 'user', text: userText };
         setMessages(prev => [...prev, userMsg]);
         setIsTyping(true);
 
+        // 2. 檢查是否有「固定回答」(Local Answer)
+        if (PREDEFINED_ANSWERS[userText]) {
+            // 模擬思考延遲，增加真實感，但不消耗 API
+            setTimeout(() => {
+                setMessages(prev => [...prev, { role: 'ai', text: PREDEFINED_ANSWERS[userText] }]);
+                setIsTyping(false);
+            }, 600);
+            return;
+        }
+
+        // 3. 若無固定回答，則呼叫 AI API
         try {
             const context = {
                 currentView,
@@ -141,7 +166,7 @@ const AiAssistantBubble: React.FC<Props> = ({ currentView, settings }) => {
                             onKeyDown={e => {
                                 if (e.key === 'Enter' && !e.shiftKey) {
                                     e.preventDefault();
-                                    handleSend();
+                                    handleSend(input); // Explicitly pass current input
                                 }
                             }}
                             placeholder="輸入問題 (Enter 發送)..."
@@ -150,7 +175,7 @@ const AiAssistantBubble: React.FC<Props> = ({ currentView, settings }) => {
                             style={{ minHeight: '44px' }}
                         />
                         <button 
-                            onClick={() => handleSend()}
+                            onClick={() => handleSend(input)}
                             disabled={!input.trim() || isTyping}
                             className="bg-primary hover:bg-cyan-400 text-black px-4 py-3 rounded-xl font-black transition-all hover:shadow-[0_0_15px_rgba(0,242,234,0.4)] disabled:opacity-50 disabled:shadow-none h-[44px] flex items-center"
                         >
