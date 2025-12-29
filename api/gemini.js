@@ -65,13 +65,20 @@ module.exports = async function (req, res) {
       getOpenAIKey() { return this.openAIKey; }
 
       getKeyConfigStatus() {
-          return [
-              !!(process.env.API_KEY && process.env.API_KEY.length > 10),
-              !!(process.env.API_KEY_2 && process.env.API_KEY_2.length > 10),
-              !!(process.env.IDEOGRAM_API_KEY),
-              !!(process.env.IDEOGRAM_API_KEY_2),
-              !!(process.env.GROK_API_KEY)
-          ];
+          return {
+              keyStatus: [
+                  !!(process.env.API_KEY && process.env.API_KEY.length > 10),
+                  !!(process.env.API_KEY_2 && process.env.API_KEY_2.length > 10),
+                  !!(process.env.API_KEY_3 && process.env.API_KEY_3.length > 10),
+                  !!(process.env.API_KEY_4 && process.env.API_KEY_4.length > 10),
+                  !!(process.env.API_KEY_5 && process.env.API_KEY_5.length > 10)
+              ],
+              providers: {
+                  openai: !!(process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.length > 10),
+                  ideogram: !!(process.env.IDEOGRAM_API_KEY),
+                  grok: !!(process.env.GROK_API_KEY)
+              }
+          };
       }
 
       switchToNextKey() {
@@ -117,7 +124,6 @@ module.exports = async function (req, res) {
 
           try {
               const ai = new GoogleGenAI({ apiKey: currentKey });
-              // Pass both AI instance AND the raw key string to the callback
               const result = await operation(ai, currentKey);
               return result;
 
@@ -142,17 +148,25 @@ module.exports = async function (req, res) {
       throw new Error(`All API keys exhausted. Last error: ${lastError?.message}`);
   }
 
-  // ... (Ideogram/Grok/OpenAI functions remain the same as previous output) ...
+  // --- Provider Implementations (STANDARD QUALITY ENFORCED) ---
+  
   async function generateIdeogramImage(prompt) {
       const apiKey = keyManager.getIdeogramKey();
       if (!apiKey) return null; 
+      
+      // Ensure no high-res contamination
+      const cleanPrompt = prompt.replace(/8k|highly detailed|masterpiece/gi, "").trim();
+      const finalPrompt = `${cleanPrompt}, standard web quality, realistic social media photo`;
+
       let ar = "ASPECT_1_1";
       if (prompt.includes("16:9")) ar = "ASPECT_16_9";
       if (prompt.includes("9:16")) ar = "ASPECT_9_16";
+      
       const response = await fetch("https://api.ideogram.ai/generate", {
           method: "POST",
           headers: { "Api-Key": apiKey, "Content-Type": "application/json" },
-          body: JSON.stringify({ image_request: { prompt: prompt, aspect_ratio: ar, model: "V_2", magic_prompt_option: "AUTO" } })
+          // Using V_1 or V_2 depending on cost/speed preference for "Standard"
+          body: JSON.stringify({ image_request: { prompt: finalPrompt, aspect_ratio: ar, model: "V_2", magic_prompt_option: "AUTO" } })
       });
       if (!response.ok) throw new Error(`Ideogram Error: ${response.status}`);
       const data = await response.json();
@@ -166,10 +180,14 @@ module.exports = async function (req, res) {
   async function generateGrokImage(prompt) {
       const apiKey = keyManager.getGrokKey();
       if (!apiKey) return null;
+      
+      const cleanPrompt = prompt.replace(/8k|highly detailed|masterpiece/gi, "").trim();
+      
       const response = await fetch("https://api.x.ai/v1/images/generations", {
           method: "POST",
           headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt: prompt, model: "grok-beta", n: 1, size: "1024x1024", response_format: "b64_json" })
+          // Grok only has one model currently, control via prompt
+          body: JSON.stringify({ prompt: cleanPrompt, model: "grok-beta", n: 1, size: "1024x1024", response_format: "b64_json" })
       });
       if (!response.ok) throw new Error(`Grok Error`);
       const data = await response.json();
@@ -179,10 +197,14 @@ module.exports = async function (req, res) {
   async function generateOpenAIImage(prompt) {
       const apiKey = keyManager.getOpenAIKey();
       if (!apiKey) return null;
+      
+      const cleanPrompt = prompt.replace(/8k|highly detailed|masterpiece/gi, "").trim();
+
       const response = await fetch("https://api.openai.com/v1/images/generations", {
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-          body: JSON.stringify({ model: "dall-e-3", prompt: prompt, n: 1, size: "1024x1024", response_format: "b64_json" })
+          // Using standard quality explicitly
+          body: JSON.stringify({ model: "dall-e-3", prompt: cleanPrompt, n: 1, size: "1024x1024", quality: "standard", response_format: "b64_json" })
       });
       const data = await response.json();
       if (data.error) throw new Error(`OpenAI Error: ${data.error.message}`);
@@ -194,11 +216,11 @@ module.exports = async function (req, res) {
     if (!action) return res.status(400).json({ error: "Missing 'action'" });
 
     if (action === 'getServiceStatus') {
-        const status = keyManager.getKeyConfigStatus();
+        const statusConfig = keyManager.getKeyConfigStatus();
         return res.status(200).json({ 
-            keyStatus: status,
-            totalConfigured: status.filter(s => s).length,
-            hasOpenAI: !!keyManager.getOpenAIKey()
+            keyStatus: statusConfig.keyStatus,
+            providers: statusConfig.providers,
+            totalConfigured: statusConfig.keyStatus.filter(s => s).length
         });
     }
 
@@ -228,6 +250,8 @@ module.exports = async function (req, res) {
     if (action === 'generateImages') {
       const { prompt, safetySettings } = payload;
       
+      // Waterfall Strategy: Ideogram -> Imagen -> Grok -> OpenAI -> Flash
+      
       try {
           const ideogramB64 = await generateIdeogramImage(prompt);
           if (ideogramB64) return res.status(200).json({ base64: ideogramB64, provider: 'ideogram' });
@@ -238,7 +262,7 @@ module.exports = async function (req, res) {
               console.log("[Waterfall] Attempting Imagen 3...");
               const response = await ai.models.generateImages({
                   model: 'imagen-3.0-generate-002',
-                  prompt: prompt,
+                  prompt: prompt.replace(/8k/gi, ''), // Double ensure clean prompt
                   config: { numberOfImages: 1, aspectRatio: "1:1", safetySettings }
               });
               const bytes = response.generatedImages?.[0]?.image?.imageBytes;
@@ -248,6 +272,8 @@ module.exports = async function (req, res) {
           return res.status(200).json(geminiResult);
       } catch (geminiError) {
           console.warn("[Waterfall] Imagen 3 failed:", geminiError.message);
+          
+          // Flash Fallback
           try {
               const flashResult = await executeWithRetry(async (ai) => {
                   console.log("[Waterfall] Fallback to Gemini Flash Image...");
@@ -292,7 +318,6 @@ module.exports = async function (req, res) {
            const uri = operation.response?.generatedVideos?.[0]?.video?.uri;
            if (!uri) throw new Error("No URI");
            
-           // Use the explicitly passed 'currentKey' which is valid for this loop iteration
            const vidRes = await fetch(`${uri}&key=${currentKey}`);
            if (!vidRes.ok) throw new Error("Video download failed");
            const buf = await vidRes.arrayBuffer();

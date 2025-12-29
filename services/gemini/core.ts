@@ -102,13 +102,25 @@ export const callBackend = async (action: string, payload: any) => {
     }
 };
 
-export const getApiServiceStatus = async (): Promise<{ keyStatus: boolean[], totalConfigured: number, hasOpenAI: boolean }> => {
-    if (isMock) return { keyStatus: [true, true, true, false, false], totalConfigured: 3, hasOpenAI: true };
+export const getApiServiceStatus = async (): Promise<{ 
+    keyStatus: boolean[], 
+    totalConfigured: number, 
+    providers: { openai: boolean; ideogram: boolean; grok: boolean; } 
+}> => {
+    if (isMock) return { 
+        keyStatus: [true, true, true, false, false], 
+        totalConfigured: 3, 
+        providers: { openai: true, ideogram: true, grok: false } 
+    };
     try {
         return await callBackend('getServiceStatus', {});
     } catch (e) {
         console.error("Status check failed", e);
-        return { keyStatus: [false, false, false, false, false], totalConfigured: 0, hasOpenAI: false };
+        return { 
+            keyStatus: [false, false, false, false, false], 
+            totalConfigured: 0, 
+            providers: { openai: false, ideogram: false, grok: false } 
+        };
     }
 };
 

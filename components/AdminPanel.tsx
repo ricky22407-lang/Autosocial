@@ -33,7 +33,13 @@ const AdminPanel: React.FC<Props> = ({ currentUser }) => {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [reports, setReports] = useState<UserReport[]>([]);
   const [apiUsage, setApiUsage] = useState<any>(null);
-  const [apiStatus, setApiStatus] = useState<{ keyStatus: boolean[], hasOpenAI: boolean }>({ keyStatus: [], hasOpenAI: false }); // New State
+  const [apiStatus, setApiStatus] = useState<{ 
+      keyStatus: boolean[]; 
+      providers: { openai: boolean; ideogram: boolean; grok: boolean; };
+  }>({ 
+      keyStatus: [], 
+      providers: { openai: false, ideogram: false, grok: false } 
+  }); // New State
   const [securityTarget, setSecurityTarget] = useState<{uid: string, type: 'DOWNLOAD'|'DELETE'} | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [config, setConfig] = useState<SystemConfig>({ maintenanceMode: false, dryRunMode: false });

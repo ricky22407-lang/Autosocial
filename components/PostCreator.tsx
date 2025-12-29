@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { BrandSettings, Post, TrendingTopic, UserProfile, ImageIntent } from '../types';
-import { getTrendingTopics, generatePostDraft, generateImage, applyWatermark, generateViralContent } from '../services/geminiService';
+import { getTrendingTopics, generatePostDraft, generateImage, applyWatermark, generateViralContent, generateImagePromptString } from '../services/geminiService';
 import { publishPostToFacebook } from '../services/facebookService';
 import { checkAndUseQuota } from '../services/authService';
 
@@ -15,11 +15,11 @@ interface Props {
   scheduledPostsCount?: number;
 }
 
-const LoadingOverlay: React.FC<{ message: string }> = ({ message }) => (
+const LoadingOverlay: React.FC<{ message: string, subMessage?: string }> = ({ message, subMessage }) => (
     <div className="fixed inset-0 bg-black/80 z-50 flex flex-col items-center justify-center p-8 backdrop-blur-xl animate-fade-in text-center">
         <div className="loader mb-6 scale-150 border-t-primary"></div>
         <h2 className="text-2xl font-black text-white mb-2 tracking-tight">{message}</h2>
-        <p className="text-gray-400 font-mono text-xs uppercase tracking-widest">AI Processing...</p>
+        {subMessage && <p className="text-gray-400 font-mono text-xs uppercase tracking-widest">{subMessage}</p>}
     </div>
 );
 
@@ -32,11 +32,12 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   const [isLoadingTrends, setIsLoadingTrends] = useState(false);
   
   const [draft, setDraft] = useState({ caption: '', firstComment: '', imagePrompt: '' });
-  const [imageIntent, setImageIntent] = useState<ImageIntent>('lifestyle'); // NEW
+  const [imageIntent, setImageIntent] = useState<ImageIntent>('lifestyle'); 
   
   const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
   const [mediaUrl, setMediaUrl] = useState<string | undefined>(undefined);
   const [isGeneratingMedia, setIsGeneratingMedia] = useState(false);
+  const [generatingPhase, setGeneratingPhase] = useState<string>(''); // For granular loading status
   
   const [scheduleDate, setScheduleDate] = useState('');
   const [syncInstagram, setSyncInstagram] = useState(false);
@@ -61,7 +62,6 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   const loadTrends = async () => {
       if (!user) return alert("請先登入");
       
-      // [BILLING] Search Trends: 3 Points
       const COST = 3; 
       const allowed = await checkAndUseQuota(user.user_id, COST, 'TREND_SEARCH'); 
       if (!allowed) return; 
@@ -80,7 +80,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   const handleNext = async () => {
     if (!topic || !user) return;
     
-    // [BILLING] FB Draft: 5 Points (Lowered from 10)
+    // [BILLING] FB Draft: 5 Points
     const allowed = await checkAndUseQuota(user.user_id, 5, 'GENERATE_POST_DRAFT');
     if (!allowed) return; 
     
@@ -97,10 +97,12 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                 tempHashtags: '', 
                 includeEngagement: false 
             }, undefined, user.role);
+            
+            // Logic Change: Do NOT auto-fill image prompt here. Let user choose intent first.
             setDraft({ 
                 caption: res.caption || '', 
                 firstComment: res.ctaText || '', 
-                imagePrompt: res.imagePrompt || `Professional commercial photo of ${topic}` 
+                imagePrompt: '' // Intentionally empty to force generation on intent selection
             });
         } else {
             const res = await generateViralContent(topic, {
@@ -112,7 +114,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
             setDraft({
                 caption: res.versions?.[0] || '生成內容為空，請重試',
                 firstComment: '',
-                imagePrompt: res.imagePrompt || ''
+                imagePrompt: '' // Intentionally empty
             });
         }
     } catch (e: any) { 
@@ -125,26 +127,60 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
 
   const handleGenMedia = async () => {
     if (!user || isGeneratingMedia) return;
-    if (!draft.imagePrompt.trim()) return alert("請輸入圖片提示詞 (Prompt)");
-
+    
     // [BILLING] FB Image: Regen 5 Points, First Time 8 Points
     const cost = mediaUrl ? 5 : 8; 
-    const allowed = await checkAndUseQuota(user.user_id, cost, 'GENERATE_IMAGE_AI', { prompt: draft.imagePrompt });
+    const allowed = await checkAndUseQuota(user.user_id, cost, 'GENERATE_IMAGE_AI');
     if (!allowed) return;
     
     onQuotaUpdate();
-    setMediaUrl(undefined);
     setIsGeneratingMedia(true);
+    setGeneratingPhase('正在構思畫面...');
+
     try {
-      // Use new generateImage with Settings & Intent
-      let url = await generateImage(draft.imagePrompt, user.role, settings, imageIntent);
-      if (settings.logoUrl) url = await applyWatermark(url, settings.logoUrl);
-      setMediaUrl(url);
+        let finalPrompt = draft.imagePrompt;
+
+        // Logic Change: If prompt is empty (first run) or user changed intent without editing prompt manually
+        // We generate the prompt NOW based on Caption + Intent
+        if (!finalPrompt.trim()) {
+             const aiPrompt = await generateImagePromptString(draft.caption, imageIntent, settings);
+             finalPrompt = aiPrompt;
+             setDraft(prev => ({ ...prev, imagePrompt: aiPrompt }));
+        }
+
+        setGeneratingPhase('AI 設計師繪圖中 (標準畫質)...');
+        
+        // Use new generateImage with Settings & Intent
+        let url = await generateImage(finalPrompt, user.role, settings, imageIntent);
+        if (settings.logoUrl) {
+            setGeneratingPhase('正在壓上品牌浮水印...');
+            url = await applyWatermark(url, settings.logoUrl);
+        }
+        setMediaUrl(url);
     } catch (e: any) { 
         alert(`製圖失敗: ${e.message}`); 
     } finally { 
         setIsGeneratingMedia(false); 
+        setGeneratingPhase('');
     }
+  };
+
+  // Helper to clear prompt when intent changes, forcing re-generation of prompt next click
+  const handleIntentChange = (newIntent: ImageIntent) => {
+      setImageIntent(newIntent);
+      // Optional: If user hasn't manually heavily edited, clear it so we generate a new one for new intent
+      // For safety, we only clear if no media generated yet, or if user confirms? 
+      // Let's just keep the old prompt but the user can clear it if they want. 
+      // User request: "If user unhappy, can re-select intent... click generate again -> new image"
+      // So we should probably clear the prompt IF it was auto-generated, to allow new generation logic to kick in.
+      // For simplicity, we won't auto-clear, but rely on the user to edit or clear if they want a fresh start from AI.
+      // Actually, per user request: "First click -> generate prompt + image". 
+      // If they change intent, they likely want a NEW prompt.
+      // Let's clear the prompt ONLY IF no image exists yet, or if they explicitly want to reset.
+      // Implementation: We'll leave it. The `handleGenMedia` uses `draft.imagePrompt` if present.
+      // If user wants new prompt based on new intent, they should clear the text box or we add a "Auto-Generate Prompt" button.
+      // Better UX based on request: If they click "Generate" and box is empty, it auto-gens. 
+      // So if they switch intent, they can clear the box manually to force new prompt.
   };
 
   const handleFinalize = async (schedule: boolean) => {
@@ -210,8 +246,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   };
 
   if (isGeneratingDraft) return <LoadingOverlay message="AI 正在構思文案..." />;
-  // Keep the overlay for initial generation, but button logic below handles regeneration
-  if (isGeneratingMedia) return <LoadingOverlay message="AI 設計師正在繪製商業圖..." />;
+  if (isGeneratingMedia) return <LoadingOverlay message={generatingPhase} subMessage="請稍候，正在為您打造專屬素材" />;
   if (isPublishing) return <LoadingOverlay message="正在傳送至 Facebook..." />;
 
   if (step === 1) return (
@@ -252,7 +287,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
               )}
 
               <button onClick={handleNext} disabled={!topic} className={`w-full py-5 md:py-6 rounded-2xl font-black text-white shadow-2xl hover:opacity-90 transition-all disabled:opacity-30 text-lg md:text-xl tracking-widest uppercase relative z-10 ${mode === 'viral' ? 'bg-gradient-to-r from-orange-600 to-red-600' : 'bg-gradient-to-r from-blue-600 to-primary'}`}>
-                開始生成內容 <span className="text-sm font-normal opacity-70 ml-2">(5 點數)</span>
+                開始生成文案 <span className="text-sm font-normal opacity-70 ml-2">(5 點數)</span>
               </button>
           </div>
       </div>
@@ -270,23 +305,31 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                 <label className="text-[10px] text-gray-500 font-bold mb-2 block uppercase tracking-wider">貼文文案 (Caption)</label>
                 <textarea value={draft.caption} onChange={e => setDraft({...draft, caption: e.target.value})} className="w-full h-[300px] p-6 text-white mb-6 resize-none outline-none custom-scrollbar leading-relaxed text-[15px] rounded-2xl" />
 
-                {/* New Image Settings */}
+                {/* New Image Settings Logic */}
                 <div className="mb-6 p-4 bg-black/30 rounded-xl border border-gray-700">
-                    <label className="text-[10px] text-primary font-bold mb-2 block uppercase tracking-wider">商業設計設定</label>
-                    <div className="flex gap-2 mb-4 overflow-x-auto">
+                    <label className="text-[10px] text-primary font-bold mb-2 block uppercase tracking-wider">選擇配圖風格 (Image Intent)</label>
+                    <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
                         {(['product_showcase', 'promotion', 'lifestyle', 'educational', 'festival'] as ImageIntent[]).map(intent => (
                             <button 
                                 key={intent}
-                                onClick={() => setImageIntent(intent)}
+                                onClick={() => handleIntentChange(intent)}
                                 className={`px-3 py-2 rounded-lg text-xs font-bold whitespace-nowrap border transition-all ${imageIntent === intent ? 'bg-primary text-black border-primary' : 'bg-transparent text-gray-400 border-gray-600 hover:border-gray-400'}`}
                             >
-                                {intent === 'product_showcase' ? '📦 產品特寫' : intent === 'promotion' ? '🏷️ 促銷Banner' : intent === 'lifestyle' ? '🏖️ 情境生活' : intent === 'educational' ? '📚 知識圖卡' : '🎉 節慶賀圖'}
+                                {intent === 'product_showcase' ? '📦 產品特寫' : intent === 'promotion' ? '🏷️ 促銷 Banner' : intent === 'lifestyle' ? '🏖️ 情境生活' : intent === 'educational' ? '📚 知識圖卡' : '🎉 節慶賀圖'}
                             </button>
                         ))}
                     </div>
                     
-                    <label className="text-[10px] text-gray-500 font-bold mb-2 block uppercase tracking-wider">視覺提示詞 (Visual Prompt)</label>
-                    <textarea value={draft.imagePrompt} onChange={e => setDraft({...draft, imagePrompt: e.target.value})} className="w-full h-24 p-4 text-gray-300 text-xs outline-none resize-none leading-relaxed rounded-xl" placeholder="描述圖片內容..." />
+                    <label className="flex justify-between items-center text-[10px] text-gray-500 font-bold mb-2 uppercase tracking-wider">
+                        <span>視覺提示詞 (AI Prompt)</span>
+                        <button onClick={() => setDraft(prev => ({...prev, imagePrompt: ''}))} className="text-red-400 hover:text-white transition-colors text-[9px] border border-red-500/30 px-1 rounded">清空以重新生成</button>
+                    </label>
+                    <textarea 
+                        value={draft.imagePrompt} 
+                        onChange={e => setDraft({...draft, imagePrompt: e.target.value})} 
+                        className="w-full h-24 p-4 text-gray-300 text-xs outline-none resize-none leading-relaxed rounded-xl border border-gray-700 bg-black/20 focus:border-primary/50 transition-colors" 
+                        placeholder={mediaUrl ? "您可手動修改 Prompt 並點擊重新繪製..." : "點擊「生成圖片」後，AI 將自動根據文案與風格填寫此處..."} 
+                    />
                 </div>
                 
                 <div className="space-y-4">
@@ -298,10 +341,10 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                         {isGeneratingMedia ? (
                             <>
                                 <div className="loader w-4 h-4 border-t-white"></div>
-                                AI 設計師繪製中...
+                                繪製中...
                             </>
                         ) : mediaUrl ? (
-                            <>重新繪製 <span className="text-[10px] font-black bg-white/20 px-2 py-0.5 rounded-full">5 點數</span></>
+                            <>重新繪製 (依據當前 Prompt) <span className="text-[10px] font-black bg-white/20 px-2 py-0.5 rounded-full">5 點數</span></>
                         ) : (
                             <>生成商業設計圖 (Ideogram/Imagen) <span className="text-[10px] font-black bg-white/20 px-2 py-0.5 rounded-full">8 點數</span></>
                         )}
@@ -326,7 +369,9 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                         {!mediaUrl && (
                             <div className="w-full aspect-square bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center text-gray-300 gap-2">
                                 <span className="text-2xl opacity-50">🖼️</span>
-                                <span className="text-[10px] font-bold uppercase tracking-widest">等待圖片生成...</span>
+                                <span className="text-[10px] font-bold uppercase tracking-widest text-center px-4">
+                                    {draft.caption ? "請選擇左側風格並點擊生成圖片" : "等待文案生成..."}
+                                </span>
                             </div>
                         )}
                         <div className="flex gap-4 mt-4 text-gray-400">

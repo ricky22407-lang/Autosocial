@@ -1,5 +1,5 @@
 
-import { BrandSettings, CtaItem, TrendingTopic, ViralType, ViralPlatform, TitleScore, ViralPostDraft } from "../../types";
+import { BrandSettings, CtaItem, TrendingTopic, ViralType, ViralPlatform, TitleScore, ViralPostDraft, ImageIntent } from "../../types";
 import { callBackend, cleanJsonText, Type } from './core';
 import * as Prompts from "../promptTemplates";
 
@@ -37,6 +37,7 @@ export const analyzeProductFile = async (text: string): Promise<string> => {
 
 export const generatePostDraft = async (topic: string, settings: BrandSettings, options: { length: string, ctaList: CtaItem[], tempHashtags: string, includeEngagement?: boolean, imageText?: string }, topicContext?: TrendingTopic, userRole: string = 'user') => {
   const isHighTier = ['business', 'admin'].includes(userRole);
+  // Removed imagePrompt/videoPrompt from schema to save token/latency and separate concerns
   const response = await callBackend('generateContent', {
     model: isHighTier ? "gemini-3-pro-preview" : "gemini-2.5-flash",
     contents: Prompts.buildDraftPrompt(topic, settings, options, topicContext),
@@ -44,11 +45,20 @@ export const generatePostDraft = async (topic: string, settings: BrandSettings, 
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
-          properties: { caption: { type: Type.STRING }, ctaText: { type: Type.STRING }, imagePrompt: { type: Type.STRING }, videoPrompt: { type: Type.STRING } }
+          properties: { caption: { type: Type.STRING }, ctaText: { type: Type.STRING } }
         }
     }
   });
   return JSON.parse(cleanJsonText(response.text || '{}'));
+};
+
+// NEW: Dedicated Image Prompt Generator
+export const generateImagePromptString = async (caption: string, intent: ImageIntent, settings: BrandSettings): Promise<string> => {
+    const response = await callBackend('generateContent', {
+        model: "gemini-2.5-flash",
+        contents: Prompts.buildImagePromptGenerationPrompt(caption, intent, settings.visualStyle),
+    });
+    return response.text?.trim() || "";
 };
 
 export const generateViralTitles = async (topic: string, options: { audience: string; viralType: ViralType; }): Promise<string[]> => {
@@ -94,8 +104,7 @@ export const generateViralContent = async (topic: string, options: { audience: s
             responseSchema: {
                 type: Type.OBJECT,
                 properties: { 
-                    caption: { type: Type.STRING }, 
-                    imagePrompt: { type: Type.STRING } 
+                    caption: { type: Type.STRING }
                 }
             }
         }
@@ -111,7 +120,7 @@ export const generateViralContent = async (topic: string, options: { audience: s
 
     return {
         versions: [data.caption || '內容生成異常。'],
-        imagePrompt: data.imagePrompt || ''
+        imagePrompt: '' // Viral mode now also defers image gen
     };
 };
 
@@ -181,7 +190,6 @@ export const generateCommentReply = async (commentText: string, personaPrompt: s
     return JSON.parse(cleanJsonText(response.text || '[]'));
 };
 
-// --- AI Assistant for Support ---
 export const getAiAssistantReply = async (userMessage: string, context: { currentView: string, industry: string }) => {
     const systemPrompt = `
     [角色設定]
@@ -209,11 +217,10 @@ export const getAiAssistantReply = async (userMessage: string, context: { curren
 
     try {
         const response = await callBackend('generateContent', {
-            model: "gemini-2.5-flash", // Flash supports thinking
+            model: "gemini-2.5-flash", 
             contents: userMessage,
             config: { 
                 systemInstruction: systemPrompt,
-                // Enable thinking budget to allow for more complete answers (simulating "thinking time")
                 thinkingConfig: { thinkingBudget: 1024 }
             }
         });
