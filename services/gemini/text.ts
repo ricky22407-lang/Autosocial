@@ -209,11 +209,12 @@ export const getAiAssistantReply = async (userMessage: string, context: { curren
 
     try {
         const response = await callBackend('generateContent', {
-            model: "gemini-2.5-flash",
+            model: "gemini-2.5-flash", // Flash supports thinking
             contents: userMessage,
             config: { 
                 systemInstruction: systemPrompt,
-                maxOutputTokens: 300 // Keep replies concise
+                // Enable thinking budget to allow for more complete answers (simulating "thinking time")
+                thinkingConfig: { thinkingBudget: 1024 }
             }
         });
         return response.text || "小幫手目前在休息中，請稍後再試 😊";
