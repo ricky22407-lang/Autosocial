@@ -19,10 +19,10 @@ export default defineConfig(({ mode }) => {
       chunkSizeWarningLimit: 1000,
       rollupOptions: {
         input: {
-          main: resolve(__dirname, 'index.html'),
-          deletion: resolve(__dirname, 'deletion.html'),
-          privacy: resolve(__dirname, 'privacy.html'),
-          terms: resolve(__dirname, 'terms.html'),
+          main: resolve(cwd, 'index.html'),
+          deletion: resolve(cwd, 'deletion.html'),
+          privacy: resolve(cwd, 'privacy.html'),
+          terms: resolve(cwd, 'terms.html'),
         },
         output: {
           manualChunks: {

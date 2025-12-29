@@ -59,7 +59,7 @@ const Login: React.FC<Props> = ({ onLoginSuccess }) => {
         <div className="text-gray-400 text-center mb-8 text-sm">
           {mode === 'REGISTER' ? '開始您的自動化之旅' : mode === 'FORGOT' ? '我們會發送重設連結給您' : (
              <>
-                單篇貼文成本低至 <span className="text-primary font-bold">NT$1</span>，立即體驗全自動社群經營！
+                一篇貼文最低 <span className="text-primary font-bold">NT$3</span>，立即體驗全自動社群經營！
              </>
           )}
         </div>
