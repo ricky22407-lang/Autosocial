@@ -2,6 +2,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { ResponseBuilder } from '../../core/apiResponse';
 import { MembershipService } from '../membership/membership.service';
+import { Config } from '../../config/env';
 
 export class AuthController {
   static async getMe(req: Request, res: Response, next: NextFunction) {
@@ -18,10 +19,19 @@ export class AuthController {
 
   static async exchangeThreads(req: Request, res: Response, next: NextFunction) {
     try {
-        const { code, clientId, clientSecret, redirectUri } = req.body;
+        const { code, redirectUri } = req.body;
         
-        if (!code || !clientId || !clientSecret || !redirectUri) {
-            return ResponseBuilder.error(res, "Missing parameters", 'AUTH_002' as any, 400);
+        // SECURITY FIX: Read credentials from Server Config (Env Vars)
+        // Never trust client-provided secrets
+        const clientId = Config.THREADS.APP_ID;
+        const clientSecret = Config.THREADS.APP_SECRET;
+
+        if (!clientId || !clientSecret) {
+            return ResponseBuilder.error(res, "Server Configuration Error: Missing Threads App Credentials.", 'SYS_001' as any, 500);
+        }
+        
+        if (!code || !redirectUri) {
+            return ResponseBuilder.error(res, "Missing code or redirectUri", 'AUTH_002' as any, 400);
         }
 
         // 1. Exchange Code for Short Token

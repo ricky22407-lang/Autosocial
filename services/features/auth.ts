@@ -133,8 +133,9 @@ export const sendPasswordReset = async (email: string) => {
 
 /**
  * Exchange Threads OAuth Code for Long-Lived Token via Backend
+ * NOTE: App credentials are now handled server-side for security.
  */
-export const exchangeThreadsAuth = async (code: string, clientId: string, clientSecret: string, redirectUri: string) => {
+export const exchangeThreadsAuth = async (code: string, redirectUri: string) => {
     if (isMock) {
         return { 
             token: 'mock_threads_long_token_' + Date.now(), 
@@ -154,7 +155,7 @@ export const exchangeThreadsAuth = async (code: string, clientId: string, client
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ code, clientId, clientSecret, redirectUri })
+        body: JSON.stringify({ code, redirectUri })
     });
 
     const data = await res.json();

@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { ThreadsAccount, UserProfile, BrandSettings } from '../../types';
 import { validateThreadsToken, fetchUserThreads } from '../../services/threadsService';
@@ -36,22 +35,23 @@ const AccountManager: React.FC<Props> = ({ accounts, setAccounts, settings, onSa
     const [isVerifying, setIsVerifying] = useState(false);
     const [isAnalyzingStyle, setIsAnalyzingStyle] = useState<string | null>(null);
     const [showTutorial, setShowTutorial] = useState(false);
-    const [showAppConfig, setShowAppConfig] = useState(false);
 
     // --- OAuth Handler ---
     const handleConnectThreads = () => {
-        if (!settings.threadsAppId || !settings.threadsAppSecret) {
-            alert("請先展開「OAuth 平台設定」並填寫 App ID 與 Secret 才能啟用一鍵串接。");
-            setShowAppConfig(true);
+        const THREADS_APP_ID = (import.meta as any).env.VITE_THREADS_APP_ID;
+        
+        if (!THREADS_APP_ID) {
+            alert("系統錯誤：未設定 Threads App ID。請聯繫管理員檢查環境變數 (VITE_THREADS_APP_ID)。");
             return;
         }
         
-        // Save current form state to localStorage
-        localStorage.setItem('autosocial_pending_settings', JSON.stringify(settings));
+        // Save current form state to localStorage (without secrets)
+        // We just need to know we are in a pending state to handle the callback
+        localStorage.setItem('autosocial_pending_oauth', 'true');
 
         const redirectUri = window.location.origin; 
         const scope = 'threads_basic,threads_content_publish';
-        const authUrl = `https://threads.net/oauth/authorize?client_id=${settings.threadsAppId}&redirect_uri=${redirectUri}&scope=${scope}&response_type=code`;
+        const authUrl = `https://threads.net/oauth/authorize?client_id=${THREADS_APP_ID}&redirect_uri=${redirectUri}&scope=${scope}&response_type=code`;
         
         window.location.href = authUrl;
     };
@@ -138,62 +138,25 @@ const AccountManager: React.FC<Props> = ({ accounts, setAccounts, settings, onSa
         }
     };
 
-    // Helper to update settings
-    const handleConfigChange = (key: keyof BrandSettings, value: string) => {
-        onSaveSettings({ ...settings, [key]: value });
-    };
-
     return (
         <div className="space-y-6">
             
             {/* OAuth Connection Section */}
-            <div className="bg-pink-900/10 p-6 rounded-xl border border-pink-900/30">
-                <div className="flex justify-between items-start mb-4">
-                    <div>
-                        <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                            🔗 快速連接 (OAuth)
-                        </h3>
-                        <p className="text-xs text-pink-300 mt-1">
-                            無需手動複製 Token，登入 Instagram 即可完成授權。
-                        </p>
-                    </div>
-                    <button 
-                        onClick={() => setShowAppConfig(!showAppConfig)} 
-                        className="text-xs text-gray-400 hover:text-white underline"
-                    >
-                        {showAppConfig ? '隱藏設定' : '⚙️ 平台設定 (App ID)'}
-                    </button>
+            <div className="bg-pink-900/10 p-6 rounded-xl border border-pink-900/30 flex flex-col md:flex-row gap-6 items-center justify-between">
+                <div>
+                    <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                        🔗 快速連接 (OAuth)
+                    </h3>
+                    <p className="text-xs text-pink-300 mt-2 max-w-lg">
+                        無需手動複製 Token，登入 Instagram 即可完成授權。
+                        <br/>
+                        <span className="opacity-70">* 注意：Threads 目前僅支援「測試者 (Tester)」帳號進行 API 連接。請確保您的帳號已加入 App 的測試名單。</span>
+                    </p>
                 </div>
-
-                {showAppConfig && (
-                    <div className="bg-black/40 p-4 rounded-lg mb-4 animate-fade-in border border-pink-800/30">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-xs text-pink-300 font-bold mb-1">Threads App ID</label>
-                                <input 
-                                    value={settings.threadsAppId || ''} 
-                                    onChange={e => handleConfigChange('threadsAppId', e.target.value)}
-                                    className="w-full bg-black/50 border border-pink-800 rounded p-2 text-white text-sm"
-                                    placeholder="填入您的 App ID"
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-xs text-pink-300 font-bold mb-1">Threads App Secret</label>
-                                <input 
-                                    type="password"
-                                    value={settings.threadsAppSecret || ''} 
-                                    onChange={e => handleConfigChange('threadsAppSecret', e.target.value)}
-                                    className="w-full bg-black/50 border border-pink-800 rounded p-2 text-white text-sm"
-                                    placeholder="填入 App Secret (用於交換 Token)"
-                                />
-                            </div>
-                        </div>
-                    </div>
-                )}
 
                 <button 
                     onClick={handleConnectThreads}
-                    className="w-full bg-pink-600 hover:bg-pink-500 text-white px-6 py-3 rounded-lg font-bold shadow-lg transition-all flex items-center justify-center gap-2"
+                    className="w-full md:w-auto bg-pink-600 hover:bg-pink-500 text-white px-8 py-4 rounded-lg font-bold shadow-lg transition-all flex items-center justify-center gap-2 whitespace-nowrap"
                 >
                     <span className="text-xl">@</span> 一鍵連接新帳號
                 </button>

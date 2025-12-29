@@ -123,7 +123,6 @@ const PricingPanel: React.FC<Props> = ({ user }) => {
                                 <td className="p-5 text-right text-primary font-black text-lg">3 點</td>
                                 <td className="p-5 text-gray-400 text-xs leading-relaxed hidden sm:table-cell">
                                     即時連網 (Google Search Grounding) 分析新聞與社群熱點。
-                                    <span className="text-green-400 block mt-1">*若搜尋結果已在系統快取中 (24hr內)，則完全免費 (0 點)。</span>
                                 </td>
                             </tr>
                             <tr className="hover:bg-white/5 transition-colors group">

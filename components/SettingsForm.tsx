@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { BrandSettings } from '../types';
 import { fetchRecentPostCaptions } from '../services/facebookService';
@@ -61,15 +60,17 @@ const SettingsForm: React.FC<Props> = ({ initialSettings, onSave }) => {
 
   // --- Facebook OAuth Handlers ---
   const handleConnectFacebook = async () => {
-      if (!formData.facebookAppId) {
-          alert("請先輸入 Facebook App ID 才能使用快速登入功能。");
+      const FB_APP_ID = (import.meta as any).env.VITE_FACEBOOK_APP_ID;
+      
+      if (!FB_APP_ID) {
+          alert("系統錯誤：未設定 Facebook App ID。請聯繫管理員檢查環境變數 (VITE_FACEBOOK_APP_ID)。");
           return;
       }
 
       setIsFbLoading(true);
       try {
           if (!isFbSdkReady) {
-              await initFacebookSdk(formData.facebookAppId);
+              await initFacebookSdk(FB_APP_ID);
               setIsFbSdkReady(true);
           }
           const pages = await loginAndGetPages();
@@ -281,65 +282,59 @@ const SettingsForm: React.FC<Props> = ({ initialSettings, onSave }) => {
                 </h3>
                 <p className="text-xs text-gray-400">連接粉絲專頁以啟用「自動發文」與「品牌語氣分析」功能。</p>
                 
-                {/* OAuth Section */}
-                <div className="bg-blue-900/10 p-4 rounded-lg border border-blue-900/30 mb-4">
-                    <div className="flex flex-col md:flex-row gap-4 items-end md:items-center">
-                        <div className="flex-1 w-full">
-                            <label className="block text-xs text-blue-300 font-bold mb-1">Facebook App ID</label>
+                {/* SaaS OAuth Section */}
+                <div className="bg-blue-900/10 p-4 rounded-lg border border-blue-900/30 mb-4 flex flex-col md:flex-row gap-4 items-center">
+                    <button 
+                        type="button"
+                        onClick={handleConnectFacebook}
+                        disabled={isFbLoading}
+                        className="w-full md:w-auto bg-[#1877F2] hover:bg-[#166fe5] text-white px-6 py-3 rounded font-bold shadow-lg transition-all flex items-center justify-center gap-2"
+                    >
+                        {isFbLoading ? '連接中...' : '🔵 一鍵連接 Facebook'}
+                    </button>
+                    
+                    <p className="text-xs text-blue-200">
+                        點擊按鈕授權後，系統將自動列出您管理的粉絲專頁供您選擇。
+                    </p>
+                </div>
+                
+                {fbPages.length > 0 && (
+                    <div className="mt-2 animate-fade-in bg-green-900/20 p-4 rounded border border-green-500/30">
+                        <label className="block text-sm text-green-400 font-bold mb-2">✅ 驗證成功！請選擇要管理的粉絲專頁：</label>
+                        <select 
+                            onChange={handlePageSelect}
+                            className="w-full bg-dark border border-green-500/50 rounded p-2 text-white"
+                        >
+                            <option value="">-- 請選擇粉專 --</option>
+                            {fbPages.map(p => (
+                                <option key={p.id} value={p.id}>{p.name} (ID: {p.id})</option>
+                            ))}
+                        </select>
+                    </div>
+                )}
+
+                <div className="pt-4 mt-4 border-t border-gray-700">
+                    <p className="text-xs text-gray-500 font-bold uppercase tracking-widest mb-4">或手動輸入 (Manual Input Mode)</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label className="block text-sm text-gray-400 mb-1">Page ID</label>
                             <input 
-                                value={formData.facebookAppId || ''} 
-                                onChange={e => handleChange('facebookAppId', e.target.value)}
-                                className="w-full bg-black/50 border border-blue-800 rounded p-2 text-white text-sm"
-                                placeholder="請輸入您的 FB App ID"
+                                value={formData.facebookPageId} 
+                                onChange={e => handleChange('facebookPageId', e.target.value)}
+                                className="w-full bg-dark border border-gray-600 rounded p-3 text-white focus:border-primary outline-none"
+                                placeholder="例如: 10001234567890"
                             />
                         </div>
-                        <button 
-                            type="button"
-                            onClick={handleConnectFacebook}
-                            disabled={isFbLoading}
-                            className="w-full md:w-auto bg-[#1877F2] hover:bg-[#166fe5] text-white px-6 py-2 rounded font-bold shadow-lg transition-all flex items-center justify-center gap-2 h-[40px]"
-                        >
-                            {isFbLoading ? '連接中...' : '🔵 連接 Facebook'}
-                        </button>
-                    </div>
-                    {fbPages.length > 0 && (
-                        <div className="mt-4 animate-fade-in">
-                            <label className="block text-xs text-green-400 font-bold mb-1">✅ 驗證成功！請選擇要管理的粉絲專頁：</label>
-                            <select 
-                                onChange={handlePageSelect}
-                                className="w-full bg-dark border border-green-500/50 rounded p-2 text-white"
-                            >
-                                <option value="">-- 請選擇粉專 --</option>
-                                {fbPages.map(p => (
-                                    <option key={p.id} value={p.id}>{p.name} (ID: {p.id})</option>
-                                ))}
-                            </select>
+                        <div>
+                            <label className="block text-sm text-gray-400 mb-1">Page Access Token</label>
+                            <input 
+                                type="password"
+                                value={formData.facebookToken} 
+                                onChange={e => handleChange('facebookToken', e.target.value)}
+                                className="w-full bg-dark border border-gray-600 rounded p-3 text-white focus:border-primary outline-none"
+                                placeholder="長期權杖 (Long-lived Token)"
+                            />
                         </div>
-                    )}
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative">
-                    <div className="absolute inset-0 bg-dark/50 z-10 flex items-center justify-center backdrop-blur-[1px] opacity-0 hover:opacity-100 transition-opacity pointer-events-none">
-                       <span className="bg-black text-white text-xs px-2 py-1 rounded">手動輸入模式</span>
-                    </div>
-                    <div>
-                        <label className="block text-sm text-gray-400 mb-1">Page ID</label>
-                        <input 
-                            value={formData.facebookPageId} 
-                            onChange={e => handleChange('facebookPageId', e.target.value)}
-                            className="w-full bg-dark border border-gray-600 rounded p-3 text-white focus:border-primary outline-none"
-                            placeholder="例如: 10001234567890"
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-sm text-gray-400 mb-1">Page Access Token</label>
-                        <input 
-                            type="password"
-                            value={formData.facebookToken} 
-                            onChange={e => handleChange('facebookToken', e.target.value)}
-                            className="w-full bg-dark border border-gray-600 rounded p-3 text-white focus:border-primary outline-none"
-                            placeholder="長期權杖 (Long-lived Token)"
-                        />
                     </div>
                 </div>
 

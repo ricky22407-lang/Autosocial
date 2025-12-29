@@ -60,16 +60,21 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
 
   const loadTrends = async () => {
       if (!user) return alert("請先登入");
-      const COST = 3; // Pricing Update: Kept at 3 (Minimum > 2)
+      
+      // [BILLING LOGIC] Pay-Per-Click Enforced
+      // Deduct points BEFORE any service call or cache check.
+      // Even if the result comes from cache (0 cost for us), the user pays for the "Search" action.
+      const COST = 3; 
       const allowed = await checkAndUseQuota(user.user_id, COST, 'TREND_SEARCH'); 
       if (!allowed) return; 
+      
       onQuotaUpdate();
       setIsLoadingTrends(true);
       try {
           const query = topic.trim() || settings.industry || '台灣熱門話題';
           const trends = await getTrendingTopics(query);
           setTrendingTopics(trends);
-          if(topic.trim()) alert(`已為您搜尋關於「${query}」的熱門話題！`);
+          if(topic.trim()) alert(`已為您搜尋關於「${query}」的熱門話題！(扣除 ${COST} 點)`);
       } catch (e) { console.error(e); }
       finally { setIsLoadingTrends(false); }
   };

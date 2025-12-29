@@ -59,11 +59,14 @@ const ContentGenerator: React.FC<Props> = ({ settings, accounts, user, onQuotaUp
 
     const loadTrends = async (overrideKeyword?: string) => {
         if (!user) return alert("請先登入");
+        
+        // [BILLING LOGIC] Pay-Per-Click Enforced
+        // Always deduct points for trend search action, regardless of cache state.
         const COST = 2; 
         const allowed = await checkAndUseQuota(user.user_id, COST, 'TREND_SEARCH');
         if (!allowed) return; 
+        
         onQuotaUpdate();
-
         setLoadingTrends(true);
         setTrendError('');
         setTrendingTopics([]);

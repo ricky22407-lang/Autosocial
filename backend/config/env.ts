@@ -34,6 +34,12 @@ export const Config = {
     API_KEY: getEnv('OPENAI_API_KEY') || '',
   },
   
+  // Platform App Credentials (SaaS Mode)
+  THREADS: {
+      APP_ID: getEnv('THREADS_APP_ID'),
+      APP_SECRET: getEnv('THREADS_APP_SECRET')
+  },
+  
   APP: {
     DEFAULT_QUOTA_USER: 5,
     DEFAULT_QUOTA_PRO: 100,

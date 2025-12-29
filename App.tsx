@@ -118,21 +118,13 @@ const App: React.FC = () => {
               setIsProcessingThreads(true);
 
               try {
-                  // Restore pending settings (containing Secret)
-                  const pendingStr = localStorage.getItem('autosocial_pending_settings');
-                  const currentSettings = pendingStr ? JSON.parse(pendingStr) : settings;
-                  
-                  if (!currentSettings.threadsAppId || !currentSettings.threadsAppSecret) {
-                      throw new Error("遺失 App ID 或 Secret，請重新嘗試。");
+                  // Only proceed if user initiated the oauth flow (checked via flag)
+                  if (!localStorage.getItem('autosocial_pending_oauth')) {
+                      return; // Might be just a random reload or unrelated code param
                   }
 
-                  // Call Backend Exchange
-                  const result = await exchangeThreadsAuth(
-                      code, 
-                      currentSettings.threadsAppId, 
-                      currentSettings.threadsAppSecret, 
-                      window.location.origin
-                  );
+                  // Backend now handles secrets via Env Vars
+                  const result = await exchangeThreadsAuth(code, window.location.origin);
 
                   // Add new account
                   const newAccount: ThreadsAccount = {
@@ -146,13 +138,13 @@ const App: React.FC = () => {
                   };
 
                   const updatedSettings = {
-                      ...currentSettings,
-                      threadsAccounts: [...(currentSettings.threadsAccounts || []), newAccount]
+                      ...settings,
+                      threadsAccounts: [...(settings.threadsAccounts || []), newAccount]
                   };
 
                   setSettings(updatedSettings);
                   localStorage.setItem('autosocial_settings', JSON.stringify(updatedSettings));
-                  localStorage.removeItem('autosocial_pending_settings'); // Cleanup
+                  localStorage.removeItem('autosocial_pending_oauth'); // Cleanup flag
 
                   alert(`Threads 帳號 ${newAccount.username} 連接成功！`);
                   
@@ -169,7 +161,7 @@ const App: React.FC = () => {
       };
 
       handleThreadsCallback();
-  }, [loadingAuth, user]);
+  }, [loadingAuth, user, settings]); // Added settings dependency to ensure we attach to current state
 
   const loadLocalSettings = () => {
     const savedSettings = localStorage.getItem('autosocial_settings');
