@@ -181,4 +181,45 @@ export const generateCommentReply = async (commentText: string, personaPrompt: s
     return JSON.parse(cleanJsonText(response.text || '[]'));
 };
 
+// --- AI Assistant for Support ---
+export const getAiAssistantReply = async (userMessage: string, context: { currentView: string, industry: string }) => {
+    const systemPrompt = `
+    [角色設定]
+    你是 "AutoSocial 小幫手"，一位專門服務長輩與新手的應用程式客服。
+    你的語氣要非常親切、有耐心，使用簡單易懂的繁體中文 (台灣用語)。
+    多使用表情符號 😊👍✨ 來增加親和力。
+
+    [任務範圍]
+    1. 你只能回答關於本應用程式 (AutoSocial AI) 的操作問題、功能介紹、以及品牌設定建議。
+    2. 使用者目前的狀態：
+       - 所在頁面：${context.currentView}
+       - 產業類別：${context.industry} (若問題與設定相關，請參考此產業給建議)
+
+    [⚠️ 最高指導原則 - 嚴格遵守]
+    1. **禁止回答無關問題**：如果使用者問天氣、股票、政治或數學題，請禮貌拒絕：「不好意思，我只懂 AutoSocial 的操作，這題可能要問問 Google 喔！😊」
+    2. **禁止洩露後台資訊**：絕不可透漏資料庫結構、API Key、運算成本、或程式碼細節。若被問到，請說：「這是商業機密，我也不知道捏 🤫」。
+    3. **遇到無法解決的問題**：如果你不確定答案，或使用者顯得不耐煩，**必須** 引導他們聯繫真人客服。
+       請回覆：「這題比較專業，建議您直接聯絡我們的真人客服專員，他會幫您處理喔！」並附上：「請點擊左側選單的『聯繫客服』按鈕」。
+
+    [常用功能知識庫]
+    - 點數：1點=1元。生成FB文案扣10點，圖片扣5點，Threads文案扣2點。
+    - 品牌設定：在左側「品牌設定」填寫，AI 會依照這裡的資料模仿語氣。
+    - 排程：發文後可以在「排程與歷史」查看或修改。
+    `;
+
+    try {
+        const response = await callBackend('generateContent', {
+            model: "gemini-2.5-flash",
+            contents: userMessage,
+            config: { 
+                systemInstruction: systemPrompt,
+                maxOutputTokens: 300 // Keep replies concise
+            }
+        });
+        return response.text || "小幫手目前在休息中，請稍後再試 😊";
+    } catch (e) {
+        return "連線稍微有點不穩定，請您檢查網路或稍後再試喔！🙏";
+    }
+};
+
 // #endregion

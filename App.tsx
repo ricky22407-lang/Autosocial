@@ -16,6 +16,8 @@ import ReferralPanel from './components/ReferralPanel';
 import ErrorReportModal from './components/ErrorReportModal'; 
 import KeyRedemptionModal from './components/KeyRedemptionModal';
 import PricingPanel from './components/PricingPanel';
+import ContactSupportPanel from './components/ContactSupportPanel'; // New Import
+import AiAssistantBubble from './components/AiAssistantBubble'; // New Import
 // #endregion
 
 // #region Services & Auth Import
@@ -37,25 +39,23 @@ const Icons = {
   Admin: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>,
   Logout: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>,
   Menu: <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>,
-  Close: <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+  Close: <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>,
+  Support: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
 };
 // #endregion
 
 const defaultSettings: BrandSettings = {
   industry: '',
-  brandName: '', // Added: Missing Property
+  brandName: '', 
   brandType: 'enterprise',
   services: '',
   website: '',
   productInfo: '',
   brandTone: 'Professional',
   persona: '',
-  
-  // Added: Missing Visual Identity fields
   brandColors: ['#000000', '#ffffff', '#cccccc'],
   targetAudience: '',
   visualStyle: 'minimalist',
-
   facebookPageId: '',
   facebookToken: '',
   threadsAccounts: [], 
@@ -82,7 +82,7 @@ const App: React.FC = () => {
   const [editingPost, setEditingPost] = useState<Post | null>(null);
   const [showReportModal, setShowReportModal] = useState(false);
   const [showKeyModal, setShowKeyModal] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // Mobile toggle
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false); 
 
   useEffect(() => {
     const unsubscribe = subscribeAuth(async (currentUser) => {
@@ -166,8 +166,6 @@ const App: React.FC = () => {
 
   const handleDeletePost = async (postId: string) => {
       if (!user) return;
-      // Note: Actual API deletion logic is handled inside ScheduleList component now for better encapsulation
-      // This function mainly handles local/cloud sync state removal
       try {
           await deletePostFromCloud(user.uid, postId);
           setPosts(prev => prev.filter(p => p.id !== postId));
@@ -200,7 +198,7 @@ const App: React.FC = () => {
       onClick={() => {
           if (!disabled) {
               onClick(viewId);
-              setIsSidebarOpen(false); // Close mobile menu on click
+              setIsSidebarOpen(false); 
           }
       }} 
       className={`relative w-full text-left px-6 py-3.5 transition-all duration-300 flex items-center justify-between group 
@@ -294,6 +292,11 @@ const App: React.FC = () => {
               <span className="opacity-80 group-hover:scale-110 transition-transform">{Icons.Key}</span> 兌換序號 (Redeem)
           </button>
           
+          {/* Contact Support Button */}
+          <button onClick={() => setView(AppView.CONTACT_SUPPORT)} className="w-full text-left px-4 py-3 text-xs rounded-lg transition-all font-bold bg-blue-900/20 text-blue-300 hover:bg-blue-900/40 border border-blue-800/30 flex items-center gap-2 group">
+              <span className="opacity-80 group-hover:scale-110 transition-transform">{Icons.Support}</span> 聯繫客服
+          </button>
+          
           {isAdmin && (
             <button onClick={() => setView(AppView.ADMIN)} className={`w-full text-left px-4 py-3 text-xs rounded-lg transition-all font-bold flex items-center gap-2 group ${view === AppView.ADMIN ? 'bg-red-600 text-white shadow-lg' : 'text-red-400 hover:bg-red-900/20 border border-red-900/30'}`}>
               <span className="opacity-80 group-hover:scale-110 transition-transform">{Icons.Admin}</span> 管理員後台
@@ -347,11 +350,17 @@ const App: React.FC = () => {
             {view === AppView.THREADS_NURTURE && <ThreadsNurturePanel settings={settings} user={userProfile} onSaveSettings={handleSaveSettings} onQuotaUpdate={refreshProfile} />}
             {view === AppView.PRICING && <PricingPanel user={userProfile} />}
             {view === AppView.REFERRAL && <ReferralPanel user={userProfile} onQuotaUpdate={refreshProfile} />}
+            {view === AppView.CONTACT_SUPPORT && <ContactSupportPanel />}
             {view === AppView.ADMIN && isAdmin && <AdminPanel currentUser={userProfile!} />}
         </div>
       </main>
       
-      {/* Report Floating Button */}
+      {/* AI Assistant Bubble */}
+      {userProfile && (
+          <AiAssistantBubble currentView={view} settings={settings} />
+      )}
+      
+      {/* Report Floating Button (Moved slightly to avoid overlap with AI Bubble if needed, but flex column in Bubble helps) */}
       <button 
         onClick={() => setShowReportModal(true)} 
         className="fixed bottom-6 right-6 bg-red-600 hover:bg-red-500 text-white w-12 h-12 rounded-full z-50 shadow-[0_0_20px_rgba(220,38,38,0.5)] transition-transform active:scale-90 flex items-center justify-center font-bold text-xl backdrop-blur-md border border-white/20"
