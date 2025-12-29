@@ -1,5 +1,83 @@
 
-import { BrandSettings, CtaItem, ViralType, ViralPlatform, TrendingTopic } from "../types";
+import { BrandSettings, CtaItem, ViralType, ViralPlatform, TrendingTopic, ImageIntent } from "../types";
+
+// ============================================================================
+// COMMERCIAL IMAGE PROMPT LOGIC
+// ============================================================================
+
+const getStyleKeywords = (style: string): string => {
+    const map: Record<string, string> = {
+        'minimalist': 'Minimalist design, lots of negative space, clean lines, Apple style, soft shadows, uncluttered composition.',
+        'vibrant': 'Pop art vibes, high saturation, bold contrasting colors, energetic, dynamic composition, trendy.',
+        'luxury': 'Elegant, sophisticated, dark mood, gold accents, serif typography styling, premium materials, marble and velvet textures.',
+        'retro': 'Vintage 90s aesthetic, grain filter, vaporwave colors, nostalgia, flash photography style, lo-fi.',
+        'warm_family': 'Cozy atmosphere, warm color temperature (golden hour), soft focus, candid lifestyle moments, authentic, welcoming.',
+        'tech_futuristic': 'Cyberpunk elements, neon lights, isometric view, glass textures, data visualization elements, dark mode.',
+        'nature_organic': 'Earth tones, natural sunlight, botanical elements, wooden textures, sustainable vibe, fresh, airy.'
+    };
+    return map[style] || 'Professional commercial photography, clean layout.';
+};
+
+const getIndustryLogic = (industry: string): string => {
+    // Basic keyword matching
+    const lower = industry.toLowerCase();
+    if (lower.includes('food') || lower.includes('餐廳') || lower.includes('美食')) return 'Food photography, appetizing, textures.';
+    if (lower.includes('beauty') || lower.includes('美妝') || lower.includes('skincare')) return 'Beauty editorial, soft skin texture, pastel tones, purity, spa atmosphere.';
+    if (lower.includes('tech') || lower.includes('3c') || lower.includes('電子')) return 'Product rendering, studio lighting, modern gadget.';
+    if (lower.includes('travel') || lower.includes('旅遊')) return 'Scenic shot, adventure, wanderlust, travel photography, iconic landmarks.';
+    if (lower.includes('fashion') || lower.includes('服飾')) return 'Fashion lookbook, model pose, street style, trendy outfit.';
+    return 'Commercial photography.';
+};
+
+const getIntentLogic = (intent: ImageIntent): string => {
+    switch (intent) {
+        case 'product_showcase': return 'Focus on the product in the center. Clean studio background. "Hero shot" composition.';
+        case 'promotion': return 'Layout designed for an ad banner. Leave 30% empty negative space on the right side for text overlay. Eye-catching background.';
+        case 'lifestyle': return 'Candid shot of people using the product in real life. Authentic emotion. Natural lighting. Not posed.';
+        case 'educational': return 'Infographic style layout. Clean flat lay composition. Knolling photography. Organized items.';
+        case 'festival': return 'Festive atmosphere. Holiday decorations. Celebration vibe. Sparkles and confetti elements.';
+        default: return '';
+    }
+};
+
+export const buildCommercialImagePrompt = (
+    subject: string,
+    settings: BrandSettings,
+    intent: ImageIntent,
+    userRole: string
+): string => {
+    const styleKeywords = getStyleKeywords(settings.visualStyle);
+    const industryKeywords = getIndustryLogic(settings.industry);
+    const intentKeywords = getIntentLogic(intent);
+    
+    // Color Logic
+    let colorInstruction = '';
+    if (settings.brandColors && settings.brandColors.length > 0) {
+        colorInstruction = `Dominant Color Palette: ${settings.brandColors.join(', ')}. Use these colors for background, lighting, or accents to maintain brand consistency.`;
+    }
+
+    // Brand Name Injection (For Ideogram mainly, or advanced models)
+    let textInstruction = '';
+    if (settings.brandName) {
+        // Only ask for text if the intent warrants it, otherwise it might look messy on basic models
+        if (intent === 'product_showcase' || intent === 'promotion') {
+            textInstruction = `Visible Text: "${settings.brandName}" integrated naturally on the product or background sign. Typography should match the ${settings.visualStyle} style.`;
+        }
+    }
+
+    // Assembly
+    // Removed "8k", "highly detailed" to enforce standard quality
+    return `
+    [Subject]: ${subject}
+    [Industry Context]: ${industryKeywords}
+    [Design Style]: ${styleKeywords}
+    [Layout/Intent]: ${intentKeywords}
+    [Brand Colors]: ${colorInstruction}
+    ${textInstruction}
+    
+    [Technical Specs]: Standard resolution, standard web quality, clear image, good composition.
+    `;
+};
 
 // ============================================================================
 // THREADS ADVANCED PROMPT LOGIC (Dual-Track)
@@ -14,6 +92,7 @@ const TAIWAN_THREADS_RULES = `
 5. **Structure**: Keep it fragmented. A "Stream of consciousness" (碎碎念) style is better than a structured essay.
 6. **Engagement**: Don't preach. Invite discussion or relate to common experiences.
 7. **Emoji Control**: Use emojis SPARINGLY. Maximum 1-2 emojis per paragraph. **CRITICAL**: Only place emojis at the END of a sentence or block. DO NOT insert emojis in the middle of a sentence (e.g. "Today ☀️ is hot").
+8. **Line Breaks (CRITICAL)**: Threads posts need breathing room. **ALWAYS use Double Newlines (\\n\\n)** to separate paragraphs. Do NOT bundle text into one block.
 `;
 
 const THREADS_PERSONAL_CORE = `
@@ -32,7 +111,7 @@ You are a "Social Editor" (社群小編) who acts like a real person, not a robo
 - **Goal**: Engage, don't just broadcast. Be a "Friend" first, "Brand" second.
 - **Tone**: Warm, helpful, slightly playful, but maintains brand safety.
 - **Particles**: Use polite but casual particles (e.g., 喔, 呢, 吧) to soften the tone. Avoid overly aggressive slang unless specified.
-- **Format**: Short paragraphs. Easy to read on mobile.
+- **Format**: Short paragraphs (2-3 sentences max). Easy to read on mobile. **Force Double Line Breaks between topics.**
 - **Emoji Strategy**: Clean and minimal. Use friendly emojis (✨, 🙌, ❤️) but do not overdo it.
 ${TAIWAN_THREADS_RULES}
 `;
@@ -185,14 +264,14 @@ export const buildViralPrompt = (
     [🖼️ VISUAL PROMPT INSTRUCTION (STRICT)]
     You MUST generate a "imagePrompt" field for AI image generation.
     - **Language**: English ONLY. (Do NOT use Chinese in imagePrompt).
-    - **Style**: Photorealistic, Cinematic Lighting, 8K, Commercial Photography, Depth of Field.
-    - **Content**: Visually represent the topic "${topic}" in a stunning, high-quality way. 
-    - **Example**: "A close-up of a glowing skincare bottle on a marble table, water droplets, soft morning sunlight, 8k resolution, shot on Hasselblad."
+    - **Style**: Commercial Photography, Standard Quality, Realistic.
+    - **Content**: Visually represent the topic "${topic}" in a clear way. 
+    - **Example**: "A close-up of a skincare bottle on a table, soft morning sunlight."
 
     Output JSON Schema:
     {
       "caption": "The full post content in Traditional Chinese. Include headline at the top and hashtags at the bottom.",
-      "imagePrompt": "Detailed ENGLISH image prompt. High quality photography style."
+      "imagePrompt": "Detailed ENGLISH image prompt. Standard quality photography style."
     }
     `;
 };

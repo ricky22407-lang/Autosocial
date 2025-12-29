@@ -43,12 +43,19 @@ const Icons = {
 
 const defaultSettings: BrandSettings = {
   industry: '',
+  brandName: '', // Added: Missing Property
   brandType: 'enterprise',
   services: '',
   website: '',
   productInfo: '',
   brandTone: 'Professional',
   persona: '',
+  
+  // Added: Missing Visual Identity fields
+  brandColors: ['#000000', '#ffffff', '#cccccc'],
+  targetAudience: '',
+  visualStyle: 'minimalist',
+
   facebookPageId: '',
   facebookToken: '',
   threadsAccounts: [], 

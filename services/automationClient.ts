@@ -1,26 +1,21 @@
 
-import { BrandSettings, AutoPilotConfig } from '../types';
-import { getTrendingTopics, generatePostDraft, generateImage, generateVideo, generateThreadsBatch, applyWatermark } from './geminiService';
+import { BrandSettings } from '../types';
+import { getCurrentUser, checkAndUseQuota, getUserProfile } from './authService';
+import { getTrendingTopics, generatePostDraft, generateVideo, generateImage, applyWatermark, generateThreadsBatch } from './geminiService';
 import { publishPostToFacebook } from './facebookService';
 import { publishThreadsPost } from './threadsService';
-import { checkAndUseQuota, getUserProfile, getCurrentUser } from './authService';
 import { db, isMock, firebase } from './firebase';
 
-// Helper to generate image URL locally (mirrors ThreadsNurturePanel logic)
-const generateImageUrlLocal = (prompt: string, query: string, mode: 'ai_url' | 'stock_url'): string => {
-    const seed = Date.now();
-    if (mode === 'ai_url') {
-        const encodedPrompt = encodeURIComponent(prompt || query);
-        // Use standard flux model
-        return `https://image.pollinations.ai/prompt/${encodedPrompt}?n=${seed}&model=flux`;
-    } else {
-        // Updated to match ThreadsNurturePanel Photorealistic logic
-        // Replaces LoremFlickr with Pollinations + Realistic Prompt
-        // Note: Removing 'model=flux-realism' as it might cause 404s.
-        const stockPrompt = `${query}, photorealistic, cinematic lighting, real photography, no 3d render, no illustration, hyperrealistic`;
-        const encodedPrompt = encodeURIComponent(stockPrompt);
-        return `https://image.pollinations.ai/prompt/${encodedPrompt}?n=${seed}&model=flux`;
-    }
+// Helper for Threads Image Generation in Automation (simulating logic from ThreadsNurturePanel)
+const generateImageUrlLocal = (prompt: string, query: string, mode: 'ai_url' | 'stock_url' | 'none') => {
+    if (mode === 'none') return undefined;
+    const seed = Math.floor(Math.random() * 1000000).toString();
+    // Use prompt if AI, or query/prompt if stock
+    const text = mode === 'ai_url' ? prompt : (query || prompt);
+    const encoded = encodeURIComponent(text);
+    
+    // Pollinations URL for Threads public access
+    return `https://image.pollinations.ai/prompt/${encoded}?n=${seed}&model=flux`;
 };
 
 export const AutomationClient = {
@@ -30,12 +25,15 @@ export const AutomationClient = {
     const user = getCurrentUser();
     if (!user) throw new Error("使用者未登入");
     
-    // Check quota locally/firebase directly (AutoPilot usually consumes more logic, but for now we stick to 1 base + media cost)
-    // Actually, let's simplify for automation: charge a flat fee or calculate.
-    // Let's assume AutoPilot run costs 1 base point. If it generates AI Image, that's extra internal logic, 
-    // but here we just charge 1 to trigger the run for simplicity unless we want complex transaction.
-    const hasQuota = await checkAndUseQuota(user.uid, 1, 'AUTOPILOT_FB_TRIGGER');
-    if (!hasQuota) throw new Error("配額不足，無法執行自動化任務");
+    // COST CALCULATION:
+    // Base Operation (Drafting): 10 pts (Matches PostCreator)
+    // Media (Image): +5 pts (Matches PostCreator New Price)
+    // Total: 15 pts
+    
+    // Check quota strictly
+    const COST = 15; 
+    const hasQuota = await checkAndUseQuota(user.uid, COST, 'AUTOPILOT_FB_FULL_RUN');
+    if (!hasQuota) throw new Error(`配額不足，自動化發文需 ${COST} 點`);
 
     const config = settings.autoPilot;
     if (!config || !config.enabled) throw new Error("自動化功能未啟用");
@@ -121,7 +119,6 @@ export const AutomationClient = {
         try {
             await db.collection('users').doc(user.uid).update({
                 // Note: quota was already decremented by checkAndUseQuota, so we just log timestamp here
-                // 'quota_used': firebase.firestore.FieldValue.increment(1), 
                 updated_at: Date.now()
             });
         } catch (e) { console.error("Failed to update stats", e); }
@@ -142,11 +139,19 @@ export const AutomationClient = {
       const user = getCurrentUser();
       if (!user) throw new Error("使用者未登入");
 
-      const hasQuota = await checkAndUseQuota(user.uid, 1, 'AUTOPILOT_THREADS_TRIGGER');
-      if (!hasQuota) throw new Error("配額不足 (Threads AutoPilot)");
-
       const config = settings.threadsAutoPilot;
       if (!config || !config.enabled) throw new Error("Threads 自動化功能未啟用");
+
+      // COST CALCULATION:
+      // Base: 2 pt (Pricing Update)
+      // Image (AI): +5 pts (Pricing Update)
+      // Image (Stock/News): +1 pt
+      let COST = 2;
+      if (config.imageMode === 'ai_url') COST += 5;
+      else if (config.imageMode === 'stock_url') COST += 1;
+
+      const hasQuota = await checkAndUseQuota(user.uid, COST, 'AUTOPILOT_THREADS_TRIGGER');
+      if (!hasQuota) throw new Error(`配額不足 (Threads 自動化需 ${COST} 點)`);
 
       // Filter available accounts
       const targetIds = config.targetAccountIds || [];

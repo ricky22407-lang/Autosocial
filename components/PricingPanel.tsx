@@ -128,21 +128,21 @@ const PricingPanel: React.FC<Props> = ({ user }) => {
                             </tr>
                             <tr className="hover:bg-white/5 transition-colors group">
                                 <td className="p-5 font-bold text-white group-hover:text-primary transition-colors">AI 圖片生成 (標準)</td>
-                                <td className="p-5 text-right text-primary font-black text-lg">3 點</td>
+                                <td className="p-5 text-right text-primary font-black text-lg">5 點</td>
                                 <td className="p-5 text-gray-400 text-xs leading-relaxed hidden sm:table-cell">
-                                    使用 Pollinations/Flux 模型快速生成。支援相片寫實風格、插畫風格。
+                                    使用 Pollinations/Flux 模型快速生成。支援相片寫實風格、插畫風格。(含 Ideogram/Imagen 後端支援)
                                 </td>
                             </tr>
                             <tr className="hover:bg-white/5 transition-colors group">
                                 <td className="p-5 font-bold text-white group-hover:text-primary transition-colors">Threads 快速發文</td>
-                                <td className="p-5 text-right text-blue-400 font-black text-lg">1 點</td>
+                                <td className="p-5 text-right text-blue-400 font-black text-lg">2 點</td>
                                 <td className="p-5 text-gray-400 text-xs leading-relaxed hidden sm:table-cell">
                                     使用 Flash 模型，適合口語化、生活感短文。包含風格模仿與廢文模式。
                                 </td>
                             </tr>
                             <tr className="hover:bg-white/5 transition-colors group">
                                 <td className="p-5 font-bold text-white group-hover:text-primary transition-colors">自動化排程 (每次)</td>
-                                <td className="p-5 text-right text-blue-400 font-black text-lg">1 點 + 內容費</td>
+                                <td className="p-5 text-right text-blue-400 font-black text-lg">2 點 + 內容費</td>
                                 <td className="p-5 text-gray-400 text-xs leading-relaxed hidden sm:table-cell">
                                     觸發自動化任務的基礎費用。實際生成的貼文與圖片會另行計費。
                                 </td>

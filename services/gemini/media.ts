@@ -1,5 +1,7 @@
 
 import { callBackend } from './core';
+import { BrandSettings, ImageIntent } from '../../types';
+import { buildCommercialImagePrompt } from '../promptTemplates';
 
 const ensureEnglishPrompt = async (prompt: string): Promise<string> => {
     if (/^[\x00-\x7F]*$/.test(prompt)) return prompt;
@@ -12,44 +14,57 @@ const ensureEnglishPrompt = async (prompt: string): Promise<string> => {
     } catch (e) { return prompt; }
 };
 
-export const generateImage = async (prompt: string, userRole: string = 'user', stylePrompt?: string): Promise<string> => {
+export const generateImage = async (
+    prompt: string, 
+    userRole: string = 'user', 
+    settings?: BrandSettings, 
+    intent: ImageIntent = 'lifestyle'
+): Promise<string> => {
     const noLimitTrigger = /no limit/i.test(prompt);
-    let finalPrompt = prompt.replace(/no limit/ig, '').trim();
+    let basePrompt = prompt.replace(/no limit/ig, '').trim();
     
-    // Logic: Pollinations (Standard) vs Imagen (Pro/HD)
-    // 'pro', 'business', 'admin' can access Imagen 3 IF requested (e.g. by implicit quality setting or system prompt injection in future)
-    // For now, to save cost, we default EVERYONE to Pollinations unless they are 'admin' or explicitly requesting 'HD' quality in prompt.
-    // The user requirement said: "Only VIP or checkbox (High Quality) switches to Imagen 3".
+    // 1. Construct the Commercial Design Prompt
+    let finalPrompt = "";
+    if (settings) {
+        const englishSubject = await ensureEnglishPrompt(basePrompt);
+        finalPrompt = buildCommercialImagePrompt(englishSubject, settings, intent, userRole);
+    } else {
+        finalPrompt = await ensureEnglishPrompt(basePrompt);
+        finalPrompt += ", photorealistic, cinematic lighting, photography style";
+    }
+
+    console.log("🎨 [Commercial Design Prompt]", finalPrompt);
+
+    // 2. Select Engine
+    // 'pro', 'business', 'admin' -> Priority: Backend Waterfall (Ideogram -> Imagen -> Grok)
+    // 'user', 'starter' -> Frontend Economy Mode (Pollinations)
     
     const isProTier = ['pro', 'business', 'admin'].includes(userRole);
-    const isHighQualityRequest = /HD|4k|high quality|premium/i.test(prompt) || noLimitTrigger;
-    
-    const usePremiumModel = isProTier && isHighQualityRequest;
 
-    const englishPrompt = await ensureEnglishPrompt(finalPrompt);
-    
-    let enhancedPrompt = "";
-    const isXHS = /handwritten note style|xiaohongshu|note/i.test(stylePrompt || '');
-    if (isXHS) enhancedPrompt = `${englishPrompt}. Style: Xiaohongshu note, beige background, handwritten-like font overlay, lifestyle vibe.`;
-    else if (stylePrompt) enhancedPrompt = `${englishPrompt}. Visual Style: ${stylePrompt}. Photorealistic.`;
-    else enhancedPrompt = `${englishPrompt}, photorealistic, cinematic lighting, photography style`;
-
-    if (!usePremiumModel) {
+    if (!isProTier) {
          console.log("🎨 [ImageGen] Economy Mode: Pollinations");
-         // Pollinations (Flux) is essentially free and high quality enough for casual/standard use
-         return `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt)}?n=${Math.floor(Math.random()*100000)}&model=flux&enhance=true`;
+         return `https://image.pollinations.ai/prompt/${encodeURIComponent(finalPrompt)}?n=${Math.floor(Math.random()*100000)}&model=flux&enhance=true`;
     }
 
     try {
-        console.log(`🎨 [ImageGen] Pro Mode: Backend (Imagen 3)`);
+        console.log(`🎨 [ImageGen] Pro Mode: calling Backend Waterfall`);
         const safetySettings = noLimitTrigger ? [{ category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' }] : undefined;
-        // Costly call
-        const response = await callBackend('generateImages', { model: 'imagen-3.0-generate-002', prompt: enhancedPrompt, safetySettings });
-        if (response.base64) return `data:image/png;base64,${response.base64}`;
+        
+        // We call 'generateImages'. The backend now handles the waterfall (Ideogram -> Imagen -> Grok).
+        // We don't specify model here to let backend decide based on keys.
+        const response = await callBackend('generateImages', { 
+            prompt: finalPrompt, 
+            safetySettings 
+        });
+        
+        if (response.base64) {
+            console.log(`✅ Image generated via provider: ${response.provider || 'unknown'}`);
+            return `data:image/png;base64,${response.base64}`;
+        }
         throw new Error("No image data");
     } catch (e: any) {
         console.error("❌ [ImageGen] Backend Failed. Fallback to Pollinations.", e.message);
-        return `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt)}?n=${Math.floor(Math.random()*100000)}&model=flux&enhance=true`;
+        return `https://image.pollinations.ai/prompt/${encodeURIComponent(finalPrompt)}?n=${Math.floor(Math.random()*100000)}&model=flux&enhance=true`;
     }
 };
 
@@ -64,8 +79,6 @@ export const generateVideo = async (prompt: string): Promise<string> => {
         throw new Error("No video data returned");
     } catch (e: any) {
         console.warn("Veo failed, fallback to Image:", e);
-        // Fallback check logic relies on caller to handle error or use image
-        // Here we just rethrow so automation client can decide to fallback
         throw new Error(`影片生成失敗: ${e.message}`);
     }
 };
@@ -81,39 +94,6 @@ export const analyzeVisualStyle = async (imageB64s: string[]): Promise<string> =
         contents: { parts }
     });
     return response.text || "Minimalist, clean, high-key lighting.";
-};
-
-export const applyTextOverlay = async (imageUrl: string, text: string): Promise<string> => {
-    return new Promise((resolve, reject) => {
-        if (typeof document === 'undefined') { reject(new Error("Canvas not supported in this env")); return; }
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        if (!ctx) { reject(new Error("Canvas context not supported")); return; }
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-        img.src = imageUrl;
-        img.onload = () => {
-            canvas.width = img.width; canvas.height = img.height;
-            ctx.drawImage(img, 0, 0);
-            const fontSize = Math.floor(canvas.width * 0.08);
-            ctx.font = `bold ${fontSize}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            const maxWidth = canvas.width * 0.9;
-            let line = '', lines = [];
-            for(let i = 0; i < text.length; i++) {
-                const char = text[i]; const testLine = line + char;
-                if (ctx.measureText(testLine).width > maxWidth && i > 0) { lines.push(line); line = char; } else { line = testLine; }
-            }
-            lines.push(line);
-            const totalHeight = lines.length * (fontSize * 1.2); const padding = fontSize; const bgY = canvas.height - totalHeight - (padding * 2);
-            const gradient = ctx.createLinearGradient(0, bgY - 50, 0, canvas.height);
-            gradient.addColorStop(0, "rgba(0, 0, 0, 0)"); gradient.addColorStop(0.3, "rgba(0, 0, 0, 0.6)"); gradient.addColorStop(1, "rgba(0, 0, 0, 0.9)");
-            ctx.fillStyle = gradient; ctx.fillRect(0, bgY - 50, canvas.width, canvas.height - (bgY - 50));
-            let y = canvas.height - totalHeight - padding + (fontSize/2);
-            lines.forEach(l => { ctx.shadowColor="rgba(0,0,0,0.8)"; ctx.shadowBlur=15; ctx.lineWidth=fontSize*0.05; ctx.strokeStyle='black'; ctx.strokeText(l,canvas.width/2,y); ctx.fillStyle='white'; ctx.fillText(l,canvas.width/2,y); y+=fontSize*1.2; });
-            resolve(canvas.toDataURL('image/png'));
-        };
-        img.onerror = (e) => reject(new Error("Image load failed"));
-    });
 };
 
 export const applyWatermark = async (mainImageUrl: string, logoUrl: string): Promise<string> => {

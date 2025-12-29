@@ -18,29 +18,30 @@ module.exports = async function (req, res) {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  // Check body existence
   if (!req.body) {
       return res.status(400).json({ error: 'Missing Request Body' });
   }
 
-  // --- Multi-Key Manager & Load Balancing Logic ---
+  // --- Key Manager & Load Balancing ---
   class KeyManager {
       constructor() {
-          // Load Gemini keys from possible env vars
           this.geminiKeys = [
               process.env.API_KEY,
               process.env.API_KEY_2,
               process.env.API_KEY_3,
               process.env.API_KEY_4,
               process.env.API_KEY_5
-          ].filter(k => k && k.length > 0 && k !== 'undefined'); 
+          ].filter(k => k && k.length > 10 && k !== 'undefined');
           
-          // Load OpenAI Key for Ultimate Fallback
           this.openAIKey = process.env.OPENAI_API_KEY;
+          
+          this.ideogramKeys = [
+              process.env.IDEOGRAM_API_KEY,
+              process.env.IDEOGRAM_API_KEY_2
+          ].filter(k => k && k.length > 0 && k !== 'undefined');
 
-          // RANDOM START INDEX (Load Balancing)
-          // Instead of starting at 0, we start at a random index. 
-          // This ensures that concurrent users hit different keys, preventing a bottleneck on Key #1.
+          this.grokKey = process.env.GROK_API_KEY;
+
           this.currentIndex = this.geminiKeys.length > 0 
               ? Math.floor(Math.random() * this.geminiKeys.length) 
               : 0;
@@ -52,30 +53,32 @@ module.exports = async function (req, res) {
       }
       
       getCurrentKeySlotIndex() {
-          return this.currentIndex + 1; // 1-based index for logging
-      }
-      
-      getOpenAIKey() {
-          return this.openAIKey;
+          return this.currentIndex + 1;
       }
 
-      // Check specifically which slots are configured (for UI monitoring)
+      getIdeogramKey() {
+          if (this.ideogramKeys.length === 0) return null;
+          return this.ideogramKeys[Math.floor(Math.random() * this.ideogramKeys.length)];
+      }
+
+      getGrokKey() { return this.grokKey; }
+      getOpenAIKey() { return this.openAIKey; }
+
       getKeyConfigStatus() {
           return [
-              !!(process.env.API_KEY && process.env.API_KEY !== 'undefined'),
-              !!(process.env.API_KEY_2 && process.env.API_KEY_2 !== 'undefined'),
-              !!(process.env.API_KEY_3 && process.env.API_KEY_3 !== 'undefined'),
-              !!(process.env.API_KEY_4 && process.env.API_KEY_4 !== 'undefined'),
-              !!(process.env.API_KEY_5 && process.env.API_KEY_5 !== 'undefined')
+              !!(process.env.API_KEY && process.env.API_KEY.length > 10),
+              !!(process.env.API_KEY_2 && process.env.API_KEY_2.length > 10),
+              !!(process.env.IDEOGRAM_API_KEY),
+              !!(process.env.IDEOGRAM_API_KEY_2),
+              !!(process.env.GROK_API_KEY)
           ];
       }
 
       switchToNextKey() {
-          // Circular switching (Round Robin fallback)
           if (this.geminiKeys.length > 1) {
               const oldIndex = this.currentIndex;
               this.currentIndex = (this.currentIndex + 1) % this.geminiKeys.length;
-              console.warn(`[KeyManager] ⚠️ Switching Key: Slot ${oldIndex + 1} -> Slot ${this.currentIndex + 1}`);
+              console.warn(`[KeyManager] ⚠️ Key Slot ${oldIndex + 1} exhausted. Switching to Slot ${this.currentIndex + 1}...`);
               return true;
           }
           return false;
@@ -85,98 +88,111 @@ module.exports = async function (req, res) {
   const keyManager = new KeyManager();
   const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-  // Helper: OpenAI DALL-E 3 Generation (Fallback)
+  const isRetryableError = (error) => {
+      const msg = (error.message || '').toLowerCase();
+      const status = error.status || error.response?.status;
+      return (
+          msg.includes('429') || status === 429 ||
+          msg.includes('quota') || msg.includes('resource exhausted') || 
+          msg.includes('limit') || msg.includes('overloaded') ||
+          msg.includes('503') || status === 503
+      );
+  };
+
+  async function executeWithRetry(operation) {
+      if (keyManager.geminiKeys.length === 0) throw new Error("Server Error: No Gemini API Keys configured.");
+
+      let lastError = null;
+      const attempts = keyManager.geminiKeys.length;
+
+      let GoogleGenAI;
+      try {
+          const sdk = await import("@google/genai");
+          GoogleGenAI = sdk.GoogleGenAI;
+      } catch (e) { throw new Error(`SDK Load Failed: ${e.message}`); }
+
+      for (let i = 0; i < attempts; i++) {
+          const currentKey = keyManager.getCurrentKey();
+          const currentSlot = keyManager.getCurrentKeySlotIndex();
+
+          try {
+              const ai = new GoogleGenAI({ apiKey: currentKey });
+              // Pass both AI instance AND the raw key string to the callback
+              const result = await operation(ai, currentKey);
+              return result;
+
+          } catch (error) {
+              lastError = error;
+              
+              if (isRetryableError(error)) {
+                  console.warn(`[Gemini] Key Slot ${currentSlot} hit rate limit (429/Quota).`);
+                  if (i < attempts - 1) {
+                      keyManager.switchToNextKey();
+                      await delay(300 + Math.random() * 500); 
+                      continue; 
+                  }
+              }
+              
+              if (error.status === 400 && !error.message.toLowerCase().includes('key')) {
+                  throw error; 
+              }
+          }
+      }
+      console.error("[Gemini] All API keys exhausted.");
+      throw new Error(`All API keys exhausted. Last error: ${lastError?.message}`);
+  }
+
+  // ... (Ideogram/Grok/OpenAI functions remain the same as previous output) ...
+  async function generateIdeogramImage(prompt) {
+      const apiKey = keyManager.getIdeogramKey();
+      if (!apiKey) return null; 
+      let ar = "ASPECT_1_1";
+      if (prompt.includes("16:9")) ar = "ASPECT_16_9";
+      if (prompt.includes("9:16")) ar = "ASPECT_9_16";
+      const response = await fetch("https://api.ideogram.ai/generate", {
+          method: "POST",
+          headers: { "Api-Key": apiKey, "Content-Type": "application/json" },
+          body: JSON.stringify({ image_request: { prompt: prompt, aspect_ratio: ar, model: "V_2", magic_prompt_option: "AUTO" } })
+      });
+      if (!response.ok) throw new Error(`Ideogram Error: ${response.status}`);
+      const data = await response.json();
+      const imageUrl = data.data?.[0]?.url;
+      if (!imageUrl) throw new Error("Ideogram returned no image URL");
+      const imgRes = await fetch(imageUrl);
+      const arrayBuffer = await imgRes.arrayBuffer();
+      return Buffer.from(arrayBuffer).toString('base64');
+  }
+
+  async function generateGrokImage(prompt) {
+      const apiKey = keyManager.getGrokKey();
+      if (!apiKey) return null;
+      const response = await fetch("https://api.x.ai/v1/images/generations", {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt: prompt, model: "grok-beta", n: 1, size: "1024x1024", response_format: "b64_json" })
+      });
+      if (!response.ok) throw new Error(`Grok Error`);
+      const data = await response.json();
+      return data.data?.[0]?.b64_json;
+  }
+
   async function generateOpenAIImage(prompt) {
       const apiKey = keyManager.getOpenAIKey();
-      if (!apiKey) throw new Error("No OpenAI API Key provided for fallback.");
-
-      console.log("[Fallback] Switching to OpenAI DALL-E 3...");
+      if (!apiKey) return null;
       const response = await fetch("https://api.openai.com/v1/images/generations", {
           method: "POST",
-          headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${apiKey}`
-          },
-          body: JSON.stringify({
-              model: "dall-e-3",
-              prompt: prompt,
-              n: 1,
-              size: "1024x1024",
-              response_format: "b64_json"
-          })
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+          body: JSON.stringify({ model: "dall-e-3", prompt: prompt, n: 1, size: "1024x1024", response_format: "b64_json" })
       });
-
       const data = await response.json();
       if (data.error) throw new Error(`OpenAI Error: ${data.error.message}`);
       return data.data[0].b64_json;
   }
 
-  // Retry Wrapper with Exponential Backoff & Key Rotation
-  async function executeWithRetry(operation, retryCount = 0, keysTried = 1) {
-      if (!keyManager.getCurrentKey()) {
-          throw new Error("Server Configuration Error: API_KEY is missing in environment variables.");
-      }
-
-      // Max retries per key = 1 (Fast Failover). 
-      // Max total keys tried = Total available keys.
-      
-      try {
-          const apiKey = keyManager.getCurrentKey();
-          
-          // Dynamic Import SDK
-          let GoogleGenAI;
-          try {
-              const sdk = await import("@google/genai");
-              GoogleGenAI = sdk.GoogleGenAI;
-          } catch (e) {
-              throw new Error(`Failed to load @google/genai SDK: ${e.message}`);
-          }
-
-          const ai = new GoogleGenAI({ apiKey: apiKey });
-          return await operation(ai);
-
-      } catch (error) {
-          const msg = error.message || '';
-          console.warn(`[API Error Slot ${keyManager.getCurrentKeySlotIndex()}] ${msg}`);
-          
-          // Identify Quota/Overload Errors
-          // 429: Too Many Requests, 503: Service Unavailable
-          const isQuotaError = msg.includes('429') || msg.includes('Quota') || msg.includes('exhausted') || msg.includes('503') || msg.includes('403');
-          
-          if (isQuotaError) {
-              // Strategy: If current key fails, try next key IMMEDIATELY without waiting too long.
-              // We only wait if we have exhausted all keys.
-              
-              if (keysTried < keyManager.geminiKeys.length) {
-                  // Switch to next available key
-                  keyManager.switchToNextKey();
-                  return executeWithRetry(operation, 0, keysTried + 1);
-              } else {
-                  // All keys exhausted. Now we wait and retry on current (last) key.
-                  if (retryCount < 1) {
-                      const waitTime = 2000;
-                      console.warn(`[API] All keys exhausted. Waiting ${waitTime}ms to retry...`);
-                      await delay(waitTime);
-                      return executeWithRetry(operation, retryCount + 1, keysTried);
-                  } else {
-                      throw new Error("ALL_KEYS_EXHAUSTED");
-                  }
-              }
-          } else {
-              // Non-quota error (e.g. invalid prompt, filter), throw immediately
-              throw error;
-          }
-      }
-  }
-
   try {
     const { action, payload } = req.body;
-    
-    if (!action) {
-        return res.status(400).json({ error: "Missing 'action' in request body" });
-    }
+    if (!action) return res.status(400).json({ error: "Missing 'action'" });
 
-    // --- Action: getServiceStatus (NEW) ---
     if (action === 'getServiceStatus') {
         const status = keyManager.getKeyConfigStatus();
         return res.status(200).json({ 
@@ -186,182 +202,109 @@ module.exports = async function (req, res) {
         });
     }
 
-    // --- Action: fetchRss ---
     if (action === 'fetchRss') {
         const { url } = payload;
-        try {
-            const rssRes = await fetch(url);
-            const text = await rssRes.text();
-            return res.status(200).json({ text });
-        } catch (rssError) {
-            throw new Error(`Failed to fetch RSS: ${rssError.message}`);
-        }
+        const rssRes = await fetch(url);
+        return res.status(200).json({ text: await rssRes.text() });
     }
 
-    // --- Action: fetchOgImage ---
-    else if (action === 'fetchOgImage') {
+    if (action === 'fetchOgImage') {
         const { url } = payload;
-        try {
-            const htmlRes = await fetch(url, {
-                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36' }
-            });
-            const html = await htmlRes.text();
-            const match = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i);
-            const ogImage = match ? match[1] : null;
-            return res.status(200).json({ imageUrl: ogImage });
-        } catch (e) {
-            console.warn("OG Fetch failed", e);
-            return res.status(200).json({ imageUrl: null });
-        }
+        const htmlRes = await fetch(url, { headers: { 'User-Agent': 'Bot' } });
+        const html = await htmlRes.text();
+        const match = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i);
+        return res.status(200).json({ imageUrl: match ? match[1] : null });
     }
 
-    // --- Action: generateContent ---
-    else if (action === 'generateContent') {
+    if (action === 'generateContent') {
       const { model, contents, config } = payload;
-      
-      const runGeneration = async (currentModel) => {
-          return await executeWithRetry(async (ai) => {
-              const response = await ai.models.generateContent({ 
-                  model: currentModel, 
-                  contents, 
-                  config 
-              });
-              return { text: response.text };
-          });
-      };
-
-      try {
-          const result = await runGeneration(model);
-          return res.status(200).json(result);
-      } catch (e) {
-          // Gemini Fallback Logic for text
-          if (model.includes('gemini-3-pro') || model.includes('gemini-1.5-pro')) {
-              console.warn(`[API] ${model} failed. Downgrading to gemini-2.5-flash.`);
-              try {
-                  const fallbackResult = await runGeneration('gemini-2.5-flash');
-                  return res.status(200).json(fallbackResult);
-              } catch (fallbackError) {
-                  throw e;
-              }
-          }
-          throw e;
-      }
+      const result = await executeWithRetry(async (ai) => {
+          const response = await ai.models.generateContent({ model, contents, config });
+          return { text: response.text };
+      });
+      return res.status(200).json(result);
     }
     
-    // --- Action: generateImages ---
-    else if (action === 'generateImages') {
+    if (action === 'generateImages') {
       const { prompt, safetySettings } = payload;
       
-      // Helper: Generate via generateContent
-      const generateViaContent = async (ai, modelName) => {
-          console.log(`[Image Gen] Attempting with ${modelName}...`);
-          const response = await ai.models.generateContent({
-              model: modelName,
-              contents: { parts: [{ text: prompt }] },
-              config: { 
-                  imageConfig: { aspectRatio: "1:1" },
-                  safetySettings: safetySettings 
-              }
-          });
-          
-          let b64 = null;
-          if (response.candidates?.[0]?.content?.parts) {
-            for (const part of response.candidates[0].content.parts) {
-                if (part.inlineData && part.inlineData.data) {
-                    b64 = part.inlineData.data;
-                    break;
-                }
-            }
-          }
-          if (!b64) throw new Error(`No image data received from ${modelName}`);
-          return { base64: b64 };
-      };
-
-      // Helper: Generate via generateImages
-      const generateViaImagen = async (ai, modelName) => {
-          console.log(`[Image Gen] Attempting with ${modelName}...`);
-          const response = await ai.models.generateImages({
-              model: modelName,
-              prompt: prompt,
-              config: { 
-                  numberOfImages: 1,
-                  aspectRatio: "1:1",
-                  safetySettings: safetySettings 
-              }
-          });
-
-          const imgBytes = response.generatedImages?.[0]?.image?.imageBytes;
-          if (!imgBytes) throw new Error(`No image bytes received from ${modelName}`);
-          return { base64: imgBytes };
-      };
-
-      // === WATERFALL STRATEGY ===
-      // PRIORITY 1: Imagen 3.0
       try {
-          const result = await executeWithRetry(async (ai) => {
-              return await generateViaImagen(ai, 'imagen-3.0-generate-002');
+          const ideogramB64 = await generateIdeogramImage(prompt);
+          if (ideogramB64) return res.status(200).json({ base64: ideogramB64, provider: 'ideogram' });
+      } catch (e) { console.warn("[Waterfall] Ideogram skipped:", e.message); }
+
+      try {
+          const geminiResult = await executeWithRetry(async (ai) => {
+              console.log("[Waterfall] Attempting Imagen 3...");
+              const response = await ai.models.generateImages({
+                  model: 'imagen-3.0-generate-002',
+                  prompt: prompt,
+                  config: { numberOfImages: 1, aspectRatio: "1:1", safetySettings }
+              });
+              const bytes = response.generatedImages?.[0]?.image?.imageBytes;
+              if (!bytes) throw new Error("No bytes from Imagen");
+              return { base64: bytes, provider: 'imagen-3' };
           });
-          return res.status(200).json(result);
-      } catch (errorImagen3) {
-          console.warn(`[Image Gen] Imagen 3.0 failed. Trying Gemini 2.5 Flash Image...`);
-          
-          // PRIORITY 2: Gemini 2.5 Flash Image
+          return res.status(200).json(geminiResult);
+      } catch (geminiError) {
+          console.warn("[Waterfall] Imagen 3 failed:", geminiError.message);
           try {
-             const result = await executeWithRetry(async (ai) => {
-                 return await generateViaContent(ai, 'gemini-2.5-flash-image');
-             });
-             return res.status(200).json(result);
-          } catch (errorFlash) {
-             console.warn(`[Image Gen] Gemini Flash failed. Checking OpenAI...`);
-             
-             // PRIORITY 3: OpenAI DALL-E 3
-             if (keyManager.getOpenAIKey()) {
-                 try {
-                     const openAIBase64 = await generateOpenAIImage(prompt);
-                     return res.status(200).json({ base64: openAIBase64 });
-                 } catch (openAIError) {
-                     return res.status(500).json({ error: "Backend Image Generation Failed (All Models Exhausted)." });
-                 }
-             } else {
-                 return res.status(500).json({ error: "Backend Image Generation Failed (Gemini exhausted, no OpenAI key)." });
-             }
+              const flashResult = await executeWithRetry(async (ai) => {
+                  console.log("[Waterfall] Fallback to Gemini Flash Image...");
+                  const response = await ai.models.generateContent({
+                      model: 'gemini-2.5-flash-image',
+                      contents: { parts: [{ text: prompt }] }
+                  });
+                  const bytes = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+                  if (!bytes) throw new Error("No data from Flash Image");
+                  return { base64: bytes, provider: 'gemini-flash' };
+              });
+              return res.status(200).json(flashResult);
+          } catch (flashError) {
+              console.warn("[Waterfall] Gemini Flash failed:", flashError.message);
           }
       }
+
+      try {
+          const grokB64 = await generateGrokImage(prompt);
+          if (grokB64) return res.status(200).json({ base64: grokB64, provider: 'grok' });
+      } catch (e) { console.warn("[Waterfall] Grok failed:", e.message); }
+
+      try {
+          const openAIB64 = await generateOpenAIImage(prompt);
+          if (openAIB64) return res.status(200).json({ base64: openAIB64, provider: 'openai' });
+      } catch (e) { console.warn("[Waterfall] OpenAI failed:", e.message); }
+
+      return res.status(500).json({ error: "All image providers failed." });
     }
     
-    // --- Action: generateVideos ---
-    else if (action === 'generateVideos') {
+    if (action === 'generateVideos') {
        const { model, prompt, config } = payload;
-       const result = await executeWithRetry(async (ai) => {
+       const result = await executeWithRetry(async (ai, currentKey) => {
            let operation = await ai.models.generateVideos({ model, prompt, config });
            let attempts = 0;
-           const maxAttempts = 20;
-           while (!operation.done && attempts < maxAttempts) { 
+           while (!operation.done && attempts < 20) { 
                await delay(3000);
                operation = await ai.operations.getVideosOperation({ operation: operation });
                attempts++;
            }
-           if (!operation.done) throw new Error("Video generation timed out.");
-           const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
-           if (!videoUri) throw new Error("No video URI returned");
-
-           const currentKey = keyManager.getCurrentKey();
-           const videoRes = await fetch(`${videoUri}&key=${currentKey}`);
-           const arrayBuffer = await videoRes.arrayBuffer();
-           const base64Video = Buffer.from(arrayBuffer).toString('base64');
-           return { videoBase64: base64Video };
+           if (!operation.done) throw new Error("Video timeout");
+           const uri = operation.response?.generatedVideos?.[0]?.video?.uri;
+           if (!uri) throw new Error("No URI");
+           
+           // Use the explicitly passed 'currentKey' which is valid for this loop iteration
+           const vidRes = await fetch(`${uri}&key=${currentKey}`);
+           if (!vidRes.ok) throw new Error("Video download failed");
+           const buf = await vidRes.arrayBuffer();
+           return { videoBase64: Buffer.from(buf).toString('base64') };
        });
        return res.status(200).json(result);
     }
 
-    else {
-        return res.status(400).json({ error: `Unknown action: ${action}` });
-    }
+    return res.status(400).json({ error: `Unknown action: ${action}` });
 
   } catch (error) {
     console.error('[API Error]:', error);
-    return res.status(500).json({ 
-        error: error.message || 'Internal Server Error'
-    });
+    return res.status(500).json({ error: error.message || 'Server Error' });
   }
 };

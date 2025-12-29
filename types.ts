@@ -93,8 +93,13 @@ export interface ThreadsAutoPilotConfig {
   lastRunAt?: number;
 }
 
+// NEW: Brand Visual Identity Types
+export type DesignStyle = 'minimalist' | 'vibrant' | 'luxury' | 'retro' | 'warm_family' | 'tech_futuristic' | 'nature_organic';
+export type ImageIntent = 'product_showcase' | 'promotion' | 'lifestyle' | 'educational' | 'festival';
+
 export interface BrandSettings {
-  industry: string;
+  industry: string; // e.g., 'Food', 'Beauty', 'Tech'
+  brandName: string; // NEW
   brandType: 'enterprise' | 'personal';
   services: string;
   website: string;
@@ -103,14 +108,19 @@ export interface BrandSettings {
   brandTone: string;
   persona: string;
   logoUrl?: string;
-  brandStylePrompt?: string; // For Image Generation Style
+  
+  // NEW: Visual Identity
+  brandColors: string[]; // Array of Hex Codes [Primary, Secondary, Accent]
+  targetAudience: string;
+  visualStyle: DesignStyle;
+  
+  brandStylePrompt?: string; // For Image Generation Style (Legacy/Override)
   brandStyleGuide?: string; // NEW: For Text Generation Style (AI Analyzed)
   facebookPageId: string;
   facebookToken: string;
   tokenExpiry?: number;
   threadsAccounts?: ThreadsAccount[];
   threadsAutoPilot?: ThreadsAutoPilotConfig;
-  // competitors: string[]; // REMOVED
   fixedHashtags: string;
   referenceFiles: ReferenceFile[];
   autoReply: AutoReplyConfig;
