@@ -88,7 +88,7 @@ const PricingPanel: React.FC<Props> = ({ user, onContactClick }) => {
             </div>
 
             {/* Subscription Tiers Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
                 
                 {/* Starter Plan */}
                 <div className={`bg-card p-8 rounded-3xl border flex flex-col relative overflow-hidden group transition-all ${currentPlan === 'starter' && isSubscribed ? 'border-green-500 shadow-[0_0_20px_rgba(34,197,94,0.2)]' : 'border-gray-700 hover:border-primary/50'}`}>
@@ -181,11 +181,6 @@ const PricingPanel: React.FC<Props> = ({ user, onContactClick }) => {
                 </div>
             </div>
 
-            {/* Billing Disclaimer */}
-            <div className="text-center text-[10px] text-yellow-500/80 mb-12">
-                * 訂閱制用戶注意：我們將於每月到期日前 1 天自動進行扣款。
-            </div>
-
             {/* Top Up Section */}
             <div className="bg-gray-900/80 rounded-3xl border border-gray-700 p-8 mb-12 relative overflow-hidden shadow-2xl">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-primary/10 blur-[80px] rounded-full pointer-events-none"></div>
@@ -269,7 +264,8 @@ const PricingPanel: React.FC<Props> = ({ user, onContactClick }) => {
             <div className="bg-gray-900/50 p-8 rounded-2xl border border-gray-800 text-center">
                 <h4 className="text-gray-300 font-bold mb-4 text-sm uppercase tracking-widest">⚠️ 重要聲明與服務條款</h4>
                 <p className="text-xs text-gray-500 max-w-4xl mx-auto leading-relaxed mb-6">
-                    本服務採預付儲值或定期扣款制，<strong>點數一經購買或發放即無法退還</strong>。
+                    本服務採預付儲值或定期扣款制，<strong>點數一經購買或發放即無法退還</strong>。<br/>
+                    <span className="text-yellow-500/80">會員訂閱將於每月到期日以前自動進行扣款。</span><br/>
                     若您使用本程式，即代表您同意本服務之使用條款。
                     取消訂閱僅停止下期扣款，已支付之費用與點數恕不退費。
                 </p>
