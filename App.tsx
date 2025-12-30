@@ -85,6 +85,20 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isProcessingThreads, setIsProcessingThreads] = useState(false);
 
+  // POPUP FLOW DETECTION: Check if we are running inside a popup for OAuth
+  useEffect(() => {
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get('code');
+      // If we have a code AND we have an opener (parent window), we are the popup!
+      if (code && window.opener && window.opener !== window) {
+          console.log("🔐 [threads] Popup detected, sending code to parent...");
+          // Send code back to main app
+          window.opener.postMessage({ type: 'THREADS_OAUTH_CODE', code }, window.location.origin);
+          // Close self
+          window.close();
+      }
+  }, []);
+
   useEffect(() => {
     const unsubscribe = subscribeAuth(async (currentUser) => {
       setUser(currentUser);
@@ -104,7 +118,7 @@ const App: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
-  // Handle Threads OAuth Redirect
+  // Handle Threads OAuth Redirect (Legacy/Fallback for Full Page Redirect)
   useEffect(() => {
       const handleThreadsCallback = async () => {
           if (loadingAuth || !user) return; // Wait for auth
@@ -112,21 +126,18 @@ const App: React.FC = () => {
           const params = new URLSearchParams(window.location.search);
           const code = params.get('code');
           
-          if (code) {
-              // Only process if we haven't already processed it (prevent double effect)
+          // Only process if NOT in popup mode (i.e. no opener)
+          if (code && !window.opener) {
               if (isProcessingThreads) return;
               setIsProcessingThreads(true);
 
               try {
-                  // Only proceed if user initiated the oauth flow (checked via flag)
                   if (!localStorage.getItem('autosocial_pending_oauth')) {
-                      return; // Might be just a random reload or unrelated code param
+                      return; 
                   }
 
-                  // Backend now handles secrets via Env Vars
                   const result = await exchangeThreadsAuth(code, window.location.origin);
 
-                  // Add new account
                   const newAccount: ThreadsAccount = {
                       id: Date.now().toString(),
                       userId: result.userId,
@@ -144,11 +155,10 @@ const App: React.FC = () => {
 
                   setSettings(updatedSettings);
                   localStorage.setItem('autosocial_settings', JSON.stringify(updatedSettings));
-                  localStorage.removeItem('autosocial_pending_oauth'); // Cleanup flag
+                  localStorage.removeItem('autosocial_pending_oauth'); 
 
                   alert(`Threads 帳號 ${newAccount.username} 連接成功！`);
                   
-                  // Clean URL
                   window.history.replaceState({}, document.title, window.location.pathname);
                   setView(AppView.THREADS_NURTURE);
 
@@ -161,7 +171,7 @@ const App: React.FC = () => {
       };
 
       handleThreadsCallback();
-  }, [loadingAuth, user, settings]); // Added settings dependency to ensure we attach to current state
+  }, [loadingAuth, user, settings]); 
 
   const loadLocalSettings = () => {
     const savedSettings = localStorage.getItem('autosocial_settings');
@@ -246,12 +256,18 @@ const App: React.FC = () => {
   const isBusinessPlus = ['business', 'admin'].includes(role);
 
   const hasAnalyticsAccess = isStarterPlus || userProfile?.unlockedFeatures?.includes('ANALYTICS');
-  // UPDATED: Automation accessible for Pro now
   const hasAutomationAccess = isProPlus || userProfile?.unlockedFeatures?.includes('AUTOMATION');
   const hasSeoAccess = isProPlus || userProfile?.unlockedFeatures?.includes('SEO');
   const hasThreadsAccess = isProPlus || userProfile?.unlockedFeatures?.includes('THREADS');
 
   if (loadingAuth) return <div className="h-screen flex items-center justify-center bg-bg text-primary text-xl animate-pulse font-mono tracking-widest">INITIALIZING SYSTEM...</div>;
+  
+  // Clean Loading for Popup Callback
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('code') && window.opener) {
+      return <div className="h-screen flex items-center justify-center bg-black text-white text-sm font-mono">🔐 Authorizing Threads... (Closing soon)</div>;
+  }
+
   if (isProcessingThreads) return <div className="h-screen flex items-center justify-center bg-bg text-pink-500 text-xl font-bold animate-pulse">正在與 Threads 進行安全連線...</div>;
   if (view === AppView.LOGIN) return <Login onLoginSuccess={() => {}} />;
 
@@ -319,10 +335,22 @@ const App: React.FC = () => {
                     <div className="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden mb-1">
                         <div className="h-full bg-primary shadow-[0_0_10px_#00f2ea]" style={{ width: `${Math.min(100, (userProfile.quota_used / userProfile.quota_total) * 100)}%` }}></div>
                     </div>
-                    <div className="flex justify-between text-[10px] text-gray-500 font-bold">
+                    <div className="flex justify-between text-[10px] text-gray-500 font-bold mb-2">
                         <span>點數</span>
                         <span>{userProfile.quota_used} / {userProfile.quota_total}</span>
                     </div>
+                    
+                    {/* NEW: Renewal Date Display */}
+                    {(userProfile.subscription?.nextBillingDate || userProfile.quota_reset_date) && (
+                        <div className="pt-2 border-t border-white/10 flex justify-between text-[9px] font-medium tracking-wider">
+                            <span className="text-gray-500">
+                                {userProfile.subscription?.status === 'active' ? '續約日' : '重置日'}
+                            </span>
+                            <span className="text-gray-300 font-mono">
+                                {new Date(userProfile.subscription?.nextBillingDate || userProfile.quota_reset_date).toLocaleDateString()}
+                            </span>
+                        </div>
+                    )}
                 </>
             ) : <p className="text-xs text-gray-500">GUEST MODE</p>}
           </div>

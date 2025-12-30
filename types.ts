@@ -27,6 +27,20 @@ export enum ErrorCode {
 
 export type UserRole = 'user' | 'starter' | 'pro' | 'business' | 'admin';
 
+// NEW: Subscription Info
+export type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'none';
+export type PaymentProvider = 'ecpay' | 'bank_api' | 'manual';
+
+export interface UserSubscription {
+  status: SubscriptionStatus;
+  planId: 'starter' | 'pro' | 'business';
+  provider: PaymentProvider;
+  subscriptionId: string; // ID on the payment gateway
+  nextBillingDate: number;
+  lastPaymentDate: number;
+  cancelAtPeriodEnd: boolean;
+}
+
 // NEW: Batch Tracking
 export interface QuotaBatch {
   id: string;
@@ -45,6 +59,7 @@ export interface UserProfile {
   quota_used: number;  // Lifetime usage stats
   quota_reset_date: number; // Deprecated but kept for legacy UI compatibility (represents earliest expiry)
   quota_batches?: QuotaBatch[]; // NEW: The source of truth
+  subscription?: UserSubscription; // NEW: Subscription tracking
   expiry_warning_level?: 0 | 1 | 2; 
   isSuspended: boolean;
   unlockedFeatures: string[]; 

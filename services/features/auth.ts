@@ -112,23 +112,23 @@ export const exchangeThreadsAuth = async (code: string, redirectUri: string) => 
         };
     }
 
-    const user = getCurrentUser();
-    if (!user) throw new Error("Authentication required for token exchange");
-
-    const token = await user.getIdToken();
-    
-    const res = await fetch('/api/auth/threads/exchange', {
+    // Call our serverless function instead of direct external API
+    // This keeps the Client Secret hidden on the server
+    const res = await fetch('/api/threads', {
         method: 'POST',
         headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
+            'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ code, redirectUri })
+        body: JSON.stringify({ 
+            action: 'exchange',
+            code, 
+            redirectUri 
+        })
     });
 
     const data = await res.json();
     if (!data.success) {
-        throw new Error(data.error?.message || 'Token exchange failed');
+        throw new Error(data.error || 'Token exchange failed on server');
     }
-    return data.data;
+    return data.data; // { userId, token, username }
 };

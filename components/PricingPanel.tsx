@@ -1,25 +1,46 @@
 
 import React, { useState } from 'react';
-import { UserProfile } from '../types';
+import { UserProfile, SubscriptionStatus } from '../types';
 import TermsModal from './TermsModal';
+import { PaymentService } from '../services/paymentService';
 
 interface Props {
     user: UserProfile | null;
-    onContactClick: () => void; // New prop to handle navigation
+    onContactClick: () => void; // Keep for enterprise/support
 }
 
 const PricingPanel: React.FC<Props> = ({ user, onContactClick }) => {
     const [showTerms, setShowTerms] = useState(false);
+    const [loadingSub, setLoadingSub] = useState(false);
 
-    // Determine earliest expiry
-    let earliestExpiry: number | null = null;
-    if (user?.quota_batches && user.quota_batches.length > 0) {
-        // Assume sorted, or sort locally
-        const sorted = [...user.quota_batches].sort((a,b) => a.expiresAt - b.expiresAt);
-        earliestExpiry = sorted[0].expiresAt;
-    } else if (user?.quota_reset_date) {
-        earliestExpiry = user.quota_reset_date;
-    }
+    // Subscription Status
+    const subStatus: SubscriptionStatus = user?.subscription?.status || 'none';
+    const isSubscribed = subStatus === 'active';
+    const currentPlan = user?.subscription?.planId;
+    const nextBill = user?.subscription?.nextBillingDate;
+
+    const handleSubscribe = async (planId: 'starter' | 'pro') => {
+        if (!user) return alert("請先登入");
+        if (loadingSub) return;
+        
+        // Allow choosing provider (Mocking selection or defaulting to ECPay)
+        const provider = confirm("選擇支付方式：\n\n按「確定」使用 信用卡 (綠界 ECPay)\n按「取消」使用 銀行轉帳 (Bank API)") 
+            ? 'ecpay' 
+            : 'bank_api';
+
+        setLoadingSub(true);
+        try {
+            await PaymentService.subscribe(user.user_id, { planId, provider });
+        } finally {
+            setLoadingSub(false);
+        }
+    };
+
+    const handleCancel = async () => {
+        if (confirm("確定要取消訂閱嗎？\n\n取消後，您仍可使用至本期結束，下個月將不再扣款。")) {
+            if (user) await PaymentService.cancel(user.user_id);
+        }
+    };
 
     return (
         <div className="max-w-6xl mx-auto p-4 md:p-8 animate-fade-in pb-24">
@@ -29,22 +50,28 @@ const PricingPanel: React.FC<Props> = ({ user, onContactClick }) => {
                 <h2 className="text-3xl md:text-4xl font-black text-white tracking-tighter mb-3">
                     會員訂閱與點數說明
                 </h2>
-                <p className="text-gray-400 font-medium text-sm md:text-base max-w-2xl mx-auto">
-                    我們的訂閱模式：<span className="text-primary font-bold">支付月費取得「功能權限」與「贈送點數」</span>。
-                    <br/>
-                    {earliestExpiry && (user?.quota_total ?? 0) > 0 && (
-                        <span className="text-yellow-400 font-bold block mt-2">
-                            ⚠️ 您最近的一批點數將於 {new Date(earliestExpiry).toLocaleDateString()} 到期。
-                        </span>
-                    )}
-                </p>
+                
+                {isSubscribed ? (
+                    <div className="bg-green-900/30 border border-green-500/50 p-4 rounded-xl inline-block mt-4 max-w-lg">
+                        <p className="text-green-400 font-bold text-lg mb-1">✅ 目前訂閱中：{currentPlan === 'pro' ? 'Pro 專業版' : 'Starter 方案'}</p>
+                        <p className="text-sm text-green-200/70">
+                            下期扣款日：{nextBill ? new Date(nextBill).toLocaleDateString() : '計算中'}
+                        </p>
+                        <button onClick={handleCancel} className="mt-3 text-xs text-red-400 hover:text-white underline">取消訂閱 (Turn off auto-renew)</button>
+                    </div>
+                ) : (
+                    <p className="text-gray-400 font-medium text-sm md:text-base max-w-2xl mx-auto">
+                        升級會員，解鎖完整自動化功能與每月點數回饋。<br/>
+                        <span className="text-primary font-bold">支援信用卡定期定額 (ECPay) 與 銀行轉帳</span>
+                    </p>
+                )}
             </div>
 
             {/* Subscription Tiers Grid */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
                 
                 {/* Starter Plan */}
-                <div className="bg-card p-8 rounded-3xl border border-gray-700 flex flex-col relative overflow-hidden group hover:border-primary/50 transition-all">
+                <div className={`bg-card p-8 rounded-3xl border flex flex-col relative overflow-hidden group transition-all ${currentPlan === 'starter' && isSubscribed ? 'border-green-500 shadow-[0_0_20px_rgba(34,197,94,0.2)]' : 'border-gray-700 hover:border-primary/50'}`}>
                     <h3 className="text-xl font-bold text-white mb-2">Starter 方案</h3>
                     <div className="flex items-baseline gap-1 mb-4">
                         <span className="text-4xl font-black text-primary">NT$399</span>
@@ -61,16 +88,23 @@ const PricingPanel: React.FC<Props> = ({ user, onContactClick }) => {
                         <li className="flex items-center gap-2">❌ 自動化排程 (鎖定)</li>
                     </ul>
                     
-                    <button onClick={onContactClick} className="w-full py-3 rounded-xl border border-gray-600 text-gray-300 hover:text-white hover:border-white font-bold transition-all text-sm mb-2">
-                        聯繫客服開通
-                    </button>
-                    <p className="text-xs text-gray-500 text-center">
-                        實質軟體費用僅 $99/月
-                    </p>
+                    {currentPlan === 'starter' && isSubscribed ? (
+                        <button disabled className="w-full py-3 rounded-xl bg-green-600/20 text-green-400 font-bold text-sm cursor-default border border-green-500/50">
+                            當前方案
+                        </button>
+                    ) : (
+                        <button 
+                            onClick={() => handleSubscribe('starter')} 
+                            disabled={loadingSub}
+                            className="w-full py-3 rounded-xl border border-gray-600 text-gray-300 hover:text-white hover:border-white font-bold transition-all text-sm mb-2 disabled:opacity-50"
+                        >
+                            {loadingSub ? '處理中...' : '立即訂閱 (每月扣款)'}
+                        </button>
+                    )}
                 </div>
 
-                {/* Pro Plan - UPDATED */}
-                <div className="bg-gradient-to-b from-purple-900/40 to-card p-8 rounded-3xl border border-purple-500/50 flex flex-col relative overflow-hidden shadow-[0_0_30px_rgba(168,85,247,0.15)] transform md:-translate-y-4">
+                {/* Pro Plan */}
+                <div className={`bg-gradient-to-b from-purple-900/40 to-card p-8 rounded-3xl border flex flex-col relative overflow-hidden shadow-[0_0_30px_rgba(168,85,247,0.15)] transform md:-translate-y-4 ${currentPlan === 'pro' && isSubscribed ? 'border-green-500 ring-2 ring-green-500/30' : 'border-purple-500/50'}`}>
                     <div className="absolute top-0 right-0 bg-purple-600 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl uppercase tracking-wider">主力推薦</div>
                     <h3 className="text-xl font-bold text-white mb-2">Pro 專業版</h3>
                     <div className="flex items-baseline gap-1 mb-4">
@@ -87,9 +121,20 @@ const PricingPanel: React.FC<Props> = ({ user, onContactClick }) => {
                         <li className="flex items-center gap-2">✅ 解鎖 Threads 養號農場</li>
                         <li className="flex items-center gap-2">✅ 優先使用高級繪圖模型</li>
                     </ul>
-                    <button onClick={onContactClick} className="w-full py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold transition-colors shadow-lg hover:shadow-purple-500/50">
-                        聯繫客服升級 Pro
-                    </button>
+                    
+                    {currentPlan === 'pro' && isSubscribed ? (
+                        <button disabled className="w-full py-3 rounded-xl bg-green-600 text-white font-bold cursor-default shadow-lg">
+                            ✅ 您目前是 Pro 會員
+                        </button>
+                    ) : (
+                        <button 
+                            onClick={() => handleSubscribe('pro')} 
+                            disabled={loadingSub}
+                            className="w-full py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold transition-colors shadow-lg hover:shadow-purple-500/50 disabled:opacity-50"
+                        >
+                            {loadingSub ? '處理中...' : '立即升級 Pro'}
+                        </button>
+                    )}
                 </div>
 
                 {/* Business Plan */}
@@ -108,7 +153,7 @@ const PricingPanel: React.FC<Props> = ({ user, onContactClick }) => {
                         <li className="flex items-center gap-2">✅ API 優先通道與客製開發</li>
                     </ul>
                     <button onClick={onContactClick} className="w-full py-3 rounded-xl border border-yellow-600/50 text-yellow-500 hover:bg-yellow-900/20 font-bold transition-all text-sm mb-2">
-                        企業諮詢
+                        企業諮詢 (專人服務)
                     </button>
                     <p className="text-xs text-gray-500 text-center">
                         適合代操公司與大型團隊
@@ -148,10 +193,9 @@ const PricingPanel: React.FC<Props> = ({ user, onContactClick }) => {
             <div className="bg-gray-900/50 p-8 rounded-2xl border border-gray-800 text-center">
                 <h4 className="text-gray-300 font-bold mb-4 text-sm uppercase tracking-widest">⚠️ 重要聲明與服務條款</h4>
                 <p className="text-xs text-gray-500 max-w-4xl mx-auto leading-relaxed mb-6">
-                    本服務採預付儲值制，<strong>點數一經購買或發放即無法退還</strong>。
+                    本服務採預付儲值或定期扣款制，<strong>點數一經購買或發放即無法退還</strong>。
                     若您使用本程式，即代表您同意本服務之使用條款。
-                    我們會優先扣除即將到期的點數 (先進先出原則)。
-                    請注意：取消訂閱僅停止下期扣款，已支付之費用與點數恕不退費。
+                    取消訂閱僅停止下期扣款，已支付之費用與點數恕不退費。
                 </p>
                 
                 <button 

@@ -1,9 +1,9 @@
 
 import React, { useState } from 'react';
 import { ThreadsAccount, UserProfile, BrandSettings } from '../../types';
-import { validateThreadsToken, fetchUserThreads } from '../../services/threadsService';
+import { validateThreadsToken, fetchUserThreads } from '../../services/threadsService'; 
 import { analyzeThreadsStyle } from '../../services/geminiService';
-import { checkAndUseQuota } from '../../services/authService';
+import { checkAndUseQuota, exchangeThreadsAuth as exchangeAuthViaBackend } from '../../services/authService'; 
 import { STYLE_PRESETS } from './ThreadsCommon';
 import TokenTutorialModal from '../TokenTutorialModal';
 import ThreadsConnectionFAQModal from './ThreadsConnectionFAQModal';
@@ -35,28 +35,118 @@ const AccountManager: React.FC<Props> = ({ accounts, setAccounts, settings, onSa
     });
     const [verifyStatus, setVerifyStatus] = useState<{valid: boolean, msg: string} | null>(null);
     const [isVerifying, setIsVerifying] = useState(false);
+    const [isConnecting, setIsConnecting] = useState(false);
     const [isAnalyzingStyle, setIsAnalyzingStyle] = useState<string | null>(null);
     const [showTutorial, setShowTutorial] = useState(false);
     const [showFaq, setShowFaq] = useState(false);
 
-    // --- OAuth Handler ---
+    // --- OAuth Handler (Popup Flow) ---
     const handleConnectThreads = () => {
-        const THREADS_APP_ID = (import.meta as any).env.VITE_THREADS_APP_ID;
+        // Support both naming conventions for env variables
+        const THREADS_APP_ID = (import.meta as any).env.VITE_THREADS_APP_ID || (import.meta as any).env.REACT_APP_THREADS_APP_ID;
         
         if (!THREADS_APP_ID) {
             alert("系統錯誤：未設定 Threads App ID。請聯繫管理員檢查環境變數 (VITE_THREADS_APP_ID)。");
             return;
         }
         
-        // Save current form state to localStorage (without secrets)
-        // We just need to know we are in a pending state to handle the callback
+        setIsConnecting(true);
         localStorage.setItem('autosocial_pending_oauth', 'true');
 
+        // Dynamic Redirect URI based on current domain (localhost vs production)
+        // IMPORTANT: You must add this EXACT URL to your Meta App Settings > Threads > Redirect URIs
         const redirectUri = window.location.origin; 
-        const scope = 'threads_basic,threads_content_publish';
-        const authUrl = `https://threads.net/oauth/authorize?client_id=${THREADS_APP_ID}&redirect_uri=${redirectUri}&scope=${scope}&response_type=code`;
         
-        window.location.href = authUrl;
+        // Scopes required for reading profile and publishing
+        const scope = 'threads_basic,threads_content_publish';
+        
+        const authUrl = `https://threads.net/oauth/authorize?client_id=${THREADS_APP_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scope}&response_type=code`;
+        
+        // 1. Open Popup
+        const width = 500;
+        const height = 750;
+        const left = (window.screen.width - width) / 2;
+        const top = (window.screen.height - height) / 2;
+        
+        const popup = window.open(
+            authUrl, 
+            'ThreadsAuth', 
+            `width=${width},height=${height},top=${top},left=${left},scrollbars=yes,resizable=yes`
+        );
+
+        // 2. Setup Listener for the code sent back from App.tsx
+        const messageHandler = async (event: MessageEvent) => {
+            // Security check
+            if (event.origin !== window.location.origin) return;
+            
+            if (event.data?.type === 'THREADS_OAUTH_CODE') {
+                const code = event.data.code;
+                console.log("🔐 [Threads] Received code from popup. Exchanging...");
+                
+                // Remove listener to prevent double firing
+                window.removeEventListener('message', messageHandler);
+                
+                // Process the code via backend
+                await processAuthCode(code);
+            }
+        };
+
+        window.addEventListener('message', messageHandler);
+
+        // 3. Poll to detect if user closed popup manually without finishing
+        const timer = setInterval(() => {
+            if (popup?.closed) {
+                clearInterval(timer);
+                window.removeEventListener('message', messageHandler);
+                setIsConnecting((prev) => {
+                    if (prev) {
+                        // Reset loading state if still loading
+                        return false; 
+                    }
+                    return false;
+                });
+            }
+        }, 1000);
+    };
+
+    const processAuthCode = async (code: string) => {
+        try {
+            // Call authService which hits /api/threads (Serverless Function)
+            const result = await exchangeAuthViaBackend(code, window.location.origin);
+            
+            // Success! Create Account
+            const newAccount: ThreadsAccount = {
+                id: Date.now().toString(),
+                userId: result.userId,
+                token: result.token, // Long-lived token from backend
+                username: result.username || `User_${result.userId.slice(-4)}`,
+                isActive: true,
+                accountType: 'personal',
+                styleGuide: ''
+            };
+
+            // Check if account already exists
+            const exists = accounts.find(a => a.userId === newAccount.userId);
+            if (exists) {
+                alert(`帳號 ${newAccount.username} 已經存在，將更新 Token。`);
+                const updatedAccounts = accounts.map(a => a.userId === newAccount.userId ? newAccount : a);
+                setAccounts(updatedAccounts);
+                onSaveSettings({ ...settings, threadsAccounts: updatedAccounts });
+            } else {
+                const updatedAccounts = [...accounts, newAccount];
+                setAccounts(updatedAccounts);
+                onSaveSettings({ ...settings, threadsAccounts: updatedAccounts });
+                alert(`🎉 連接成功！已新增帳號：${newAccount.username}`);
+            }
+            
+            localStorage.removeItem('autosocial_pending_oauth');
+
+        } catch (e: any) {
+            console.error(e);
+            alert(`連接失敗: ${e.message}`);
+        } finally {
+            setIsConnecting(false);
+        }
     };
 
     const handleVerifyAccount = async () => {
@@ -167,9 +257,19 @@ const AccountManager: React.FC<Props> = ({ accounts, setAccounts, settings, onSa
                     </button>
                     <button 
                         onClick={handleConnectThreads}
-                        className="flex-1 bg-pink-600 hover:bg-pink-500 text-white px-8 py-4 rounded-lg font-bold shadow-lg transition-all flex items-center justify-center gap-2 whitespace-nowrap"
+                        disabled={isConnecting}
+                        className="flex-1 bg-pink-600 hover:bg-pink-500 text-white px-8 py-4 rounded-lg font-bold shadow-lg transition-all flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        <span className="text-xl">@</span> 一鍵連接新帳號
+                        {isConnecting ? (
+                            <>
+                                <div className="loader w-4 h-4 border-t-white"></div>
+                                等待授權中...
+                            </>
+                        ) : (
+                            <>
+                                <span className="text-xl">@</span> 一鍵連接新帳號
+                            </>
+                        )}
                     </button>
                 </div>
             </div>
