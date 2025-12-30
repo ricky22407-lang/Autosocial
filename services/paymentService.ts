@@ -6,6 +6,11 @@ export interface SubscribeParams {
     provider: 'ecpay' | 'bank_api';
 }
 
+export interface TopUpParams {
+    quantity: number; // Number of units (1 unit = 100 points)
+    provider: 'ecpay' | 'bank_api';
+}
+
 export const PaymentService = {
     /**
      * Initiate a subscription.
@@ -52,6 +57,48 @@ export const PaymentService = {
         } catch (e: any) {
             console.error("Payment Error:", e);
             alert(`訂閱啟動失敗: ${e.message}`);
+        }
+    },
+
+    /**
+     * Initiate a one-time Top-up.
+     */
+    topUp: async (uid: string, params: TopUpParams) => {
+        if (isMock) {
+            const amount = params.quantity * 100;
+            const confirm = window.confirm(`[MOCK PAYMENT] 加值 ${params.quantity} 單位 (${amount} 點)。\n總金額: NT$${amount}\n支付方式: ${params.provider}\n\n點擊「確定」模擬付款成功。`);
+            if (confirm) {
+                alert(`模擬付款成功！已增加 ${amount} 點。`);
+                window.location.reload();
+            }
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/payment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'create_topup',
+                    payload: { uid, ...params }
+                })
+            });
+
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Top-up init failed');
+
+            if (data.htmlForm) {
+                const container = document.createElement('div');
+                container.innerHTML = data.htmlForm;
+                document.body.appendChild(container);
+                const form = container.querySelector('form');
+                if (form) form.submit();
+            } else if (data.paymentUrl) {
+                window.location.href = data.paymentUrl;
+            }
+        } catch (e: any) {
+            console.error("TopUp Error:", e);
+            alert(`加值啟動失敗: ${e.message}`);
         }
     },
 

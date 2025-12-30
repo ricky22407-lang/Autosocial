@@ -12,6 +12,10 @@ interface Props {
 const PricingPanel: React.FC<Props> = ({ user, onContactClick }) => {
     const [showTerms, setShowTerms] = useState(false);
     const [loadingSub, setLoadingSub] = useState(false);
+    
+    // Top-up State
+    const [topUpUnits, setTopUpUnits] = useState(1);
+    const [loadingTopUp, setLoadingTopUp] = useState(false);
 
     // Subscription Status
     const subStatus: SubscriptionStatus = user?.subscription?.status || 'none';
@@ -23,7 +27,6 @@ const PricingPanel: React.FC<Props> = ({ user, onContactClick }) => {
         if (!user) return alert("請先登入");
         if (loadingSub) return;
         
-        // Allow choosing provider (Mocking selection or defaulting to ECPay)
         const provider = confirm("選擇支付方式：\n\n按「確定」使用 信用卡 (綠界 ECPay)\n按「取消」使用 銀行轉帳 (Bank API)") 
             ? 'ecpay' 
             : 'bank_api';
@@ -33,6 +36,23 @@ const PricingPanel: React.FC<Props> = ({ user, onContactClick }) => {
             await PaymentService.subscribe(user.user_id, { planId, provider });
         } finally {
             setLoadingSub(false);
+        }
+    };
+
+    const handleTopUp = async () => {
+        if (!user) return alert("請先登入");
+        if (loadingTopUp) return;
+
+        const amount = topUpUnits * 100;
+        const provider = confirm(`確認購買 ${amount} 點 (NT$${amount})？\n\n按「確定」使用 信用卡 (綠界)\n按「取消」使用 銀行轉帳`) 
+            ? 'ecpay' 
+            : 'bank_api';
+
+        setLoadingTopUp(true);
+        try {
+            await PaymentService.topUp(user.user_id, { quantity: topUpUnits, provider });
+        } finally {
+            setLoadingTopUp(false);
         }
     };
 
@@ -57,7 +77,7 @@ const PricingPanel: React.FC<Props> = ({ user, onContactClick }) => {
                         <p className="text-sm text-green-200/70">
                             下期扣款日：{nextBill ? new Date(nextBill).toLocaleDateString() : '計算中'}
                         </p>
-                        <button onClick={handleCancel} className="mt-3 text-xs text-red-400 hover:text-white underline">取消訂閱 (Turn off auto-renew)</button>
+                        <button onClick={handleCancel} className="mt-3 text-xs text-red-400 hover:text-white underline">取消訂閱 (停止自動扣款)</button>
                     </div>
                 ) : (
                     <p className="text-gray-400 font-medium text-sm md:text-base max-w-2xl mx-auto">
@@ -68,7 +88,7 @@ const PricingPanel: React.FC<Props> = ({ user, onContactClick }) => {
             </div>
 
             {/* Subscription Tiers Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                 
                 {/* Starter Plan */}
                 <div className={`bg-card p-8 rounded-3xl border flex flex-col relative overflow-hidden group transition-all ${currentPlan === 'starter' && isSubscribed ? 'border-green-500 shadow-[0_0_20px_rgba(34,197,94,0.2)]' : 'border-gray-700 hover:border-primary/50'}`}>
@@ -98,7 +118,7 @@ const PricingPanel: React.FC<Props> = ({ user, onContactClick }) => {
                             disabled={loadingSub}
                             className="w-full py-3 rounded-xl border border-gray-600 text-gray-300 hover:text-white hover:border-white font-bold transition-all text-sm mb-2 disabled:opacity-50"
                         >
-                            {loadingSub ? '處理中...' : '立即訂閱 (每月扣款)'}
+                            {loadingSub ? '處理中...' : '立即訂閱'}
                         </button>
                     )}
                 </div>
@@ -158,6 +178,62 @@ const PricingPanel: React.FC<Props> = ({ user, onContactClick }) => {
                     <p className="text-xs text-gray-500 text-center">
                         適合代操公司與大型團隊
                     </p>
+                </div>
+            </div>
+
+            {/* Billing Disclaimer */}
+            <div className="text-center text-[10px] text-yellow-500/80 mb-12">
+                * 訂閱制用戶注意：我們將於每月到期日前 1 天自動進行扣款。
+            </div>
+
+            {/* Top Up Section */}
+            <div className="bg-gray-900/80 rounded-3xl border border-gray-700 p-8 mb-12 relative overflow-hidden shadow-2xl">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-primary/10 blur-[80px] rounded-full pointer-events-none"></div>
+                
+                <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
+                    <div>
+                        <h3 className="text-2xl font-black text-white flex items-center gap-2">
+                            <span className="text-primary text-3xl">💎</span> 點數加購 (Top-up)
+                        </h3>
+                        <p className="text-gray-400 text-sm mt-2">
+                            不需訂閱，隨買隨用。點數效期 365 天。<br/>
+                            <span className="text-primary font-bold">1 單位 = 100 點 = NT$100</span>
+                        </p>
+                    </div>
+
+                    <div className="bg-black/40 p-6 rounded-2xl border border-gray-600 flex flex-col items-center gap-4 w-full md:w-auto min-w-[300px]">
+                        <div className="flex items-center gap-4">
+                            <button 
+                                onClick={() => setTopUpUnits(Math.max(1, topUpUnits - 1))}
+                                className="w-10 h-10 rounded-full bg-gray-700 hover:bg-gray-600 text-white font-bold text-xl transition-colors"
+                            >-</button>
+                            
+                            <div className="text-center">
+                                <span className="text-4xl font-black text-white">{topUpUnits}</span>
+                                <span className="text-xs text-gray-500 block uppercase tracking-wider">單位 ({topUpUnits * 100} 點)</span>
+                            </div>
+
+                            <button 
+                                onClick={() => setTopUpUnits(topUpUnits + 1)}
+                                className="w-10 h-10 rounded-full bg-gray-700 hover:bg-gray-600 text-white font-bold text-xl transition-colors"
+                            >+</button>
+                        </div>
+
+                        <div className="w-full h-px bg-gray-700"></div>
+
+                        <div className="flex justify-between w-full items-end">
+                            <span className="text-gray-400 text-sm font-bold">總金額</span>
+                            <span className="text-2xl font-black text-primary">NT${topUpUnits * 100}</span>
+                        </div>
+
+                        <button 
+                            onClick={handleTopUp}
+                            disabled={loadingTopUp}
+                            className="w-full py-3 bg-gradient-to-r from-primary to-cyan-600 hover:to-cyan-500 text-black font-black rounded-xl shadow-lg transition-all transform active:scale-95 disabled:opacity-50 disabled:transform-none"
+                        >
+                            {loadingTopUp ? '處理中...' : '立即購買 (線上支付)'}
+                        </button>
+                    </div>
                 </div>
             </div>
 

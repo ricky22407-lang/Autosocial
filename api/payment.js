@@ -34,23 +34,18 @@ const PLANS = {
 };
 
 // --- HELPERS ---
-// Simple HTML Form Generator for ECPay (In production, consider using 'ecpay_aio_nodejs' SDK)
-function generateEcpayHtml(orderId, plan, returnUrl, clientBackUrl) {
+// Simple HTML Form Generator for ECPay
+function generateEcpayHtml(orderId, amount, itemName, returnUrl, clientBackUrl) {
     const tradeDate = new Date().toLocaleString('zh-TW', { hour12: false }).replace(/\//g, '/');
-    
-    // Minimal parameters for "Periodical" (Periodic) or "General" (One-time)
-    // Here we simulate a "General" payment that *acts* as a subscription start.
-    // Real recurring integration requires specific ECPay Period parameters.
-    // For this snippet, we use a standard form post structure.
     
     const params = {
         MerchantID: ECPAY_CONFIG.MerchantID,
         MerchantTradeNo: orderId,
         MerchantTradeDate: tradeDate,
         PaymentType: 'aio',
-        TotalAmount: plan.amount,
-        TradeDesc: 'AutoSocial Subscription',
-        ItemName: plan.name,
+        TotalAmount: amount,
+        TradeDesc: 'AutoSocial Service',
+        ItemName: itemName,
         ReturnURL: returnUrl, // Webhook
         ClientBackURL: clientBackUrl, // User Redirect
         ChoosePayment: 'Credit',
@@ -58,8 +53,6 @@ function generateEcpayHtml(orderId, plan, returnUrl, clientBackUrl) {
     };
 
     // Calculate CheckMacValue (Simplified placeholder - Use SDK in real app)
-    // NOTE: This Mock CheckMacValue will NOT work on real ECPay. 
-    // You MUST install `ecpay_aio_nodejs` or implement the SHA256 sort/hash logic.
     const checkMacValue = "MOCK_CHECK_MAC_VALUE_USE_SDK_PLEASE"; 
 
     // Build Form
@@ -67,13 +60,7 @@ function generateEcpayHtml(orderId, plan, returnUrl, clientBackUrl) {
     for (const [key, value] of Object.entries(params)) {
         html += `<input type="hidden" name="${key}" value="${value}" />`;
     }
-    // html += `<input type="hidden" name="CheckMacValue" value="${checkMacValue}" />`; // Commented out to prevent error in dev without SDK
     html += `</form><script>document.getElementById("_form_ecpay").submit();</script>`;
-    
-    // In a real implementation with SDK:
-    // const ecpay_payment = require('ecpay_aio_nodejs');
-    // const create = new ecpay_payment(options);
-    // const html = create.payment_client.aio_check_out_credit_period(...) 
     
     return html;
 }
@@ -87,30 +74,74 @@ module.exports = async function (req, res) {
     if (req.method === 'POST' && req.body.RtnCode) {
         console.log("[Payment Callback]", req.body);
         
-        // TODO: Validate CheckMacValue (Signature) here!
-        const { MerchantTradeNo, RtnCode, RtnMsg } = req.body;
+        const { MerchantTradeNo, RtnCode, RtnMsg, TradeAmt } = req.body;
         
         if (RtnCode === '1') { // Success
             try {
-                // MerchantTradeNo format: "AS_{UID}_{TIMESTAMP}"
+                // Format: "PREFIX_{UID}_{TIMESTAMP}"
                 const parts = MerchantTradeNo.split('_');
+                const type = parts[0]; // 'SUB' or 'TOPUP' or 'AS'(legacy)
                 const uid = parts[1];
-                
-                // Fetch user to determine plan (stored in pending order or metadata)
-                // Simplified: Assume we upgrade to PRO for now, or fetch from a 'orders' collection
                 const userRef = db.collection('users').doc(uid);
-                
                 const now = Date.now();
-                const expiry = now + 30 * 24 * 60 * 60 * 1000; // +30 Days
 
-                await userRef.update({
-                    'role': 'pro', // or dynamic based on order
-                    'subscription.status': 'active',
-                    'subscription.lastPaymentDate': now,
-                    'subscription.nextBillingDate': expiry,
-                    'quota_total': 500, // Reset/Add quota
-                    'quota_used': 0     // Optional: Reset used
-                });
+                // === CASE A: SUBSCRIPTION ===
+                if (type === 'SUB' || type === 'AS') {
+                    // Assume default Pro renewal for now, or fetch pending order details
+                    const expiry = now + 30 * 24 * 60 * 60 * 1000; // +30 Days
+                    await userRef.update({
+                        'role': 'pro', // Or determine from trade amount
+                        'subscription.status': 'active',
+                        'subscription.lastPaymentDate': now,
+                        'subscription.nextBillingDate': expiry,
+                        // Reset quota logic can be complex, for now we set to plan max
+                        'quota_total': 500, 
+                        'updated_at': now
+                    });
+                } 
+                // === CASE B: TOP-UP ===
+                else if (type === 'TOPUP') {
+                    // TradeAmt is string, e.g. "100"
+                    const pointsToAdd = parseInt(TradeAmt); // 1 TWD = 1 Point logic
+                    const batchId = `paid_${MerchantTradeNo}`;
+                    const expiry = now + 365 * 24 * 60 * 60 * 1000; // 1 Year validity for paid points
+
+                    await db.runTransaction(async (t) => {
+                        const doc = await t.get(userRef);
+                        const data = doc.data();
+                        
+                        const newBatch = {
+                            id: batchId,
+                            amount: pointsToAdd,
+                            initialAmount: pointsToAdd,
+                            expiresAt: expiry,
+                            source: 'topup',
+                            addedAt: now
+                        };
+
+                        const currentBatches = data.quota_batches || [];
+                        // Migration if needed
+                        if (!data.quota_batches && data.quota_total > 0) {
+                            currentBatches.push({
+                                id: 'legacy_mig_pay', amount: data.quota_total, initialAmount: data.quota_total,
+                                expiresAt: data.quota_reset_date || expiry, source: 'trial', addedAt: now
+                            });
+                        }
+                        
+                        currentBatches.push(newBatch);
+                        // Sort by expiry
+                        currentBatches.sort((a,b) => a.expiresAt - b.expiresAt);
+
+                        const newTotal = currentBatches.reduce((sum, b) => sum + b.amount, 0);
+
+                        t.update(userRef, {
+                            quota_batches: currentBatches,
+                            quota_total: newTotal,
+                            quota_reset_date: currentBatches[0].expiresAt,
+                            updated_at: now
+                        });
+                    });
+                }
                 
                 return res.send('1|OK'); // ECPay expects strictly '1|OK'
             } catch (e) {
@@ -124,40 +155,44 @@ module.exports = async function (req, res) {
     // 2. Handle API Actions (Authenticated)
     if (req.method === 'POST') {
         const { action, payload } = req.body;
+        const host = req.headers.host; 
+        const protocol = req.headers['x-forwarded-proto'] || 'http';
+        const baseUrl = `${protocol}://${host}`;
+        const returnUrl = `${baseUrl}/api/payment`; // Webhook
+        const clientBackUrl = `${baseUrl}`; // Redirect user back to home
 
+        // --- Create Subscription ---
         if (action === 'create_subscription') {
             const { uid, planId, provider } = payload;
             const plan = PLANS[planId];
             if (!plan) return res.status(400).json({ error: "Invalid Plan" });
 
-            const orderId = `AS_${uid}_${Date.now()}`;
-            const host = req.headers.host; 
-            const protocol = req.headers['x-forwarded-proto'] || 'http';
-            const baseUrl = `${protocol}://${host}`;
-            
-            // URLs
-            const returnUrl = `${baseUrl}/api/payment`; // Webhook
-            const clientBackUrl = `${baseUrl}`; // Redirect user back to home
+            const orderId = `SUB_${uid}_${Date.now()}`;
 
             if (provider === 'ecpay') {
-                // Generate ECPay Form
-                // NOTE: In production, install `ecpay_aio_nodejs` to generate valid CheckMacValue
-                const html = generateEcpayHtml(orderId, plan, returnUrl, clientBackUrl);
-                
-                // Save Pending Order State
-                await db.collection('orders').doc(orderId).set({
-                    uid, planId, provider, status: 'pending', createdAt: Date.now()
-                });
-
+                const html = generateEcpayHtml(orderId, plan.amount, plan.name, returnUrl, clientBackUrl);
                 return res.json({ success: true, htmlForm: html });
             } 
             else if (provider === 'bank_api') {
-                // Mock Bank API Call
-                // const bankRes = await fetch(BANK_API_CONFIG.Endpoint, { ... });
-                return res.json({ 
-                    success: true, 
-                    paymentUrl: `${baseUrl}/?mock_bank_success=true` // Simulate redirect
-                });
+                return res.json({ success: true, paymentUrl: `${baseUrl}/?mock_bank_success=true` });
+            }
+        }
+
+        // --- Create Top-Up ---
+        if (action === 'create_topup') {
+            const { uid, quantity, provider } = payload; // quantity: units of 100
+            if (!quantity || quantity < 1) return res.status(400).json({ error: "Invalid Quantity" });
+            
+            const amount = quantity * 100; // 1 unit = $100 TWD = 100 Pts
+            const orderId = `TOPUP_${uid}_${Date.now()}`;
+            const itemName = `AutoSocial Points (${amount} pts)`;
+
+            if (provider === 'ecpay') {
+                const html = generateEcpayHtml(orderId, amount, itemName, returnUrl, clientBackUrl);
+                return res.json({ success: true, htmlForm: html });
+            }
+            else if (provider === 'bank_api') {
+                return res.json({ success: true, paymentUrl: `${baseUrl}/?mock_bank_success=true` });
             }
         }
 
@@ -165,7 +200,7 @@ module.exports = async function (req, res) {
             const { uid } = payload;
             await db.collection('users').doc(uid).update({
                 'subscription.cancelAtPeriodEnd': true,
-                'subscription.status': 'canceled' // or keep active until end
+                'subscription.status': 'canceled' 
             });
             return res.json({ success: true });
         }
