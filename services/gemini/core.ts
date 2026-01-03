@@ -1,5 +1,6 @@
 
 import { db, firebase, isMock } from '../firebase';
+import { executeWithQueue } from '../queueService';
 
 // #region Types & Constants
 
@@ -10,7 +11,7 @@ export const Type = {
   BOOLEAN: 'BOOLEAN',
   ARRAY: 'ARRAY',
   OBJECT: 'OBJECT'
-};
+} as const;
 
 const CACHE_TTL = 12 * 60 * 60 * 1000;
 
@@ -52,6 +53,7 @@ export const shuffleArray = <T,>(array: T[]): T[] => {
 export const trackApiLoad = async () => {
     if (isMock) return;
     try {
+        // SAFETY: Only try to update if possible, fail silently if no permission
         const randomSlot = Math.floor(Math.random() * 5) + 1;
         const keyField = `key_${randomSlot}`;
         await db.collection('system_stats').doc('api_usage').set({
@@ -59,18 +61,26 @@ export const trackApiLoad = async () => {
             total_calls: firebase.firestore.FieldValue.increment(1),
             last_active: Date.now()
         }, { merge: true });
-    } catch (e) { }
+    } catch (e: any) { 
+        // 靜音處理：不要因為統計資訊寫入失敗而導致 User 看到報錯
+        if (e.code === 'permission-denied') {
+            console.debug("Telemetry write skipped (Insufficient permissions).");
+        } else {
+            console.warn("Telemetry update error:", e.message);
+        }
+    }
 };
 
 // #endregion
 
 // #region Backend Communication
 
-export const callBackend = async (action: string, payload: any) => {
+// Raw fetch function (Internal)
+const _rawCallBackend = async (action: string, payload: any) => {
     try {
         console.log(`[Backend Call] Action: ${action}`, payload.model ? `Model: ${payload.model}` : '');
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 55000);
+        const timeoutId = setTimeout(() => controller.abort(), 90000); 
 
         const res = await fetch('/api/gemini', {
             method: 'POST',
@@ -83,22 +93,38 @@ export const callBackend = async (action: string, payload: any) => {
         const contentType = res.headers.get("content-type");
         if (contentType && contentType.indexOf("application/json") === -1) {
              const text = await res.text();
-             console.error("Non-JSON Response from Backend:", text.substring(0, 100));
-             throw new Error("Backend Connection Failed. Please ensure Vercel Functions are running.");
+             throw new Error("Backend Connection Failed. Non-JSON response.");
         }
 
-        const text = await res.text();
-        let data;
-        try { data = JSON.parse(text); } 
-        catch (e) { throw new Error(`Server returned invalid JSON: ${text.substring(0, 50)}...`); }
+        const data = await res.json();
         
         if (!res.ok) throw new Error(data.error || 'Server Error');
-        if (action !== 'getServiceStatus') trackApiLoad(); 
+        
+        // 異步追蹤流量，不等待它完成
+        if (action !== 'getServiceStatus') trackApiLoad().catch(() => {}); 
+        
         return data;
     } catch (e: any) {
         console.error(`Backend API Error [${action}]:`, e);
         if (e.name === 'AbortError') throw new Error("請求逾時 (Server Timeout)。");
         throw e;
+    }
+};
+
+/**
+ * Wrapper to decide whether to queue or not
+ */
+export const callBackend = async (action: string, payload: any) => {
+    const heavyActions = ['generateContent', 'generateImages', 'generateVideos'];
+    
+    if (heavyActions.includes(action)) {
+        let label = 'AI 運算中';
+        if (action === 'generateImages') label = 'AI 繪圖中';
+        if (action === 'generateVideos') label = 'AI 影片生成中';
+        
+        return executeWithQueue(label, () => _rawCallBackend(action, payload));
+    } else {
+        return _rawCallBackend(action, payload);
     }
 };
 
@@ -113,9 +139,13 @@ export const getApiServiceStatus = async (): Promise<{
         providers: { openai: true, ideogram: true, grok: false } 
     };
     try {
-        return await callBackend('getServiceStatus', {});
+        const res = await fetch('/api/gemini', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'getServiceStatus', payload: {} })
+        });
+        return await res.json();
     } catch (e) {
-        console.error("Status check failed", e);
         return { 
             keyStatus: [false, false, false, false, false], 
             totalConfigured: 0, 
@@ -135,11 +165,12 @@ export const getSystemCache = async (key: string): Promise<any | null> => {
         if (doc.exists) {
             const data = doc.data();
             if (data && (Date.now() - data.timestamp) < CACHE_TTL) {
-                console.log(`[Cache] Hit: ${key}`);
                 return data.data;
             }
         }
-    } catch (e) { console.warn("Cache Read Error", e); }
+    } catch (e) {
+        console.debug("Cache read skipped (Permission or other).");
+    }
     return null;
 };
 
@@ -150,7 +181,9 @@ export const setSystemCache = async (key: string, data: any) => {
             data,
             timestamp: Date.now()
         });
-    } catch (e) { console.warn("Cache Write Error", e); }
+    } catch (e) {
+        console.debug("Cache write skipped (Permission or other).");
+    }
 };
 
 // #endregion

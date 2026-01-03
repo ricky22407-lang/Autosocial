@@ -22,6 +22,9 @@ const getEnv = (key: string): string => {
   if (!value && typeof process !== 'undefined' && process.env) {
     value = process.env[key] || process.env[`VITE_${key}`] || process.env[`REACT_APP_${key}`];
   }
+  
+  // Vercel string "undefined" safety check
+  if (value === 'undefined') return '';
   return value ? String(value).trim() : '';
 };
 
@@ -42,11 +45,14 @@ let app: any;
 let auth: any;
 let db: any;
 let isMock = false;
-let firebase: any; // Export the global namespace
+let firebase: any;
 
-const hasConfig = !!firebaseConfig.apiKey && !!firebaseConfig.projectId && firebaseConfig.apiKey !== 'undefined';
+// CRITICAL: Robust check for real Firebase config
+const hasRealConfig = !!firebaseConfig.apiKey && 
+                     !!firebaseConfig.projectId && 
+                     firebaseConfig.apiKey.length > 10;
 
-if (typeof window !== 'undefined' && window.firebase && hasConfig) {
+if (typeof window !== 'undefined' && window.firebase && hasRealConfig) {
   try {
       firebase = window.firebase;
       if (!firebase.apps.length) {
@@ -56,7 +62,8 @@ if (typeof window !== 'undefined' && window.firebase && hasConfig) {
       }
       auth = firebase.auth();
       db = firebase.firestore();
-      console.log("🔥 Firebase Initialized (Global CDN)");
+      console.log("🔥 Firebase Initialized Successfully (Cloud Mode)");
+      isMock = false;
   } catch (e) {
       console.error("Firebase Init Error:", e);
       isMock = true; 
@@ -64,11 +71,14 @@ if (typeof window !== 'undefined' && window.firebase && hasConfig) {
       db = {} as any;
   }
 } else {
-  console.log("⚠️ Using MOCK mode (No Config or SDK).");
+  console.log("⚠️ Using MOCK mode: Firebase Config is missing or incomplete.");
+  console.log("Current Config Detected:", { 
+      hasApiKey: !!firebaseConfig.apiKey, 
+      hasProjectId: !!firebaseConfig.projectId 
+  });
   isMock = true;
   auth = {} as any;
   db = {} as any;
-  // Minimal mock for typings if needed
   firebase = {
       firestore: {
           FieldValue: {

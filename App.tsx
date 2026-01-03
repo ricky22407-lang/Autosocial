@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { AppView, BrandSettings, Post, UserProfile, ThreadsAccount } from './types';
 
@@ -9,6 +8,8 @@ import ScheduleList from './components/ScheduleList';
 import AnalyticsDashboard from './components/AnalyticsDashboard';
 import AutomationPanel from './components/AutomationPanel';
 import ThreadsNurturePanel from './components/ThreadsNurturePanel';
+import DigitalDNALab from './components/threads/DigitalDNALab'; 
+import MarketplacePanel from './components/MarketplacePanel'; // NEW Import
 import Login from './components/Login';
 import AdminPanel from './components/AdminPanel';
 import SeoArticleGenerator from './components/SeoArticleGenerator';
@@ -16,8 +17,9 @@ import ReferralPanel from './components/ReferralPanel';
 import ErrorReportModal from './components/ErrorReportModal'; 
 import KeyRedemptionModal from './components/KeyRedemptionModal';
 import PricingPanel from './components/PricingPanel';
-import ContactSupportPanel from './components/ContactSupportPanel'; // New Import
-import AiAssistantBubble from './components/AiAssistantBubble'; // New Import
+import ContactSupportPanel from './components/ContactSupportPanel'; 
+import AiAssistantBubble from './components/AiAssistantBubble'; 
+import QueueOverlay from './components/QueueOverlay'; 
 // #endregion
 
 // #region Services & Auth Import
@@ -40,7 +42,9 @@ const Icons = {
   Logout: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>,
   Menu: <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>,
   Close: <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>,
-  Support: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
+  Support: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" /></svg>,
+  Dna: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>,
+  Marketplace: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
 };
 // #endregion
 
@@ -85,16 +89,12 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isProcessingThreads, setIsProcessingThreads] = useState(false);
 
-  // POPUP FLOW DETECTION: Check if we are running inside a popup for OAuth
+  // #region Effects & Handlers (Auth, Threads, etc.)
   useEffect(() => {
       const params = new URLSearchParams(window.location.search);
       const code = params.get('code');
-      // If we have a code AND we have an opener (parent window), we are the popup!
       if (code && window.opener && window.opener !== window) {
-          console.log("🔐 [threads] Popup detected, sending code to parent...");
-          // Send code back to main app
           window.opener.postMessage({ type: 'THREADS_OAUTH_CODE', code }, window.location.origin);
-          // Close self
           window.close();
       }
   }, []);
@@ -118,26 +118,17 @@ const App: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
-  // Handle Threads OAuth Redirect (Legacy/Fallback for Full Page Redirect)
   useEffect(() => {
       const handleThreadsCallback = async () => {
-          if (loadingAuth || !user) return; // Wait for auth
-          
+          if (loadingAuth || !user) return; 
           const params = new URLSearchParams(window.location.search);
           const code = params.get('code');
-          
-          // Only process if NOT in popup mode (i.e. no opener)
           if (code && !window.opener) {
               if (isProcessingThreads) return;
               setIsProcessingThreads(true);
-
               try {
-                  if (!localStorage.getItem('autosocial_pending_oauth')) {
-                      return; 
-                  }
-
+                  if (!localStorage.getItem('autosocial_pending_oauth')) return; 
                   const result = await exchangeThreadsAuth(code, window.location.origin);
-
                   const newAccount: ThreadsAccount = {
                       id: Date.now().toString(),
                       userId: result.userId,
@@ -147,21 +138,13 @@ const App: React.FC = () => {
                       accountType: 'personal',
                       styleGuide: ''
                   };
-
-                  const updatedSettings = {
-                      ...settings,
-                      threadsAccounts: [...(settings.threadsAccounts || []), newAccount]
-                  };
-
+                  const updatedSettings = { ...settings, threadsAccounts: [...(settings.threadsAccounts || []), newAccount] };
                   setSettings(updatedSettings);
                   localStorage.setItem('autosocial_settings', JSON.stringify(updatedSettings));
                   localStorage.removeItem('autosocial_pending_oauth'); 
-
                   alert(`Threads 帳號 ${newAccount.username} 連接成功！`);
-                  
                   window.history.replaceState({}, document.title, window.location.pathname);
                   setView(AppView.THREADS_NURTURE);
-
               } catch (e: any) {
                   alert(`Threads 串接失敗: ${e.message}`);
               } finally {
@@ -169,7 +152,6 @@ const App: React.FC = () => {
               }
           }
       };
-
       handleThreadsCallback();
   }, [loadingAuth, user, settings]); 
 
@@ -202,7 +184,6 @@ const App: React.FC = () => {
 
   const handlePostCreated = async (newPost: Post) => {
     if (!user || !userProfile) return;
-    
     if (newPost.status === 'scheduled') {
         const scheduledCount = posts.filter(p => p.status === 'scheduled' && p.id !== newPost.id).length;
         const role = userProfile.role;
@@ -210,28 +191,23 @@ const App: React.FC = () => {
         if (role === 'pro') limit = 5;
         else if (role === 'business') limit = 10;
         else if (role === 'admin') limit = 100;
-
         if (scheduledCount >= limit) {
             alert(`⚠️ 排程空間不足！您的方案最多儲存 ${limit} 篇排程貼文。`);
             return;
         }
     }
-    
     try {
         setPosts(prev => {
             const exists = prev.find(p => p.id === newPost.id);
             if (exists) return prev.map(p => p.id === newPost.id ? newPost : p);
             return [newPost, ...prev];
         });
-
         await syncPostToCloud(user.uid, newPost);
         const updatedPosts = await fetchUserPostsFromCloud(user.uid);
         setPosts(updatedPosts);
         setEditingPost(null);
         setView(AppView.SCHEDULE);
-    } catch (e: any) {
-        alert(`同步失敗: ${e.message}`);
-    }
+    } catch (e: any) { alert(`同步失敗: ${e.message}`); }
   };
 
   const handleDeletePost = async (postId: string) => {
@@ -239,21 +215,19 @@ const App: React.FC = () => {
       try {
           await deletePostFromCloud(user.uid, postId);
           setPosts(prev => prev.filter(p => p.id !== postId));
-      } catch (e) {
-          alert("刪除失敗");
-      }
+      } catch (e) { alert("刪除失敗"); }
   };
 
   const handleEditPost = (post: Post) => {
       setEditingPost(post);
       setView(AppView.CREATE);
   };
+  // #endregion
 
   const role = userProfile?.role || 'user';
   const isAdmin = role === 'admin';
   const isStarterPlus = ['starter', 'pro', 'business', 'admin'].includes(role);
   const isProPlus = ['pro', 'business', 'admin'].includes(role);
-  const isBusinessPlus = ['business', 'admin'].includes(role);
 
   const hasAnalyticsAccess = isStarterPlus || userProfile?.unlockedFeatures?.includes('ANALYTICS');
   const hasAutomationAccess = isProPlus || userProfile?.unlockedFeatures?.includes('AUTOMATION');
@@ -261,13 +235,6 @@ const App: React.FC = () => {
   const hasThreadsAccess = isProPlus || userProfile?.unlockedFeatures?.includes('THREADS');
 
   if (loadingAuth) return <div className="h-screen flex items-center justify-center bg-bg text-primary text-xl animate-pulse font-mono tracking-widest">INITIALIZING SYSTEM...</div>;
-  
-  // Clean Loading for Popup Callback
-  const params = new URLSearchParams(window.location.search);
-  if (params.get('code') && window.opener) {
-      return <div className="h-screen flex items-center justify-center bg-black text-white text-sm font-mono">🔐 Authorizing Threads... (Closing soon)</div>;
-  }
-
   if (isProcessingThreads) return <div className="h-screen flex items-center justify-center bg-bg text-pink-500 text-xl font-bold animate-pulse">正在與 Threads 進行安全連線...</div>;
   if (view === AppView.LOGIN) return <Login onLoginSuccess={() => {}} />;
 
@@ -294,172 +261,83 @@ const App: React.FC = () => {
     </button>
   );
 
+  const displayDateValue = userProfile?.subscription?.nextBillingDate || userProfile?.quota_reset_date;
+
   return (
     <div className="min-h-screen text-gray-200 flex flex-col md:flex-row relative font-sans overflow-hidden">
-      
       {/* Mobile Header */}
       <div className="md:hidden flex justify-between items-center p-4 glass-panel border-b border-white/10 relative z-50">
-          <h1 className="text-lg font-black tracking-tighter text-white flex items-center gap-2">
-            AUTO<span className="text-neon-cyan">SOCIAL</span>
-          </h1>
-          <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="text-white p-2">
-             {isSidebarOpen ? Icons.Close : Icons.Menu}
-          </button>
+          <h1 className="text-lg font-black tracking-tighter text-white flex items-center gap-2">AUTO<span className="text-neon-cyan">SOCIAL</span></h1>
+          <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="text-white p-2">{isSidebarOpen ? Icons.Close : Icons.Menu}</button>
       </div>
 
       {/* Glass Sidebar */}
-      <aside className={`
-          fixed md:relative inset-y-0 left-0 w-72 glass-panel z-40 transform transition-transform duration-300 ease-out flex flex-col
-          ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
-      `}>
+      <aside className={`fixed md:relative inset-y-0 left-0 w-72 glass-panel z-40 transform transition-transform duration-300 ease-out flex flex-col ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         <div className="p-8 pb-4">
-          <h1 className="text-2xl font-black text-white tracking-tighter cursor-pointer flex items-center gap-2 select-none" onClick={() => setView(AppView.CREATE)}>
-            AUTO<span className="text-neon-cyan drop-shadow-[0_0_8px_rgba(0,242,234,0.6)]">SOCIAL</span>
-          </h1>
+          <h1 className="text-2xl font-black text-white tracking-tighter cursor-pointer flex items-center gap-2 select-none" onClick={() => setView(AppView.CREATE)}>AUTO<span className="text-neon-cyan drop-shadow-[0_0_8px_rgba(0,242,234,0.6)]">SOCIAL</span></h1>
           <div className="mt-6 p-4 glass-card rounded-xl border border-white/10 bg-black/20">
             {userProfile ? (
                 <>
                     <div className="flex justify-between items-start mb-2">
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-primary to-accent flex items-center justify-center text-black font-bold text-xs">
-                            {userProfile.email[0].toUpperCase()}
-                        </div>
-                        <div className={`text-[10px] px-2 py-0.5 rounded font-black uppercase tracking-wider ${
-                            userProfile.role === 'admin' ? 'bg-red-500/20 text-red-400 border border-red-500/50' : 
-                            userProfile.role === 'business' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/50' : 
-                            'bg-primary/20 text-primary border border-primary/50'
-                        }`}>
-                            {userProfile.role}
-                        </div>
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-primary to-accent flex items-center justify-center text-black font-bold text-xs">{userProfile.email[0].toUpperCase()}</div>
+                        <div className={`text-[10px] px-2 py-0.5 rounded font-black uppercase tracking-wider ${userProfile.role === 'admin' ? 'bg-red-500/20 text-red-400 border border-red-500/50' : userProfile.role === 'business' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/50' : 'bg-primary/20 text-primary border border-primary/50'}`}>{userProfile.role}</div>
                     </div>
                     <p className="truncate text-xs text-gray-400 mb-3 font-mono">{userProfile.email}</p>
-                    <div className="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden mb-1">
-                        <div className="h-full bg-primary shadow-[0_0_10px_#00f2ea]" style={{ width: `${Math.min(100, (userProfile.quota_used / userProfile.quota_total) * 100)}%` }}></div>
-                    </div>
-                    <div className="flex justify-between text-[10px] text-gray-500 font-bold mb-2">
-                        <span>點數</span>
-                        <span>{userProfile.quota_used} / {userProfile.quota_total}</span>
-                    </div>
-                    
-                    {/* NEW: Renewal Date Display */}
-                    {(userProfile.subscription?.nextBillingDate || userProfile.quota_reset_date) && (
-                        <div className="pt-2 border-t border-white/10 flex justify-between text-[9px] font-medium tracking-wider">
-                            <span className="text-gray-500">
-                                {userProfile.subscription?.status === 'active' ? '續約日' : '重置日'}
-                            </span>
-                            <span className="text-gray-300 font-mono">
-                                {new Date(userProfile.subscription?.nextBillingDate || userProfile.quota_reset_date).toLocaleDateString()}
-                            </span>
-                        </div>
+                    <div className="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden mb-1"><div className="h-full bg-primary shadow-[0_0_10px_#00f2ea]" style={{ width: `${Math.min(100, (userProfile.quota_used / userProfile.quota_total) * 100)}%` }}></div></div>
+                    <div className="flex justify-between text-[10px] text-gray-500 font-bold mb-2"><span>點數</span><span>{userProfile.quota_used} / {userProfile.quota_total}</span></div>
+                    {displayDateValue && (
+                        <div className="pt-2 border-t border-white/10 flex justify-between text-[9px] font-medium tracking-wider"><span className="text-gray-500">{userProfile.subscription?.status === 'active' ? '續約日' : '重置日'}</span><span className="text-gray-300 font-mono">{new Date(displayDateValue).toLocaleDateString()}</span></div>
                     )}
                 </>
             ) : <p className="text-xs text-gray-500">GUEST MODE</p>}
           </div>
         </div>
-        
         <nav className="flex-1 py-4 space-y-1 overflow-y-auto custom-scrollbar">
           <NavItem viewId={AppView.CREATE} label="內容創作" icon={Icons.Create} active={view === AppView.CREATE} onClick={setView} />
           <NavItem viewId={AppView.SCHEDULE} label="排程與歷史" icon={Icons.Schedule} active={view === AppView.SCHEDULE} onClick={setView} />
           <NavItem viewId={AppView.SETTINGS} label="品牌設定" icon={Icons.Settings} active={view === AppView.SETTINGS} onClick={setView} />
-          
-          <div className="mt-6 mb-2 px-6">
-              <p className="text-[10px] text-gray-500 font-black tracking-[0.2em] uppercase">智慧功能</p>
-          </div>
-          
+          <div className="mt-6 mb-2 px-6"><p className="text-[10px] text-gray-500 font-black tracking-[0.2em] uppercase">智慧功能</p></div>
+          <NavItem viewId={AppView.DNA_LAB} label="基因實驗室" icon={Icons.Dna} active={view === AppView.DNA_LAB} onClick={setView} />
           <NavItem viewId={AppView.ANALYTICS} label="數據分析" icon={Icons.Analytics} active={view === AppView.ANALYTICS} onClick={() => hasAnalyticsAccess ? setView(AppView.ANALYTICS) : alert("需升級至 Starter 方案")} disabled={!hasAnalyticsAccess} badge={!hasAnalyticsAccess ? "LOCKED" : ""} />
           <NavItem viewId={AppView.AUTOMATION} label="全自動化" icon={Icons.Automation} active={view === AppView.AUTOMATION} onClick={() => hasAutomationAccess ? setView(AppView.AUTOMATION) : alert("需升級至 Pro 方案")} disabled={!hasAutomationAccess} badge={!hasAutomationAccess ? "LOCKED" : ""} />
           <NavItem viewId={AppView.SEO_ARTICLES} label="SEO 文章" icon={Icons.Seo} active={view === AppView.SEO_ARTICLES} onClick={() => hasSeoAccess ? setView(AppView.SEO_ARTICLES) : alert("需升級至 Pro 方案")} disabled={!hasSeoAccess} badge={!hasSeoAccess ? "LOCKED" : ""} />
-          <NavItem viewId={AppView.THREADS_NURTURE} label="Threads 農場" icon={Icons.Threads} active={view === AppView.THREADS_NURTURE} onClick={() => hasThreadsAccess ? setView(AppView.THREADS_NURTURE) : alert("需升級至 Pro 方案")} disabled={!hasThreadsAccess} badge={!hasThreadsAccess ? "LOCKED" : ""} />
+          <NavItem viewId={AppView.THREADS_NURTURE} label="Threads 進階功能" icon={Icons.Threads} active={view === AppView.THREADS_NURTURE} onClick={() => hasThreadsAccess ? setView(AppView.THREADS_NURTURE) : alert("需升級至 Pro 方案")} disabled={!hasThreadsAccess} badge={!hasThreadsAccess ? "LOCKED" : ""} />
           
-          <div className="mt-6 mb-2 px-6">
-              <p className="text-[10px] text-gray-500 font-black tracking-[0.2em] uppercase">成長工具</p>
-          </div>
+          <div className="mt-6 mb-2 px-6"><p className="text-[10px] text-gray-500 font-black tracking-[0.2em] uppercase">商業合作</p></div>
+          <NavItem viewId={AppView.MARKETPLACE} label="口碑媒合中心" icon={Icons.Marketplace} active={view === AppView.MARKETPLACE} onClick={setView} />
+
+          <div className="mt-6 mb-2 px-6"><p className="text-[10px] text-gray-500 font-black tracking-[0.2em] uppercase">成長工具</p></div>
           <NavItem viewId={AppView.PRICING} label="費率說明" icon={Icons.Pricing} active={view === AppView.PRICING} onClick={setView} />
           <NavItem viewId={AppView.REFERRAL} label="推薦計畫" icon={Icons.Referral} active={view === AppView.REFERRAL} onClick={setView} />
         </nav>
-
         <div className="p-4 bg-black/20 space-y-2 border-t border-white/5">
-          <button onClick={() => setShowKeyModal(true)} className="w-full text-left px-4 py-3 text-xs rounded-lg transition-all font-bold bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 border border-yellow-500/20 flex items-center gap-2 group">
-              <span className="opacity-80 group-hover:scale-110 transition-transform">{Icons.Key}</span> 兌換序號 (Redeem)
-          </button>
-          
-          {/* Contact Support Button */}
-          <button onClick={() => setView(AppView.CONTACT_SUPPORT)} className="w-full text-left px-4 py-3 text-xs rounded-lg transition-all font-bold bg-blue-900/20 text-blue-300 hover:bg-blue-900/40 border border-blue-800/30 flex items-center gap-2 group">
-              <span className="opacity-80 group-hover:scale-110 transition-transform">{Icons.Support}</span> 聯繫客服
-          </button>
-          
-          {isAdmin && (
-            <button onClick={() => setView(AppView.ADMIN)} className={`w-full text-left px-4 py-3 text-xs rounded-lg transition-all font-bold flex items-center gap-2 group ${view === AppView.ADMIN ? 'bg-red-600 text-white shadow-lg' : 'text-red-400 hover:bg-red-900/20 border border-red-900/30'}`}>
-              <span className="opacity-80 group-hover:scale-110 transition-transform">{Icons.Admin}</span> 管理員後台
-            </button>
-          )}
-          <button onClick={handleLogout} className="w-full text-left px-4 py-3 text-xs text-gray-500 hover:text-white transition-colors flex items-center gap-2 group hover:bg-white/5 rounded-lg">
-            <span className="opacity-80 group-hover:scale-110 transition-transform">{Icons.Logout}</span> 登出系統
-          </button>
+          <button onClick={() => setShowKeyModal(true)} className="w-full text-left px-4 py-3 text-xs rounded-lg transition-all font-bold bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 border border-yellow-500/20 flex items-center gap-2 group"><span className="opacity-80 group-hover:scale-110 transition-transform">{Icons.Key}</span> 兌換序號 (Redeem)</button>
+          <button onClick={() => setView(AppView.CONTACT_SUPPORT)} className="w-full text-left px-4 py-3 text-xs rounded-lg transition-all font-bold bg-blue-900/20 text-blue-300 hover:bg-blue-900/40 border border-blue-800/30 flex items-center gap-2 group"><span className="opacity-80 group-hover:scale-110 transition-transform">{Icons.Support}</span> 聯繫客服</button>
+          {isAdmin && (<button onClick={() => setView(AppView.ADMIN)} className={`w-full text-left px-4 py-3 text-xs rounded-lg transition-all font-bold flex items-center gap-2 group ${view === AppView.ADMIN ? 'bg-red-600 text-white shadow-lg' : 'text-red-400 hover:bg-red-900/20 border border-red-900/30'}`}><span className="opacity-80 group-hover:scale-110 transition-transform">{Icons.Admin}</span> 管理員後台</button>)}
+          <button onClick={handleLogout} className="w-full text-left px-4 py-3 text-xs text-gray-500 hover:text-white transition-colors flex items-center gap-2 group hover:bg-white/5 rounded-lg"><span className="opacity-80 group-hover:scale-110 transition-transform">{Icons.Logout}</span> 登出系統</button>
         </div>
       </aside>
 
-      {/* Main Content Area */}
       <main className="flex-1 p-4 md:p-8 lg:p-12 overflow-y-auto h-screen custom-scrollbar relative">
         <div className="max-w-7xl mx-auto">
-            {view === AppView.CREATE && (
-              <PostCreator 
-                settings={settings} 
-                user={userProfile} 
-                onPostCreated={handlePostCreated} 
-                onQuotaUpdate={refreshProfile} 
-                editPost={editingPost} 
-                onCancel={() => setEditingPost(null)}
-                scheduledPostsCount={posts.filter(p => p.status === 'scheduled').length}
-              />
-            )}
-            {view === AppView.SCHEDULE && (
-              <ScheduleList 
-                  posts={posts} 
-                  onUpdatePosts={async (updated) => {
-                      const originalIds = posts.map(p => p.id);
-                      const updatedIds = updated.map(p => p.id);
-                      
-                      // Identify deletion
-                      const deletedId = originalIds.find(id => !updatedIds.includes(id));
-                      if (deletedId) await handleDeletePost(deletedId);
-                      else {
-                          // Identify update (e.g. status change from calendar view)
-                          const changed = updated.find((p, i) => JSON.stringify(p) !== JSON.stringify(posts.find(op => op.id === p.id)));
-                          if (changed && user) await syncPostToCloud(user.uid, changed);
-                          setPosts(updated);
-                      }
-                  }} 
-                  onEditPost={handleEditPost}
-                  settings={settings} // Pass settings for API token access
-              />
-            )}
+            {view === AppView.CREATE && (<PostCreator settings={settings} user={userProfile} onPostCreated={handlePostCreated} onQuotaUpdate={refreshProfile} editPost={editingPost} onCancel={() => setEditingPost(null)} scheduledPostsCount={posts.filter(p => p.status === 'scheduled').length} />)}
+            {view === AppView.SCHEDULE && (<ScheduleList posts={posts} onUpdatePosts={async (updated) => { const originalIds = posts.map(p => p.id); const updatedIds = updated.map(p => p.id); const deletedId = originalIds.find(id => !updatedIds.includes(id)); if (deletedId) await handleDeletePost(deletedId); else { const changed = updated.find((p, i) => JSON.stringify(p) !== JSON.stringify(posts.find(op => op.id === p.id))); if (changed && user) await syncPostToCloud(user.uid, changed); setPosts(updated); } }} onEditPost={handleEditPost} settings={settings} />)}
             {view === AppView.SETTINGS && <SettingsForm onSave={handleSaveSettings} initialSettings={settings} />}
             {view === AppView.ANALYTICS && <AnalyticsDashboard settings={settings} />}
+            {view === AppView.DNA_LAB && (<DigitalDNALab settings={settings} user={userProfile} accounts={settings.threadsAccounts} onQuotaUpdate={refreshProfile} />)}
             {view === AppView.AUTOMATION && <AutomationPanel settings={settings} onSave={handleSaveSettings} />}
             {view === AppView.SEO_ARTICLES && <SeoArticleGenerator user={userProfile} onQuotaUpdate={refreshProfile} />}
             {view === AppView.THREADS_NURTURE && <ThreadsNurturePanel settings={settings} user={userProfile} onSaveSettings={handleSaveSettings} onQuotaUpdate={refreshProfile} />}
+            {view === AppView.MARKETPLACE && <MarketplacePanel user={userProfile} onRefreshProfile={refreshProfile} />}
             {view === AppView.PRICING && <PricingPanel user={userProfile} onContactClick={() => setView(AppView.CONTACT_SUPPORT)} />}
             {view === AppView.REFERRAL && <ReferralPanel user={userProfile} onQuotaUpdate={refreshProfile} />}
             {view === AppView.CONTACT_SUPPORT && <ContactSupportPanel />}
             {view === AppView.ADMIN && isAdmin && <AdminPanel currentUser={userProfile!} />}
         </div>
       </main>
-      
-      {/* AI Assistant Bubble */}
-      {userProfile && (
-          <AiAssistantBubble currentView={view} settings={settings} />
-      )}
-      
-      {/* Report Floating Button (Moved slightly to avoid overlap with AI Bubble if needed, but flex column in Bubble helps) */}
-      <button 
-        onClick={() => setShowReportModal(true)} 
-        className="fixed bottom-6 right-6 bg-red-600 hover:bg-red-500 text-white w-12 h-12 rounded-full z-50 shadow-[0_0_20px_rgba(220,38,38,0.5)] transition-transform active:scale-90 flex items-center justify-center font-bold text-xl backdrop-blur-md border border-white/20"
-        title="回報問題"
-      >
-        !
-      </button>
-      
-      {/* Modals */}
+      {userProfile && (<AiAssistantBubble currentView={view} settings={settings} />)}
+      <QueueOverlay />
+      <button onClick={() => setShowReportModal(true)} className="fixed bottom-6 right-6 bg-red-600 hover:bg-red-500 text-white w-12 h-12 rounded-full z-50 shadow-[0_0_20px_rgba(220,38,38,0.5)] transition-transform active:scale-90 flex items-center justify-center font-bold text-xl backdrop-blur-md border border-white/20" title="回報問題">!</button>
       {showReportModal && <ErrorReportModal user={userProfile} currentView={view} onClose={() => setShowReportModal(false)} />}
       {showKeyModal && userProfile && <KeyRedemptionModal user={userProfile} onClose={() => setShowKeyModal(false)} onSuccess={refreshProfile} />}
     </div>

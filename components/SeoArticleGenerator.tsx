@@ -67,9 +67,11 @@ const SeoArticleGenerator: React.FC<Props> = ({ user, onQuotaUpdate }) => {
             setImageKeyword(result.imageKeyword);
 
             // --- Log Usage ---
+            // Fix: Add missing required 'ts' property for UsageLog
             logUserActivity({
                 uid: user.user_id,
                 act: 'seo',
+                ts: Date.now(),
                 topic: topic,
                 prmt: `Keywords: ${keywords}, Length: ${length}`,
                 res: result.fullText,
