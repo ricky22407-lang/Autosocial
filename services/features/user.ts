@@ -129,14 +129,14 @@ export const redeemReferralCode = async (userId: string, code: string): Promise<
     return { reward: 0 };
 };
 
-// FIX: Added missing exported member 'getPublicInfluencers'
+// FIX: Added explicit type to parameter 'u' to resolve TS7006 build error
 export const getPublicInfluencers = async (): Promise<UserProfile[]> => {
     if (isMock) {
-        return MockStore.getAllUsers().filter(u => u.isInfluencer && u.influencerProfile?.isPublic);
+        return MockStore.getAllUsers().filter((u: UserProfile) => u.isInfluencer && u.influencerProfile?.isPublic);
     }
     try {
         const snap = await db.collection('users').where('isInfluencer', '==', true).get();
-        return snap.docs.map((doc: any) => doc.data() as UserProfile).filter(u => u.influencerProfile?.isPublic);
+        return snap.docs.map((doc: any) => doc.data() as UserProfile).filter((u: UserProfile) => u.influencerProfile?.isPublic);
     } catch (e) { return []; }
 };
 
@@ -159,7 +159,7 @@ export const applyForProject = async (app: ProjectApplication): Promise<void> =>
 // FIX: Added missing exported member 'fetchApplicationsForProject'
 export const fetchApplicationsForProject = async (projectId: string): Promise<ProjectApplication[]> => {
     if (isMock) {
-        return JSON.parse(localStorage.getItem('autosocial_project_apps') || '[]').filter((a: any) => a.projectId === projectId);
+        return JSON.parse(localStorage.getItem('autosocial_project_apps') || '[]').filter((a: ProjectApplication) => a.projectId === projectId);
     }
     try {
         const snap = await db.collection('project_applications').where('projectId', '==', projectId).get();
@@ -171,7 +171,7 @@ export const fetchApplicationsForProject = async (projectId: string): Promise<Pr
 export const updateApplicationStatus = async (appId: string, status: 'accepted' | 'rejected'): Promise<void> => {
     if (isMock) {
         const apps = JSON.parse(localStorage.getItem('autosocial_project_apps') || '[]');
-        const updated = apps.map((a: any) => a.id === appId ? { ...a, status } : a);
+        const updated = apps.map((a: ProjectApplication) => a.id === appId ? { ...a, status } : a);
         localStorage.setItem('autosocial_project_apps', JSON.stringify(updated));
         return;
     }
@@ -183,7 +183,7 @@ export const updateApplicationStatus = async (appId: string, status: 'accepted' 
 // FIX: Added missing exported member 'fetchMyApplications'
 export const fetchMyApplications = async (userId: string): Promise<ProjectApplication[]> => {
     if (isMock) {
-        return JSON.parse(localStorage.getItem('autosocial_project_apps') || '[]').filter((a: any) => a.influencerId === userId);
+        return JSON.parse(localStorage.getItem('autosocial_project_apps') || '[]').filter((a: ProjectApplication) => a.influencerId === userId);
     }
     try {
         const snap = await db.collection('project_applications').where('influencerId', '==', userId).get();
@@ -233,7 +233,7 @@ export const fetchAllProjects = async (): Promise<ProjectListing[]> => {
 };
 
 export const fetchMyProjects = async (brandId: string): Promise<ProjectListing[]> => {
-    if (isMock) return JSON.parse(localStorage.getItem('autosocial_marketplace_projects') || '[]').filter((p: any) => p.brandId === brandId);
+    if (isMock) return JSON.parse(localStorage.getItem('autosocial_marketplace_projects') || '[]').filter((p: ProjectListing) => p.brandId === brandId);
     try {
         const snap = await db.collection('project_listings').where('brandId', '==', brandId).get();
         return snap.docs.map((doc: any) => doc.data() as ProjectListing);
@@ -245,7 +245,7 @@ export const checkAndUseQuota = async (userId: string, amount: number = 1, actio
     if (!profile) return false;
     if (profile.role === 'admin') return true;
     if (profile.quota_used + amount > profile.quota_total) {
-        alert("配額不足，請升議方案。");
+        alert("配額不足，請升級方案。");
         return false;
     }
     await updateUserProfile(userId, { quota_used: profile.quota_used + amount });
