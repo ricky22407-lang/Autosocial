@@ -52,7 +52,6 @@ export const executeWithQueue = async <T>(
     const userId = user ? user.uid : 'guest_' + Date.now();
     
     // --- 🛡️ Defensive Try-Catch Block ---
-    // If Queue DB write fails (e.g., Permissions Error), we fallback to direct execution.
     try {
         // 1. Create Ticket
         const ticketData = {
@@ -111,16 +110,22 @@ export const executeWithQueue = async <T>(
                         }
                     }
                 }, (error: any) => {
-                    // Listener Error (e.g. Index Missing)
-                    console.warn("Queue Listener Error, bypassing queue:", error);
+                    // Check for Index Error specifically
+                    if (error.message.includes('requires an index')) {
+                        console.warn("[Queue System] Index missing. Bypassing queue to keep app running.");
+                        // console.debug("Click this link to create index:", error.message); // Hidden to clean console
+                    } else {
+                        console.error("[Queue System] Listener Error:", error);
+                    }
+                    
                     if (activeListener) { activeListener(); activeListener = null; }
                     cleanup();
+                    // Fallback to direct execution
                     apiCall().then(resolve).catch(reject);
                 });
         });
     } catch (e: any) {
-        console.warn("⚠️ Queue skipped (Permission/Network Error), executing directly.", e.message);
-        // Fallback: Run directly if DB write fails
+        console.warn("[Queue System] Write failed (Permission/Network), executing directly.");
         return apiCall();
     }
 };

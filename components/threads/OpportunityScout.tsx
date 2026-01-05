@@ -70,11 +70,6 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
     };
 
     const handleSendReply = async (post: OpportunityPost) => {
-        // Since we don't have the exact Thread ID from Google Search results (only URL), 
-        // we can't use the API to reply directly to a specific ID unless we parse it.
-        // Google Search URL format: https://www.threads.net/@username/post/POST_ID
-        // We attempt to extract ID.
-        
         const match = post.url.match(/\/post\/([a-zA-Z0-9_-]+)/);
         const threadId = match ? match[1] : null;
 
@@ -90,16 +85,6 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
         if (!confirm(`確定使用帳號 ${account.username} 發送回覆嗎？`)) return;
 
         try {
-            // Note: The `publishThreadsPost` function in threadsService needs to support replyToId.
-            // Assuming it does based on previous implementation or standard Graph API.
-            // If API restriction prevents replying to *public* threads not owned by user (common restriction),
-            // this might fail. In that case, we fallback to manual open.
-            
-            // Threads API currently (v1) only allows replying to *your own* threads or threads you are mentioned in?
-            // Actually, `reply_to_id` allows replying to any thread IF you have the ID, BUT
-            // standard access usually restricts interacting with content the app didn't create or user doesn't own.
-            // Let's TRY it, if fails, fallback to link.
-            
             const res = await publishThreadsPost(account, replyDraft, undefined, threadId);
             
             if (res.success) {
@@ -107,7 +92,6 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
                 setResults(prev => prev.filter(p => p !== post)); // Remove from list
                 setSelectedReplyId(null);
             } else {
-                // Common failure for public threads interaction via API
                 console.warn("API Reply Error", res.error);
                 if (res.error?.includes("Unsupported post request") || res.error?.includes("permission")) {
                     alert("⚠️ Threads API 限制：無法透過第三方工具直接回覆此貼文。\n\n請點擊「前往貼文」手動操作，並貼上已複製的文案。");
@@ -155,22 +139,35 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
             {/* Results Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {results.map((post, index) => (
-                    <div key={index} className="bg-gradient-to-br from-gray-900 to-black p-6 rounded-2xl border border-gray-800 hover:border-yellow-500/50 transition-all group relative overflow-hidden">
+                    <div key={index} className="bg-gradient-to-br from-gray-900 to-black p-6 rounded-2xl border border-gray-800 hover:border-yellow-500/50 transition-all group relative flex flex-col h-full">
                         {/* Intent Score Badge */}
                         <div className="absolute top-4 right-4 flex items-center gap-1 bg-yellow-900/30 text-yellow-400 px-2 py-1 rounded text-xs font-bold border border-yellow-500/20">
-                            <span>🔥 意圖分數: {post.intentScore}/10</span>
+                            <span>🔥 意圖: {post.intentScore}/10</span>
                         </div>
 
-                        <div className="mb-4 pr-16">
+                        {/* Content */}
+                        <div className="mb-4 pr-16 flex-1">
                             <p className="text-gray-300 text-sm leading-relaxed line-clamp-4 font-medium">"{post.content}"</p>
                         </div>
 
+                        {/* Analysis Box */}
                         <div className="bg-gray-800/50 p-3 rounded-lg text-xs text-gray-400 mb-4 border border-gray-700/50">
                             <span className="text-yellow-500 font-bold">AI 分析：</span> {post.reasoning}
                         </div>
 
+                        {/* Metrics Bar (New) */}
+                        <div className="flex items-center gap-4 text-xs text-gray-500 mb-4 px-1">
+                            <span className="flex items-center gap-1" title="留言數 (估計)">
+                                💬 <span className="font-mono text-gray-300">{post.replyCount || '-'}</span>
+                            </span>
+                            <span className="flex items-center gap-1" title="按讚數 (估計)">
+                                ❤️ <span className="font-mono text-gray-300">{post.likeCount || '-'}</span>
+                            </span>
+                        </div>
+
+                        {/* Action Area */}
                         {selectedReplyId === index.toString() ? (
-                            <div className="animate-fade-in mt-4 bg-gray-800 p-4 rounded-xl border border-gray-600">
+                            <div className="animate-fade-in mt-auto bg-gray-800 p-4 rounded-xl border border-gray-600">
                                 <div className="flex justify-between items-center mb-2">
                                     <label className="text-xs text-gray-400 font-bold">擬稿中...</label>
                                     <button onClick={() => setSelectedReplyId(null)} className="text-gray-500 hover:text-white">✕</button>
@@ -181,37 +178,52 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
                                     className="w-full h-24 bg-black/50 border border-gray-600 rounded p-2 text-sm text-white mb-2 resize-none focus:border-yellow-500 outline-none"
                                     placeholder={isGeneratingReply ? "AI 正在撰寫中..." : "在此編輯回覆..."}
                                 />
-                                <button 
-                                    onClick={() => handleSendReply(post)}
-                                    disabled={isGeneratingReply || !replyDraft}
-                                    className="w-full bg-yellow-600 hover:bg-yellow-500 text-black font-bold py-2 rounded transition-colors disabled:opacity-50"
-                                >
-                                    🚀 發送/複製回覆
-                                </button>
+                                <div className="flex gap-2">
+                                    <button 
+                                        onClick={() => handleSendReply(post)}
+                                        disabled={isGeneratingReply || !replyDraft}
+                                        className="flex-1 bg-yellow-600 hover:bg-yellow-500 text-black font-bold py-2 rounded transition-colors disabled:opacity-50 text-xs"
+                                    >
+                                        🚀 發送/複製
+                                    </button>
+                                    {/* Link for backup inside editor */}
+                                    <a 
+                                        href={post.url} 
+                                        target="_blank" 
+                                        rel="noreferrer"
+                                        className="px-3 py-2 bg-black/40 text-gray-400 rounded hover:text-white border border-gray-600 transition-colors flex items-center justify-center"
+                                        title="開啟貼文"
+                                    >
+                                        ↗
+                                    </a>
+                                </div>
                             </div>
                         ) : (
-                            <div className="flex gap-3 mt-auto pt-4 border-t border-gray-800">
-                                <select 
-                                    value={replyAccountId} 
-                                    onChange={e => setReplyAccountId(e.target.value)}
-                                    className="bg-black border border-gray-700 rounded px-2 text-xs text-white outline-none flex-1 max-w-[120px]"
-                                >
-                                    {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.username}</option>)}
-                                </select>
-                                <button 
-                                    onClick={() => handleGenerateReply(post, index)}
-                                    className="flex-1 bg-white text-black font-bold py-2 rounded text-xs hover:bg-gray-200 transition-colors"
-                                >
-                                    ✍️ 生成回覆
-                                </button>
+                            <div className="flex flex-col gap-3 mt-auto pt-4 border-t border-gray-800">
+                                <div className="flex gap-2">
+                                    <select 
+                                        value={replyAccountId} 
+                                        onChange={e => setReplyAccountId(e.target.value)}
+                                        className="bg-black border border-gray-700 rounded px-2 text-xs text-white outline-none flex-1 py-2"
+                                    >
+                                        {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.username}</option>)}
+                                    </select>
+                                    <button 
+                                        onClick={() => handleGenerateReply(post, index)}
+                                        className="flex-1 bg-white text-black font-bold py-2 rounded text-xs hover:bg-gray-200 transition-colors border border-transparent"
+                                    >
+                                        ✍️ AI 擬稿
+                                    </button>
+                                </div>
+                                
+                                {/* Prominent Link Button */}
                                 <a 
                                     href={post.url} 
                                     target="_blank" 
                                     rel="noreferrer"
-                                    className="px-3 py-2 bg-gray-800 text-gray-400 rounded hover:text-white hover:bg-gray-700 transition-colors flex items-center justify-center"
-                                    title="開啟貼文"
+                                    className="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-3 rounded-lg transition-all flex items-center justify-center gap-2 border border-gray-600 hover:border-white/50 group"
                                 >
-                                    ↗
+                                    <span>↗</span> <span className="group-hover:underline decoration-1 underline-offset-4">前往貼文推廣自家產品</span>
                                 </a>
                             </div>
                         )}

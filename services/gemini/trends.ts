@@ -118,8 +118,10 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
     const searchQuery = `site:threads.net "${keyword}" (請問 OR 求推薦 OR 請益 OR 哪裡買 OR 什麼好)`;
     
     try {
+        // NOTE: Gemini 2.5 Flash DOES NOT support `tools: googleSearch` AND `responseMimeType: application/json` together.
+        // We must remove responseMimeType and use prompt engineering to get JSON.
         const response = await callBackend('generateContent', {
-            model: 'gemini-2.5-flash', // Flash is sufficient for search + filtering
+            model: 'gemini-2.5-flash', 
             contents: `
                 Role: Social Media Lead Scout.
                 Task: Search for potential customers on Threads who have a specific NEED or INTENT to buy relating to: "${keyword}".
@@ -132,44 +134,50 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
                 3. ❌ EXCLUDE: Posts from brands or influencers selling things.
                 4. Focus on TAIWAN context (Traditional Chinese).
 
+                [Data Extraction]
+                - Try to extract estimated reply/like counts from the search snippet if available (e.g., "50 replies", "100 likes"). If not found, use "N/A".
+
                 [Output Format]
-                JSON Array of objects:
-                {
-                    "content": "Full post text...",
-                    "url": "https://www.threads.net/...",
-                    "reasoning": "Why this is a lead (e.g. Asking for CNY gift advice)",
-                    "intentScore": 8 (1-10, how strong is the buying intent)
-                }
+                RETURN ONLY A RAW JSON ARRAY. Do NOT use Markdown code blocks.
+                Example:
+                [
+                    {
+                        "content": "Full post text...",
+                        "url": "https://www.threads.net/...",
+                        "reasoning": "Why this is a lead...",
+                        "intentScore": 8,
+                        "replyCount": "50+",
+                        "likeCount": "100+"
+                    }
+                ]
             `,
             config: { 
                 tools: [{ googleSearch: {} }],
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.OBJECT,
-                        properties: {
-                            content: { type: Type.STRING },
-                            url: { type: Type.STRING },
-                            reasoning: { type: Type.STRING },
-                            intentScore: { type: Type.NUMBER }
-                        }
-                    }
-                }
+                // responseMimeType: "application/json", // REMOVED to avoid API Error
+                // responseSchema: ... // REMOVED
             }
         });
 
-        const raw = JSON.parse(cleanJsonText(response.text || '[]'));
+        const rawText = cleanJsonText(response.text || '[]');
+        let raw;
+        try {
+            raw = JSON.parse(rawText);
+        } catch (parseError) {
+            console.error("Failed to parse Opportunity JSON:", rawText);
+            throw new Error("AI 回傳格式錯誤，請重試");
+        }
         
+        if (!Array.isArray(raw)) return [];
+
         // Post-processing to ensure URLs are valid threads links
         const validResults = raw.filter((item: OpportunityPost) => {
-            return item.url && item.url.includes('threads.net') && item.intentScore >= 5;
+            return item.url && item.url.includes('threads.net') && (item.intentScore || 0) >= 5;
         });
 
         return validResults;
 
     } catch (e: any) {
         console.error("Opportunity search failed", e);
-        throw new Error("搜尋失敗，請稍後再試。");
+        throw new Error(`搜尋失敗: ${e.message}`);
     }
 };

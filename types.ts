@@ -1,130 +1,109 @@
 
-export interface ApiResponse<T = any> {
-  success: boolean;
-  data?: T;
-  error?: {
-    code: ErrorCode;
-    message: string;
-    details?: any;
-  };
-  timestamp: number;
+export interface OpportunityPost {
+  username?: string;
+  content: string;
+  url: string;
+  reasoning: string; // Why AI selected this
+  intentScore: number; // 1-10
+  replyCount?: string; // New: Estimated reply count from snippet
+  likeCount?: string; // New: Estimated like count from snippet
+}
+
+// Enums
+export enum AppView {
+  LOGIN = 'LOGIN',
+  CREATE = 'CREATE',
+  SCHEDULE = 'SCHEDULE',
+  SETTINGS = 'SETTINGS',
+  ANALYTICS = 'ANALYTICS',
+  AUTOMATION = 'AUTOMATION',
+  SEO_ARTICLES = 'SEO_ARTICLES',
+  THREADS_NURTURE = 'THREADS_NURTURE',
+  PRICING = 'PRICING',
+  REFERRAL = 'REFERRAL',
+  CONTACT_SUPPORT = 'CONTACT_SUPPORT',
+  ADMIN = 'ADMIN'
 }
 
 export enum ErrorCode {
-  UNAUTHORIZED = 'AUTH_001',
-  FORBIDDEN = 'AUTH_002',
-  TOKEN_EXPIRED = 'AUTH_003',
-  NOT_FOUND = 'RES_001',
-  VALIDATION_ERROR = 'RES_002',
-  QUOTA_EXCEEDED = 'BIZ_001',
-  FEATURE_LOCKED = 'BIZ_002',
-  FACEBOOK_API_ERROR = 'EXT_FB_001',
-  AI_API_ERROR = 'EXT_AI_001',
-  INTERNAL_ERROR = 'SYS_001',
-  MAINTENANCE_MODE = 'SYS_002',
-  RATE_LIMIT_EXCEEDED = 'SYS_003'
+  INTERNAL_ERROR = 'INTERNAL_ERROR',
+  UNAUTHORIZED = 'UNAUTHORIZED',
+  FORBIDDEN = 'FORBIDDEN',
+  NOT_FOUND = 'NOT_FOUND',
+  QUOTA_EXCEEDED = 'QUOTA_EXCEEDED',
+  TOKEN_EXPIRED = 'TOKEN_EXPIRED',
+  FACEBOOK_API_ERROR = 'FACEBOOK_API_ERROR',
+  AI_GENERATION_ERROR = 'AI_GENERATION_ERROR',
 }
 
+// User & Auth
 export type UserRole = 'user' | 'starter' | 'pro' | 'business' | 'admin';
 
-// NEW: Queue System Types
-export interface QueueItem {
-  id: string;
-  userId: string;
-  action: string;
-  createdAt: number;
-  expiresAt: number; // TTL to prevent zombies
-  status: 'waiting' | 'processing';
+export type SubscriptionStatus = 'none' | 'active' | 'canceled' | 'past_due';
+
+export interface Subscription {
+    status: SubscriptionStatus;
+    planId: string;
+    lastPaymentDate?: number;
+    nextBillingDate?: number;
+    cancelAtPeriodEnd?: boolean;
 }
 
-export interface QueueState {
-  isQueuing: boolean;
-  position: number;
-  totalWaiting: number;
-  currentAction: string;
-}
-
-// NEW: Subscription Info
-export type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'none';
-export type PaymentProvider = 'ecpay' | 'bank_api' | 'manual';
-
-export interface UserSubscription {
-  status: SubscriptionStatus;
-  planId: 'starter' | 'pro' | 'business';
-  provider: PaymentProvider;
-  subscriptionId: string; // ID on the payment gateway
-  nextBillingDate: number;
-  lastPaymentDate: number;
-  cancelAtPeriodEnd: boolean;
-}
-
-// NEW: Batch Tracking
 export interface QuotaBatch {
-  id: string;
-  amount: number;        // Current remaining balance in this batch
-  initialAmount: number; // Original amount (for records)
-  expiresAt: number;     // Expiration Timestamp
-  source: 'subscription' | 'topup' | 'referral' | 'admin_gift' | 'trial';
-  addedAt: number;
+    id: string;
+    amount: number;
+    initialAmount: number;
+    expiresAt: number;
+    source: 'trial' | 'topup' | 'subscription' | 'admin_gift' | 'referral' | 'system';
+    addedAt: number;
 }
 
 export interface UserProfile {
   user_id: string;
   email: string;
   role: UserRole;
-  quota_total: number; // Sum of all valid batches (Read-only view)
-  quota_used: number;  // Lifetime usage stats
-  quota_reset_date: number; // Deprecated but kept for legacy UI compatibility (represents earliest expiry)
-  quota_batches?: QuotaBatch[]; // NEW: The source of truth
-  subscription?: UserSubscription; // NEW: Subscription tracking
-  expiry_warning_level?: 0 | 1 | 2; 
-  isSuspended: boolean;
-  unlockedFeatures: string[]; 
+  quota_used: number;
+  quota_total: number;
+  quota_reset_date?: number;
+  quota_batches?: QuotaBatch[];
+  expiry_warning_level?: number;
+  subscription?: Subscription;
   referralCode?: string;
   referredBy?: string;
   referralCount?: number;
-  last_api_call_timestamp?: number; 
+  unlockedFeatures?: string[];
+  isSuspended?: boolean;
+  last_api_call_timestamp?: number;
   created_at: number;
   updated_at: number;
 }
 
-export interface QuotaTransaction {
-  txId: string;
-  userId: string;
-  amount: number; // Negative for cost, Positive for refill
-  balanceAfter: number;
-  action: string;
-  refId?: string; // Optional: Post ID or Task ID
-  timestamp: number;
-  metadata?: any;
-}
-
-export interface UsageLog {
-  uid: string;
-  act: 'draft' | 'img' | 'seo' | 'threads' | 'viral' | 'score' | 'video' | 'dna_lab';
-  topic: string;
-  prmt: string;
-  res: string;
-  params?: string;
-  ts: number;
-}
-
-export interface ReferenceFile {
-  name: string;
-  content: string;
-}
-
+// Social & Brand
 export interface ThreadsAccount {
   id: string;
-  username: string;
   userId: string;
   token: string;
+  username: string;
   isActive: boolean;
-  // New Fields for Style Learning
-  accountType: 'personal' | 'brand'; // Personal = Chaos/Authentic, Brand = Safe/Professional
-  styleGuide?: string; // AI learned style DNA
-  safetyFilter?: boolean; // For Brands to avoid controversy
-  personaPrompt?: string; // Manual override
+  personaPrompt?: string;
+  accountType?: 'personal' | 'brand';
+  safetyFilter?: boolean;
+  styleGuide?: string;
+}
+
+export interface AutoReplyRule {
+  keyword: string;
+  response: string;
+}
+
+export interface AutoPilotConfig {
+  enabled: boolean;
+  frequency: 'daily' | 'weekly';
+  postWeekDays?: number[];
+  postTime: string;
+  source: 'trending' | 'keywords';
+  keywords: string[];
+  mediaTypePreference: 'image' | 'video' | 'mixed';
 }
 
 export interface ThreadsAutoPilotConfig {
@@ -133,140 +112,71 @@ export interface ThreadsAutoPilotConfig {
   postWeekDays: number[];
   postTime: string;
   imageMode: 'ai_url' | 'stock_url' | 'none';
-  targetAccountIds?: string[];
-  lastRunAt?: number;
+  targetAccountIds: string[];
 }
-
-// NEW: Brand Visual Identity Types
-export type DesignStyle = 'minimalist' | 'vibrant' | 'luxury' | 'retro' | 'warm_family' | 'tech_futuristic' | 'nature_organic';
-export type ImageIntent = 'product_showcase' | 'promotion' | 'lifestyle' | 'educational' | 'festival';
 
 export interface BrandSettings {
-  industry: string; // e.g., 'Food', 'Beauty', 'Tech'
-  brandName: string; // NEW
-  brandType: 'enterprise' | 'personal';
-  services: string;
-  website: string;
+  brandName?: string;
+  industry: string;
+  brandType?: 'personal' | 'enterprise';
+  services?: string;
+  website?: string;
   productInfo: string;
-  productContext?: string;
   brandTone: string;
   persona: string;
-  logoUrl?: string;
-  
-  // NEW: Visual Identity
-  brandColors: string[]; // Array of Hex Codes [Primary, Secondary, Accent]
+  brandColors: string[];
   targetAudience: string;
-  visualStyle: DesignStyle;
-  
-  brandStylePrompt?: string; // For Image Generation Style (Legacy/Override)
-  brandStyleGuide?: string; // NEW: For Text Generation Style (AI Analyzed)
-  
-  // Facebook Page Settings (User Specific)
+  visualStyle: string;
   facebookPageId: string;
   facebookToken: string;
-  
-  tokenExpiry?: number;
-  
   threadsAccounts?: ThreadsAccount[];
+  referenceFiles: { name: string; content: string }[];
+  fixedHashtags?: string;
+  logoUrl?: string;
+  brandStyleGuide?: string;
+  competitorUrls?: string[];
+  autoReply?: {
+    enabled: boolean;
+    defaultResponse: string;
+    rules: AutoReplyRule[];
+  };
+  autoPilot?: AutoPilotConfig;
   threadsAutoPilot?: ThreadsAutoPilotConfig;
-  fixedHashtags: string;
-  referenceFiles: ReferenceFile[];
-  
-  // NEW: Competitor Analysis
-  competitorUrls?: string[]; // Max 5 URLs
-
-  autoReply: AutoReplyConfig;
-  autoPilot: AutoPilotConfig;
 }
 
-export interface AutoReplyRule {
-  keyword: string;
-  response: string;
-}
-
-export interface AutoReplyConfig {
-  enabled: boolean;
-  defaultResponse: string;
-  rules: AutoReplyRule[];
-}
-
-export interface AutoPilotConfig {
-  enabled: boolean;
-  frequency: 'daily' | 'weekly';
-  postWeekDays?: number[];
-  postTime: string;
-  source: 'trending' | 'keywords'; // Removed 'competitor'
-  keywords: string[];
-  mediaTypePreference: 'image' | 'video' | 'mixed';
-  lastRunAt?: number;
-}
-
-export interface CtaItem {
-  text: string;
-  url: string;
-}
-
+// Content
 export interface Post {
   id: string;
   userId: string;
   topic: string;
   caption: string;
-  mediaType: 'image' | 'video' | 'none';
-  mediaUrl?: string;
+  firstComment?: string;
   mediaPrompt: string;
+  mediaType: 'image' | 'video';
+  mediaUrl?: string;
   status: 'draft' | 'scheduled' | 'published' | 'failed';
   scheduledDate?: string;
   publishedUrl?: string;
-  firstComment?: string;
   errorLog?: string;
-  createdAt: number;
   syncInstagram?: boolean;
+  createdAt: number;
 }
 
 export interface TrendingTopic {
   title: string;
   description: string;
-  url?: string;
+  url: string;
   imageUrl?: string;
 }
 
-// NEW: Business Opportunity Type
-export interface OpportunityPost {
-  username?: string;
-  content: string;
-  url: string;
-  reasoning: string; // Why AI selected this
-  intentScore: number; // 1-10
+export interface CtaItem {
+    text: string;
+    url: string;
 }
 
-export interface CachedTrendData {
-  id: string;
-  topics: TrendingTopic[];
-  createdAt: number;
-  industry: string;
-}
+export type ImageIntent = 'product_showcase' | 'promotion' | 'lifestyle' | 'educational' | 'festival';
 
-export type ViralType = 'regret' | 'expose' | 'counter' | 'identity' | 'result';
-export type ViralPlatform = 'facebook' | 'threads' | 'xhs';
-
-export interface TitleScore {
-  title: string;
-  score: number;
-  breakdown: {
-    emotion: number;
-    curiosity: number;
-    identity: number;
-    specific: number;
-    authenticity: number;
-  };
-  comment: string;
-}
-
-export interface ViralPostDraft {
-  versions: string[];
-  imagePrompt: string;
-}
-
+// Analytics
 export interface AnalyticsData {
   followers: number;
   followersGrowth: number;
@@ -278,90 +188,133 @@ export interface AnalyticsData {
 export interface TopPostData {
   id: string;
   message: string;
-  imageUrl?: string;
-  created_time: string;
+  imageUrl: string;
   reach: number;
   engagedUsers: number;
+  created_time: string;
   permalink_url: string;
-  type: 'reach' | 'engagement';
-}
-
-export interface AdminKey {
-  key: string;
-  type: 'RESET_QUOTA' | 'UPGRADE_ROLE' | 'UNLOCK_FEATURE' | 'ADD_POINTS'; // Added ADD_POINTS
-  targetRole?: UserRole;
-  targetFeature?: 'ANALYTICS' | 'AUTOMATION' | 'SEO' | 'THREADS';
-  pointsAmount?: number; // Added for point value
-  createdBy: string;
-  createdAt: number;
-  expiresAt: number;
-  isUsed: boolean;
-  usedBy?: string;
-  usedAt?: number;
-}
-
-export interface SystemConfig {
-  maintenanceMode: boolean;
-  dryRunMode: boolean;
-  globalAnnouncement?: string;
-}
-
-export interface LogEntry {
-  id: string;
-  timestamp: number;
-  userId: string;
-  userEmail: string;
-  action: string;
-  status: 'success' | 'error' | 'warning';
-  details: string;
-}
-
-export interface UserReport {
-  id: string;
-  userId: string;
-  userEmail: string;
-  description: string;
-  userAgent: string;
-  currentView: string;
-  timestamp: number;
-  status: 'OPEN' | 'RESOLVED';
 }
 
 export interface DashboardStats {
-  totalUsers: number;
-  activeUsersToday: number;
-  totalApiCallsToday: number;
-  errorCountToday: number;
+    totalUsers: number;
+    activeUsersToday: number;
+    totalApiCallsToday: number;
+    errorCountToday: number;
 }
 
-// NEW: DNA Lab Types
+// System & Admin
+export interface LogEntry {
+    id: string;
+    timestamp: number;
+    userEmail: string;
+    action: string;
+    status: 'success' | 'warning' | 'error';
+    details: string;
+}
+
+export interface SystemConfig {
+    maintenanceMode: boolean;
+    dryRunMode: boolean;
+}
+
+export interface UserReport {
+    id: string;
+    userId: string;
+    userEmail: string;
+    description: string;
+    userAgent: string;
+    currentView: string;
+    timestamp: number;
+    status: 'OPEN' | 'RESOLVED' | 'CLOSED';
+}
+
+export interface AdminKey {
+    key: string;
+    type: 'RESET_QUOTA' | 'UPGRADE_ROLE' | 'UNLOCK_FEATURE' | 'ADD_POINTS';
+    targetRole?: UserRole;
+    targetFeature?: string;
+    pointsAmount?: number;
+    createdBy: string;
+    createdAt: number;
+    expiresAt: number;
+    isUsed: boolean;
+    usedBy?: string;
+    usedAt?: number;
+}
+
+export interface UsageLog {
+    uid: string;
+    act: string;
+    topic?: string;
+    prmt?: string;
+    res?: string;
+    params?: string;
+    ts: number;
+}
+
+export interface QuotaTransaction {
+    txId: string;
+    userId: string;
+    amount: number;
+    balanceAfter: number;
+    action: string;
+    timestamp: number;
+    metadata?: any;
+}
+
+export interface QueueState {
+    isQueuing: boolean;
+    position: number;
+    totalWaiting: number;
+    currentAction: string;
+}
+
+// Viral & DNA
+export type ViralType = 'shocking' | 'story' | 'contrarian' | 'educational' | 'listicle' | 'auto';
+export type ViralPlatform = 'facebook' | 'instagram' | 'threads' | 'linkedin';
+
+export interface TitleScore {
+    title: string;
+    score: number;
+    breakdown: {
+        emotion: number;
+        curiosity: number;
+        identity: number;
+        specific: number;
+        authenticity: number;
+    };
+    comment: string;
+}
+
+export interface ViralPostDraft {
+    versions: string[];
+    imagePrompt: string;
+}
+
 export interface DNALabAnalysis {
-  species: string; // e.g. "Toxic Slime", "Holy Knight"
-  visualDescription: string; // Base description for image gen
-  stats: {
-    chaos: number;
-    chill: number;
-    intellect: number;
-    aggression: number;
-    emo: number;
-    luck: number;
-  };
-  title: string; // e.g. "Level 99 Internet Troll"
-  comment: string; // The roast
-  imageUrl?: string;
+    species: string;
+    visualDescription: string;
+    stats: {
+        chaos: number;
+        chill: number;
+        intellect: number;
+        aggression: number;
+        emo: number;
+        luck: number;
+    };
+    title: string;
+    comment: string;
+    imageUrl?: string;
 }
 
-export enum AppView {
-  LOGIN = 'LOGIN',
-  SETTINGS = 'SETTINGS',
-  CREATE = 'CREATE',
-  SCHEDULE = 'SCHEDULE',
-  ANALYTICS = 'ANALYTICS',
-  AUTOMATION = 'AUTOMATION',
-  SEO_ARTICLES = 'SEO_ARTICLES',
-  THREADS_NURTURE = 'THREADS_NURTURE',
-  REFERRAL = 'REFERRAL',
-  ADMIN = 'ADMIN',
-  PRICING = 'PRICING',
-  CONTACT_SUPPORT = 'CONTACT_SUPPORT'
+// API Response
+export interface ApiResponse<T = any> {
+  success: boolean;
+  data?: T;
+  error?: {
+    code: ErrorCode;
+    message: string;
+    details?: any;
+  };
+  timestamp: number;
 }
