@@ -114,59 +114,57 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
 // NEW: Business Opportunity Search
 export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
     // 1. Construct Targeted Query
-    // - site:threads.net/*/post: Forces it to find specific post pages (not profiles).
-    // - when:1m: Restricts to the last month.
-    // - Negatives: Exclude sales/promo terms.
-    const searchQuery = `site:threads.net/*/post "${keyword}" (請問 OR 請益 OR 求救 OR 苦惱 OR 覺得 OR 難用 OR 怎麼辦) -開箱 -團購 -優惠 -折扣 -下單 -蝦皮 -賣場 -代購 -廣告 when:1m`;
+    // We relax the strict site:threads.net/*/post pattern slightly to site:threads.net to catch more indexed pages,
+    // then rely on AI/Code to filter.
+    const searchQuery = `site:threads.net "${keyword}" (請問 OR 請益 OR 求救 OR 覺得 OR 難用 OR 怎麼辦) -開箱 -團購 -優惠 -折扣 -下單 -蝦皮 -賣場 -代購 -廣告 when:1m`;
     
     try {
-        // Upgrade: Use gemini-3-pro-preview for better reasoning and search capabilities
+        // Switch to 'gemini-2.5-flash' for speed and stricter JSON compliance
         const response = await callBackend('generateContent', {
-            model: 'gemini-3-pro-preview', 
+            model: 'gemini-2.5-flash', 
             contents: `
-                Role: Social Media Lead Scout (Taiwan Region).
-                Task: Find potential customers on Threads who have a specific PROBLEM or QUESTION about: "${keyword}".
+                Role: JSON Data Extractor.
+                Task: Extract user questions/problems from search results related to "${keyword}" on Threads.
                 
                 [Search Query]: ${searchQuery}
                 
-                [STRICT FILTERING RULES]
-                1. ❌ DISCARD: Posts that are clearly advertisements, product unboxings (unless criticizing), group buys (團購), or news sharing.
-                2. ✅ KEEP: Real humans expressing frustration, asking for advice, or comparing products.
-                3. 🌍 LOCATION: Must appear to be Taiwan context (Traditional Chinese).
-                4. 📅 TIMEFRAME: Must be recent (within 1 month).
+                [Rules]
+                1. Focus on posts where users are ASKING for help or sharing a PROBLEM.
+                2. Ignore marketing/sales posts.
+                3. STRICT OUTPUT: Return ONLY a valid JSON Array. Do NOT write any introduction or explanation.
+                4. If no relevant results are found, return exactly: []
 
-                [URL Extraction Rules]
-                - You MUST extract the exact post URL from the search result.
-                - It MUST match the pattern: https://www.threads.net/@username/post/code
-                - Do NOT use google redirect links or search page links.
-
-                [Output Format]
-                RETURN ONLY A RAW JSON ARRAY. 
-                Example:
+                [JSON Schema]
                 [
                     {
-                        "content": "Full post text...",
-                        "url": "https://www.threads.net/@user/post/123xyz",
-                        "intentScore": 9,
-                        "replyCount": "12", 
-                        "likeCount": "50"
+                        "content": "Post snippet text",
+                        "url": "https://www.threads.net/@user/post/id",
+                        "intentScore": 8,
+                        "replyCount": "10", 
+                        "likeCount": "20"
                     }
                 ]
-                
-                If reply/like counts are not visible, set them to null. Do NOT invent numbers.
             `,
             config: { 
                 tools: [{ googleSearch: {} }],
+                responseMimeType: "application/json" // Enforce JSON
             }
         });
 
         const rawText = cleanJsonText(response.text || '[]');
+        
+        // Safety check for "No results" text response that might slip through
+        if (!rawText.startsWith('[') && !rawText.startsWith('{')) {
+            console.warn("AI returned text instead of JSON:", rawText);
+            return [];
+        }
+
         let raw;
         try {
             raw = JSON.parse(rawText);
         } catch (parseError) {
             console.error("Failed to parse Opportunity JSON:", rawText);
-            throw new Error("AI 回傳格式錯誤，請重試");
+            return []; // Fail gracefully with empty list instead of throwing
         }
         
         if (!Array.isArray(raw)) return [];
@@ -174,7 +172,6 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
         // Post-processing to ensure URLs are valid threads links
         const validResults = raw.filter((item: OpportunityPost) => {
             const hasValidUrl = item.url && item.url.includes('threads.net') && item.url.includes('/post/');
-            // Filter out very low intent items if any slipped through
             const hasScore = (item.intentScore || 0) >= 3;
             return hasValidUrl && hasScore;
         });
@@ -183,6 +180,7 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
 
     } catch (e: any) {
         console.error("Opportunity search failed", e);
-        throw new Error(`搜尋失敗: ${e.message}`);
+        // Don't throw to UI, just return empty to prevent crash
+        return []; 
     }
 };
