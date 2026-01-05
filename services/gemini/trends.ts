@@ -113,50 +113,70 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
 
 // NEW: Business Opportunity Search
 export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
-    // 1. Construct Targeted Query (BROADENED)
-    // Using strict `site:threads.net` can sometimes miss results if Google indexes them as "Threads - [Title]".
-    // We use a broader query to let Google Search semantic matching work better.
-    const searchQuery = `Threads "${keyword}"`; 
+    // 1. Construct Targeted Query (ROBUST VERSION)
+    // We use site:threads.net to be specific, but we remove strict date filters to ensure results.
+    // We let Google's relevance algorithm handle the "recent" part implicitly or explicitly via search tool context.
+    const searchQuery = `site:threads.net "${keyword}"`; 
     
     try {
         const response = await callBackend('generateContent', {
             model: 'gemini-2.5-flash', 
             contents: `
-                Role: Data Miner.
-                Task: Search for user posts on Threads (threads.net) related to "${keyword}" in Taiwan.
+                Role: Search Result Parser.
+                Task: Turn the search results for "${keyword}" on Threads into a JSON List.
                 
                 [Search Query]: ${searchQuery}
                 
-                [Instructions]
-                1. Find meaningful discussions, questions, OR sharing posts.
-                2. DO NOT restrict to only "problems". People sharing happy moments (e.g. "Look at my Christmas gift") are ALSO opportunities for engagement.
-                3. Extract the content summary and the URL.
-                4. Aim to find at least 5-10 distinct results.
+                [Extraction Rules]
+                1. Look at the search results provided by the tool.
+                2. Extract EVERY result that looks like a user post.
+                3. Do not filter too strictly. If it's relevant to "${keyword}", include it.
+                4. Intent Score: Rate 1-10 (10 = Asking a question/Help needed, 1 = Random sharing).
                 
-                [Scoring]
-                - Questions/Help needed: 8-10 (High Priority)
-                - Sharing/Opinions/Show-off: 5-7 (Medium Priority - Good for compliments)
-                - Random/Short: 1-4
-
-                [Output Rules]
-                - Return a RAW JSON Array.
-                - Format: [{"content": "...", "url": "...", "intentScore": number}]
-                - If absolutely 0 results found, return [].
+                [Output Format]
+                STRICTLY output a JSON Array. No intro text. No markdown blocks.
+                Example:
+                [
+                    {
+                        "content": "Does anyone know where to buy good Christmas gifts?",
+                        "url": "https://www.threads.net/@user/post/123",
+                        "intentScore": 9,
+                        "replyCount": "5",
+                        "likeCount": "10"
+                    }
+                ]
             `,
             config: { 
                 tools: [{ googleSearch: {} }],
-                // No responseMimeType to avoid 400 error with tools
+                // Important: Disable safety filters to prevent blocking "rant" or "complaint" posts which are good opportunities.
+                safetySettings: [
+                    { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+                    { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                    { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                    { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' }
+                ]
             }
         });
 
-        // Manual cleaning
-        const rawText = cleanJsonText(response.text || '[]');
+        const rawText = response.text || '';
         
+        // Robust JSON Extraction: Find the first '[' and last ']'
+        const jsonStart = rawText.indexOf('[');
+        const jsonEnd = rawText.lastIndexOf(']');
+        
+        let validJsonStr = '[]';
+        if (jsonStart !== -1 && jsonEnd !== -1) {
+            validJsonStr = rawText.substring(jsonStart, jsonEnd + 1);
+        } else {
+            console.warn("AI output did not contain a JSON array. Raw:", rawText);
+            return []; // Fail gracefully
+        }
+
         let raw;
         try {
-            raw = JSON.parse(rawText);
+            raw = JSON.parse(validJsonStr);
         } catch (parseError) {
-            console.error("Failed to parse Opportunity JSON:", rawText);
+            console.error("Failed to parse Opportunity JSON. String:", validJsonStr);
             return []; 
         }
         
@@ -164,11 +184,9 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
 
         // Post-processing
         const validResults = raw.filter((item: OpportunityPost) => {
-            // Relaxed URL validation: Accept if it looks like a Threads link OR if the AI is confident
-            const hasValidUrl = item.url && (item.url.includes('threads.net') || item.url.includes('instagram.com')); // Sometimes threads indexed as IG
-            // Relaxed score: Show almost everything so user sees results
-            const hasScore = (item.intentScore || 0) >= 1; 
-            return hasValidUrl && hasScore;
+            const hasValidUrl = item.url && (item.url.includes('threads.net') || item.url.includes('instagram.com'));
+            // Very relaxed filter: allow almost anything so the user sees results
+            return hasValidUrl;
         });
 
         return validResults;
