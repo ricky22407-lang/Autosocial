@@ -113,32 +113,35 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
 
 // NEW: Business Opportunity Search
 export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
-    // 1. Construct Targeted Query (RELAXED VERSION)
-    // Removed 'when:1m' because Google indexing of Threads is often delayed.
-    // Removed negative keywords from here to prevent Google from returning 0 results. We filter in Prompt.
-    // Changed site:threads.net/*/post to site:threads.net to catch more results.
-    const searchQuery = `site:threads.net "${keyword}"`;
+    // 1. Construct Targeted Query (BROADENED)
+    // Using strict `site:threads.net` can sometimes miss results if Google indexes them as "Threads - [Title]".
+    // We use a broader query to let Google Search semantic matching work better.
+    const searchQuery = `Threads "${keyword}"`; 
     
     try {
         const response = await callBackend('generateContent', {
             model: 'gemini-2.5-flash', 
             contents: `
-                Role: Data Analyst.
-                Task: Search for "${keyword}" on Threads and find user discussions/questions.
+                Role: Data Miner.
+                Task: Search for user posts on Threads (threads.net) related to "${keyword}" in Taiwan.
                 
                 [Search Query]: ${searchQuery}
                 
-                [Filtering Rules - Apply these internally]
-                1. Look for posts where users express: Needs, Questions, Complaints, or "Want to buy".
-                2. Exclude obvious ads if possible, but prioritize returning *something* over nothing.
-                3. The user needs DATA. Even if it's slightly older, return it.
+                [Instructions]
+                1. Find meaningful discussions, questions, OR sharing posts.
+                2. DO NOT restrict to only "problems". People sharing happy moments (e.g. "Look at my Christmas gift") are ALSO opportunities for engagement.
+                3. Extract the content summary and the URL.
+                4. Aim to find at least 5-10 distinct results.
                 
+                [Scoring]
+                - Questions/Help needed: 8-10 (High Priority)
+                - Sharing/Opinions/Show-off: 5-7 (Medium Priority - Good for compliments)
+                - Random/Short: 1-4
+
                 [Output Rules]
                 - Return a RAW JSON Array.
-                - Fields: "content" (summary of the post), "url" (link to thread), "intentScore" (1-10), "replyCount", "likeCount".
-                - If you can't find exact numbers, estimate or put "N/A".
-                - Format: [{"content": "...", "url": "...", "intentScore": 8, ...}]
-                - NO markdown code blocks. Just the JSON string.
+                - Format: [{"content": "...", "url": "...", "intentScore": number}]
+                - If absolutely 0 results found, return [].
             `,
             config: { 
                 tools: [{ googleSearch: {} }],
@@ -161,8 +164,9 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
 
         // Post-processing
         const validResults = raw.filter((item: OpportunityPost) => {
-            const hasValidUrl = item.url && item.url.includes('threads.net');
-            // Relaxed intent score filter to show more results
+            // Relaxed URL validation: Accept if it looks like a Threads link OR if the AI is confident
+            const hasValidUrl = item.url && (item.url.includes('threads.net') || item.url.includes('instagram.com')); // Sometimes threads indexed as IG
+            // Relaxed score: Show almost everything so user sees results
             const hasScore = (item.intentScore || 0) >= 1; 
             return hasValidUrl && hasScore;
         });
