@@ -114,12 +114,11 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
 // NEW: Business Opportunity Search
 export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
     // 1. Construct Targeted Query
-    // We relax the strict site:threads.net/*/post pattern slightly to site:threads.net to catch more indexed pages,
-    // then rely on AI/Code to filter.
     const searchQuery = `site:threads.net "${keyword}" (請問 OR 請益 OR 求救 OR 覺得 OR 難用 OR 怎麼辦) -開箱 -團購 -優惠 -折扣 -下單 -蝦皮 -賣場 -代購 -廣告 when:1m`;
     
     try {
-        // Switch to 'gemini-2.5-flash' for speed and stricter JSON compliance
+        // ERROR FIX: Do NOT use responseMimeType: 'application/json' with tools: [{ googleSearch: {} }] in gemini-2.5-flash.
+        // It causes HTTP 400 "Tool use with a response mime type... is unsupported".
         const response = await callBackend('generateContent', {
             model: 'gemini-2.5-flash', 
             contents: `
@@ -131,7 +130,7 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
                 [Rules]
                 1. Focus on posts where users are ASKING for help or sharing a PROBLEM.
                 2. Ignore marketing/sales posts.
-                3. STRICT OUTPUT: Return ONLY a valid JSON Array. Do NOT write any introduction or explanation.
+                3. STRICT OUTPUT: Return ONLY a valid JSON Array. Do NOT write any introduction, markdown, or explanation.
                 4. If no relevant results are found, return exactly: []
 
                 [JSON Schema]
@@ -147,10 +146,11 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
             `,
             config: { 
                 tools: [{ googleSearch: {} }],
-                responseMimeType: "application/json" // Enforce JSON
+                // responseMimeType: "application/json" // REMOVED to fix API error
             }
         });
 
+        // Manual cleaning since we aren't enforcing JSON mode at API level anymore
         const rawText = cleanJsonText(response.text || '[]');
         
         // Safety check for "No results" text response that might slip through
@@ -180,7 +180,6 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
 
     } catch (e: any) {
         console.error("Opportunity search failed", e);
-        // Don't throw to UI, just return empty to prevent crash
         return []; 
     }
 };
