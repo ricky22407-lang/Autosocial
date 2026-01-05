@@ -1,54 +1,43 @@
 
 import React, { useState, useRef } from 'react';
-import { ThreadsAccount, UserProfile, DNALabAnalysis, UserRole, BrandSettings } from '../../types';
+import { ThreadsAccount, UserProfile, DNALabAnalysis, UserRole } from '../../types';
 import { fetchUserThreads } from '../../services/threadsService';
-import { fetchRecentPostCaptions } from '../../services/facebookService';
 import { generateDNALabAnalysis } from '../../services/gemini/text';
 import { generateImage } from '../../services/gemini/media';
 import { checkAndUseQuota } from '../../services/authService';
 import { buildDNALabImagePrompt } from '../../services/promptTemplates';
 
 interface Props {
-    accounts?: ThreadsAccount[];
-    settings: BrandSettings;
+    accounts: ThreadsAccount[];
     user: UserProfile | null;
     onQuotaUpdate: () => void;
 }
 
-const DEFAULT_MOCK_FB = `【2024 Q3 產業趨勢報告】
-本季市場數據顯示，AI 轉型已成為企業首要目標。我們致力於協助合作夥伴導入自動化流程。`;
-
-const DEFAULT_MOCK_THREADS = `笑死 剛剛開會老闆又在講幹話
-到底誰會想看那種老掉牙的行銷案啦 救命🆘`;
-
-const FALLBACK_ANALYSIS: DNALabAnalysis = {
-    species: "Simulated Two-Faced Chimera",
-    visualDescription: "A fantasy chimera with two heads, one head in a suit, one head wild. Chibi style.",
-    stats: { chaos: 85, intellect: 70, aggression: 60, emo: 90, professionalization: 40 },
-    title: "Level 99 崩潰社畜獸 (模擬)",
-    comment: "這隻生物象徵著在社會期待與內心混沌之間掙扎的靈魂。"
-} as any;
-
-const DigitalDNALab: React.FC<Props> = ({ accounts = [], settings, user, onQuotaUpdate }) => {
-    const threadAccounts = accounts.length > 0 ? accounts : (settings.threadsAccounts || []);
-    const [useFb, setUseFb] = useState(true);
-    const [useThreads, setUseThreads] = useState(true);
-    const [isCreatorMode, setIsCreatorMode] = useState(false);
-    const [mockFbText, setMockFbText] = useState(DEFAULT_MOCK_FB);
-    const [mockThreadsText, setMockThreadsText] = useState(DEFAULT_MOCK_THREADS);
+const DigitalDNALab: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) => {
+    const [selectedAccountId, setSelectedAccountId] = useState(accounts[0]?.id || '');
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [result, setResult] = useState<DNALabAnalysis | null>(null);
     const [loadingStage, setLoadingStage] = useState('');
+    const cardRef = useRef<HTMLDivElement>(null);
 
     const role = user?.role || 'user';
 
+    const getRoleLabel = (role: UserRole) => {
+        switch(role) {
+            case 'starter': return 'Starter (職業裝)';
+            case 'pro': return 'Pro (稀有配件)';
+            case 'business': return 'Business (VIP光環)';
+            case 'admin': return 'GM (神裝)';
+            default: return 'Free (初始型態)';
+        }
+    };
+
     const handleAnalyze = async () => {
         if (!user) return alert("請先登入");
-        if (!isCreatorMode) {
-            if (useFb && (!settings.facebookPageId || !settings.facebookToken)) return alert("請先連結 FB！");
-            if (useThreads && threadAccounts.length === 0) return alert("請先連結 Threads！");
-        }
+        const account = accounts.find(a => a.id === selectedAccountId);
+        if (!account) return alert("請選擇帳號");
 
+        // [BILLING] DNA Lab: 10 Points (Analysis + Image)
         const COST = 10;
         const allowed = await checkAndUseQuota(user.user_id, COST, 'DNA_LAB_ANALYSIS');
         if (!allowed) return;
@@ -58,99 +47,175 @@ const DigitalDNALab: React.FC<Props> = ({ accounts = [], settings, user, onQuota
         setResult(null);
 
         try {
-            let combinedText = "";
-            if (isCreatorMode) {
-                if (useFb) combinedText += `\n[FB]\n${mockFbText}`;
-                if (useThreads) combinedText += `\n[Threads]\n${mockThreadsText}`;
-                await new Promise(r => setTimeout(r, 1000));
-            } else {
-                setLoadingStage('正在掃描數據...');
-                if (useFb) {
-                    const fbPosts = await fetchRecentPostCaptions(settings.facebookPageId, settings.facebookToken, 10);
-                    combinedText += fbPosts.join('\n');
-                }
-                if (useThreads) {
-                    const posts = await fetchUserThreads(threadAccounts[0], 10);
-                    combinedText += posts.map((p:any) => p.text).join('\n');
-                }
-            }
+            // 1. Fetch Posts
+            setLoadingStage('正在掃描大腦皮層 (Reading Posts)...');
+            const posts = await fetchUserThreads(account, 15);
+            if (posts.length < 5) throw new Error("貼文數量太少 (至少需 5 篇)，無法精確分析基因。");
+            const postTexts = posts.map((p: any) => p.text).filter(Boolean);
 
-            setLoadingStage('AI 綜合分析中...');
-            const analysis = await generateDNALabAnalysis([combinedText]);
+            // 2. Analyze DNA (Gemini)
+            setLoadingStage('正在進行基因定序 (Analyzing DNA)...');
+            const analysis = await generateDNALabAnalysis(postTexts);
+
+            // 3. Generate Visual (RPG Style)
+            setLoadingStage(`正在生成 RPG 角色 (${getRoleLabel(role)})...`);
             
-            setLoadingStage(`生成形象中...`);
+            // Construct visual prompt based on analysis + user tier
             const prompt = buildDNALabImagePrompt(analysis.visualDescription, role);
-            const imageUrl = await generateImage(prompt, role);
+            const imageUrl = await generateImage(prompt, role); // Use role for prioritization, but prompt is already tailored
+
             setResult({ ...analysis, imageUrl });
 
         } catch (e: any) {
-            alert(`分析失敗: ${e.message}`);
+            alert(`實驗失敗: ${e.message}`);
         } finally {
             setIsAnalyzing(false);
             setLoadingStage('');
         }
     };
 
+    const handleDownload = () => {
+        if (!cardRef.current) return;
+        // Simple canvas capture simulation or just open image?
+        // Since we have mixed HTML/Image content, true screenshot requires html2canvas.
+        // For simplicity, we just alert or offer the raw image download if possible.
+        // Or we assume the user will screenshot it.
+        alert("提示：請直接使用手機截圖或電腦截圖工具來保存這張精美的卡片！");
+    };
+
     return (
-        <div className="max-w-5xl mx-auto p-4 md:p-8 space-y-8 animate-fade-in relative z-10">
-            <div className="flex flex-col md:flex-row justify-between items-center gap-6 border-b border-gray-800 pb-8">
-                <div>
-                    <h2 className="text-4xl font-black text-white tracking-tighter shadow-primary/20">🧬 數位基因實驗室</h2>
-                    <p className="text-gray-500 font-bold tracking-[0.3em] uppercase text-[10px] mt-2">Persona Synthesis Engine</p>
+        <div className="max-w-5xl mx-auto p-4 md:p-8 space-y-8 animate-fade-in pb-20">
+            {/* Header */}
+            <div className="text-center space-y-2">
+                <h2 className="text-3xl md:text-5xl font-black text-white tracking-tighter drop-shadow-[0_0_15px_rgba(0,242,234,0.5)]">
+                    🧬 數位基因實驗室
+                </h2>
+                <p className="text-gray-400 font-medium tracking-widest text-xs md:text-sm uppercase">
+                    Digital Soul Diagnosis • RPG Character Gen
+                </p>
+                <div className="inline-block bg-gray-800 border border-gray-600 px-4 py-1 rounded-full text-xs text-gray-300 mt-2">
+                    目前會員等級：<span className="text-primary font-bold">{getRoleLabel(role)}</span>
                 </div>
-                
-                {/* FIXED: Increased z-index and removed potential blocking elements */}
-                <button 
-                    onClick={() => setIsCreatorMode(!isCreatorMode)}
-                    className={`relative z-20 px-6 py-3 rounded-2xl font-black text-xs transition-all flex items-center gap-3 border-2 active:scale-95 ${
-                        isCreatorMode ? 'bg-yellow-500/20 border-yellow-500 text-yellow-400' : 'bg-gray-800/50 border-gray-700 text-gray-500 hover:border-gray-500'
-                    }`}
+            </div>
+
+            {/* Controls */}
+            <div className="bg-card p-6 rounded-2xl border border-gray-700 flex flex-col md:flex-row gap-4 items-center justify-center">
+                <select 
+                    value={selectedAccountId} 
+                    onChange={e => setSelectedAccountId(e.target.value)}
+                    className="bg-dark border border-gray-600 rounded-xl px-4 py-3 text-white outline-none w-full md:w-64"
                 >
-                    <span className={`w-2 h-2 rounded-full ${isCreatorMode ? 'bg-yellow-400 animate-pulse' : 'bg-gray-600'}`}></span>
-                    {isCreatorMode ? '⚡ 模擬模式已啟動' : '🧪 啟動模擬模式'}
+                    {accounts.map(acc => (
+                        <option key={acc.id} value={acc.id}>{acc.username}</option>
+                    ))}
+                </select>
+                
+                <button 
+                    onClick={handleAnalyze} 
+                    disabled={isAnalyzing}
+                    className="bg-gradient-to-r from-purple-600 to-pink-600 hover:brightness-110 text-white px-8 py-3 rounded-xl font-bold shadow-lg transition-all w-full md:w-auto disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                    {isAnalyzing ? (
+                        <><div className="loader w-4 h-4 border-t-white"></div> {loadingStage}</>
+                    ) : (
+                        '🧪 開始基因分析 (10 點)'
+                    )}
                 </button>
             </div>
 
-            <div className="glass-card p-10 rounded-[3rem] space-y-8 relative overflow-hidden">
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    <div className={`p-6 rounded-3xl border ${useFb ? 'bg-blue-900/10 border-blue-500/50' : 'bg-black/20 border-gray-800 opacity-40'}`}>
-                        <label className="flex items-center gap-3 cursor-pointer mb-4">
-                            <input type="checkbox" checked={useFb} onChange={e => setUseFb(e.target.checked)} className="w-5 h-5 accent-blue-500" />
-                            <span className="text-lg font-black text-white">Facebook (外在)</span>
-                        </label>
-                        {isCreatorMode && useFb && <textarea value={mockFbText} onChange={e => setMockFbText(e.target.value)} className="w-full h-32 bg-black/40 border border-gray-700 rounded-xl p-3 text-xs text-white" />}
-                    </div>
-                    <div className={`p-6 rounded-3xl border ${useThreads ? 'bg-pink-900/10 border-pink-500/50' : 'bg-black/20 border-gray-800 opacity-40'}`}>
-                        <label className="flex items-center gap-3 cursor-pointer mb-4">
-                            <input type="checkbox" checked={useThreads} onChange={e => setUseThreads(e.target.checked)} className="w-5 h-5 accent-pink-500" />
-                            <span className="text-lg font-black text-white">Threads (內在)</span>
-                        </label>
-                        {isCreatorMode && useThreads && <textarea value={mockThreadsText} onChange={e => setMockThreadsText(e.target.value)} className="w-full h-32 bg-black/40 border border-gray-700 rounded-xl p-3 text-xs text-white" />}
-                    </div>
-                </div>
-
-                <div className="flex flex-col items-center gap-4">
-                    <button onClick={handleAnalyze} disabled={isAnalyzing} className="bg-gradient-to-r from-blue-600 to-pink-600 text-white px-16 py-5 rounded-full font-black text-xl shadow-2xl hover:scale-105 active:scale-95 transition-all disabled:opacity-50">
-                        {isAnalyzing ? (loadingStage || '分析中...') : '🧪 開始融合分析 (10點)'}
-                    </button>
-                </div>
-            </div>
-
+            {/* Result Area */}
             {result && (
-                <div className="max-w-2xl mx-auto animate-fade-in pt-10">
-                    <div className="bg-gradient-to-b from-gray-900 to-black rounded-[3rem] border-4 border-white/5 shadow-2xl overflow-hidden p-10 space-y-8">
-                        <div className="aspect-square bg-white rounded-3xl p-6 relative flex items-center justify-center shadow-inner">
-                            <img src={result.imageUrl} alt="Avatar" className="max-w-full max-h-full object-contain drop-shadow-2xl" />
+                <div className="relative w-full max-w-md mx-auto" ref={cardRef}>
+                    {/* The Card Container */}
+                    <div className="bg-gradient-to-b from-gray-900 to-black rounded-[2rem] border-4 border-purple-500/50 shadow-[0_0_50px_rgba(168,85,247,0.3)] overflow-hidden relative">
+                        
+                        {/* Decorative Header */}
+                        <div className="bg-purple-900/30 p-4 border-b border-purple-500/30 flex justify-between items-center">
+                            <span className="text-[10px] font-black tracking-[0.2em] text-purple-300 uppercase">AutoSocial Lab</span>
+                            <div className="flex gap-1">
+                                <div className="w-2 h-2 rounded-full bg-red-500"></div>
+                                <div className="w-2 h-2 rounded-full bg-yellow-500"></div>
+                                <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                            </div>
                         </div>
-                        <div className="text-center">
-                            <h2 className="text-4xl font-black text-white bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-pink-400">{result.title}</h2>
-                            <p className="text-gray-400 mt-4 italic leading-relaxed">"{result.comment}"</p>
+
+                        {/* Character Image */}
+                        <div className="aspect-square w-full bg-white relative p-8 flex items-center justify-center overflow-hidden group">
+                            {/* Background Pattern */}
+                            <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
+                            
+                            {result.imageUrl ? (
+                                <img src={result.imageUrl} alt="Character" className="relative z-10 w-full h-full object-contain drop-shadow-2xl filter group-hover:scale-105 transition-transform duration-500" />
+                            ) : (
+                                <div className="text-black/50 font-bold">Image Gen Failed</div>
+                            )}
+
+                            {/* VIP Effect for Business Users */}
+                            {role === 'business' && (
+                                <div className="absolute top-4 right-4 bg-yellow-400 text-black font-black px-3 py-1 rounded-full text-xs shadow-lg animate-bounce z-20">
+                                    👑 VIP USER
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Stats Panel */}
+                        <div className="p-6 space-y-6">
+                            
+                            {/* Title & Name */}
+                            <div className="text-center">
+                                <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-1">{result.species}</h3>
+                                <h2 className="text-2xl font-black text-white leading-tight bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-400">
+                                    {result.title}
+                                </h2>
+                            </div>
+
+                            {/* Stats Grid (RPG Style) */}
+                            <div className="grid grid-cols-2 gap-3 text-xs">
+                                <StatBar label="混亂 (Chaos)" value={result.stats.chaos} color="bg-red-500" />
+                                <StatBar label="友善 (Chill)" value={result.stats.chill} color="bg-blue-500" />
+                                <StatBar label="知識 (INT)" value={result.stats.intellect} color="bg-green-500" />
+                                <StatBar label="攻擊 (ATK)" value={result.stats.aggression} color="bg-orange-500" />
+                                <StatBar label="感性 (EMO)" value={result.stats.emo} color="bg-purple-500" />
+                                <StatBar label="幸運 (LUCK)" value={result.stats.luck} color="bg-yellow-500" />
+                            </div>
+
+                            {/* The Roast Comment */}
+                            <div className="bg-white/5 p-4 rounded-xl border border-white/10 relative">
+                                <span className="absolute -top-2 left-4 text-2xl">❝</span>
+                                <p className="text-gray-300 text-sm italic text-center font-medium leading-relaxed pt-2">
+                                    {result.comment}
+                                </p>
+                                <span className="absolute -bottom-4 right-4 text-2xl text-gray-600">❞</span>
+                            </div>
+
+                            {/* Footer */}
+                            <div className="text-center pt-2">
+                                <p className="text-[10px] text-gray-600 font-bold uppercase tracking-widest">
+                                    Powered by AutoSocial AI
+                                </p>
+                            </div>
                         </div>
                     </div>
+
+                    <button onClick={handleDownload} className="mt-6 w-full text-center text-gray-400 hover:text-white text-sm underline">
+                        ⭳ 保存截圖
+                    </button>
                 </div>
             )}
         </div>
     );
 };
+
+const StatBar = ({ label, value, color }: { label: string, value: number, color: string }) => (
+    <div className="flex flex-col gap-1">
+        <div className="flex justify-between text-[10px] font-bold text-gray-400">
+            <span>{label}</span>
+            <span>{value}</span>
+        </div>
+        <div className="w-full h-2 bg-gray-800 rounded-full overflow-hidden">
+            <div className={`h-full ${color}`} style={{ width: `${value}%` }}></div>
+        </div>
+    </div>
+);
 
 export default DigitalDNALab;

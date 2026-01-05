@@ -75,12 +75,9 @@ const Login: React.FC<Props> = ({ onLoginSuccess }) => {
 
         <div className="text-gray-400 text-center mb-8 text-sm">
           {mode === 'REGISTER' ? '開始您的自動化之旅' : mode === 'FORGOT' ? '我們會發送重設連結給您' : (
-             <div className="space-y-1">
-                <p>一篇貼文最低 <span className="text-primary font-bold">NT$3</span></p>
-                <p className="text-[10px] text-yellow-500/80 font-bold uppercase tracking-wider">
-                   測試預覽中：請使用 admin@gmail.com / admin 登入
-                </p>
-             </div>
+             <>
+                一篇貼文最低 <span className="text-primary font-bold">NT$3</span>，立即體驗全自動社群經營！
+             </>
           )}
         </div>
 
@@ -88,7 +85,7 @@ const Login: React.FC<Props> = ({ onLoginSuccess }) => {
           <div>
             <label className="block text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider">Email</label>
             <input 
-              type="text" 
+              type="email" 
               name="email"
               required
               autoComplete="username"
@@ -124,7 +121,7 @@ const Login: React.FC<Props> = ({ onLoginSuccess }) => {
                 className="w-4 h-4 rounded border-gray-600 bg-black/30 text-primary focus:ring-primary cursor-pointer"
               />
               <label htmlFor="rememberMe" className="text-sm text-gray-400 cursor-pointer select-none">
-                記住帳號 (Remember Me)
+                記住帳號 (Remember Email)
               </label>
             </div>
           )}

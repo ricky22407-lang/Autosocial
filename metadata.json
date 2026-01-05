@@ -1,5 +1,5 @@
 {
-  "name": "autosocial 測試站",
+  "name": "vercel version autosocial",
   "description": "An AI-powered social media manager that automates Facebook content creation, media generation, and scheduling using Gemini models and brand personas.",
   "requestFramePermissions": []
 }

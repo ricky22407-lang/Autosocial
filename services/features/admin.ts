@@ -1,5 +1,6 @@
+
 import { db, isMock, firebase } from '../firebase';
-import { UserProfile, UserRole, AdminKey, SystemConfig, DashboardStats, LogEntry, QuotaBatch, UserReport, UsageLog } from '../../types';
+import { UserProfile, UserRole, AdminKey, SystemConfig, DashboardStats, LogEntry, QuotaBatch } from '../../types';
 import { MockStore } from '../mockStore';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -13,45 +14,6 @@ const getQuotaForRole = (role: UserRole): number => {
     case 'admin': return 99999;
     default: return 30;
   }
-};
-
-// FIX: Added missing exported member 'getUserReports'
-export const getUserReports = async (): Promise<UserReport[]> => {
-    if (isMock) {
-        return JSON.parse(localStorage.getItem('autosocial_user_reports') || '[]');
-    }
-    try {
-        const snap = await db.collection('user_reports').orderBy('timestamp', 'desc').get();
-        return snap.docs.map((doc: any) => ({ ...doc.data(), id: doc.id } as UserReport));
-    } catch (e) { return []; }
-};
-
-// FIX: Added missing exported member 'getUserUsageLogs'
-export const getUserUsageLogs = async (userId: string): Promise<UsageLog[]> => {
-    if (isMock) {
-        const logs = JSON.parse(localStorage.getItem('autosocial_logs') || '[]');
-        return logs.filter((l: any) => l.uid === userId);
-    }
-    try {
-        const snap = await db.collection('usage_logs').where('uid', '==', userId).orderBy('ts', 'desc').get();
-        return snap.docs.map((doc: any) => doc.data() as UsageLog);
-    } catch (e) { return []; }
-};
-
-// FIX: Added missing exported member 'deleteUserUsageLogs'
-export const deleteUserUsageLogs = async (userId: string): Promise<void> => {
-    if (isMock) {
-        const logs = JSON.parse(localStorage.getItem('autosocial_logs') || '[]');
-        const filtered = logs.filter((l: any) => l.uid !== userId);
-        localStorage.setItem('autosocial_logs', JSON.stringify(filtered));
-        return;
-    }
-    try {
-        const snap = await db.collection('usage_logs').where('uid', '==', userId).get();
-        const batch = db.batch();
-        snap.docs.forEach((doc: any) => batch.delete(doc.ref));
-        await batch.commit();
-    } catch (e) { console.error("Log deletion failed", e); }
 };
 
 export const getAllUsers = async (): Promise<UserProfile[]> => {

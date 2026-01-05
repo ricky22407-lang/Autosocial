@@ -1,5 +1,5 @@
 
-import { BrandSettings, CtaItem, TrendingTopic, ViralType, ViralPlatform, TitleScore, ViralPostDraft, ImageIntent, DNALabAnalysis, UserRole, ThreadLead, CompetitorInsight, UserProfile } from "../../types";
+import { BrandSettings, CtaItem, TrendingTopic, ViralType, ViralPlatform, TitleScore, ViralPostDraft, ImageIntent, DNALabAnalysis, UserRole } from "../../types";
 import { callBackend, cleanJsonText, Type } from './core';
 import * as Prompts from "../promptTemplates";
 
@@ -23,159 +23,60 @@ export const analyzeThreadsStyle = async (posts: string[]): Promise<string> => {
     return response.text || "Threads style analysis failed.";
 };
 
-/**
- * REFINED: Influencer Matcher Service
- * No longer generates fake people. Takes REAL profiles from DB and matches them to query.
- */
-export const searchInfluencers = async (query: string, realProfiles: UserProfile[]): Promise<any[]> => {
-    if (realProfiles.length === 0) return [];
+export const analyzeProductFile = async (text: string): Promise<string> => {
+    const response = await callBackend('generateContent', {
+        model: "gemini-2.5-flash",
+        contents: `Task: Analyze product file and extract marketing USP, pain points, specs, and audience. Content: ${text.substring(0, 15000)}`
+    });
+    return response.text || "";
+};
 
-    // Prepare data for AI to rank
-    const talentPool = realProfiles.map(u => ({
-        email: u.email,
-        categories: u.influencerProfile?.categories || [],
-        contentStyles: u.influencerProfile?.contentStyles || [],
-        bio: u.influencerProfile?.bio || '',
-        minPrice: u.influencerProfile?.minPrice || 0,
-        platforms: u.influencerProfile?.platforms || {},
-        aiTags: u.influencerProfile?.aiTags || []
-    }));
-
-    const prompt = `你是一個專業的人才媒合顧問。
-    甲方（品牌方）的需求是：「${query}」。
+// NEW: DNA Lab Analysis
+export const generateDNALabAnalysis = async (posts: string[]): Promise<DNALabAnalysis> => {
+    if (!posts || posts.length === 0) throw new Error("無貼文可分析");
     
-    以下是我們資料庫中的真實人才清單（乙方）：
-    ${JSON.stringify(talentPool)}
-
-    任務：
-    1. 根據甲方的需求，從清單中挑選出最適合的 5 位人才。
-    2. 如果清單中沒有任何人符合，請回傳空陣列 []。
-    3. 對每一位被選中的人才，計算一個 0-100 的 matchScore (匹配分數)。
-    
-    請務必嚴格遵守：
-    - **絕對不可以** 自己捏造清單中不存在的人。
-    - 只能從我提供的清單中挑選。
-    - 回傳 JSON Array 格式，物件結構必須包含匹配分數 matchScore 欄位。`;
+    const response = await callBackend('generateContent', {
+        model: "gemini-2.5-flash",
+        contents: Prompts.buildDNALabAnalysisPrompt(posts.join('\n\n')),
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                    species: { type: Type.STRING },
+                    visualDescription: { type: Type.STRING },
+                    stats: {
+                        type: Type.OBJECT,
+                        properties: {
+                            chaos: { type: Type.NUMBER },
+                            chill: { type: Type.NUMBER },
+                            intellect: { type: Type.NUMBER },
+                            aggression: { type: Type.NUMBER },
+                            emo: { type: Type.NUMBER },
+                            luck: { type: Type.NUMBER }
+                        }
+                    },
+                    title: { type: Type.STRING },
+                    comment: { type: Type.STRING }
+                }
+            }
+        }
+    });
 
     try {
-        const response = await callBackend('generateContent', {
-            model: "gemini-3-pro-preview",
-            contents: prompt,
-            config: { 
-                responseMimeType: "application/json"
-            }
-        });
-
-        const rawText = response.text || '[]';
-        const aiResults = JSON.parse(cleanJsonText(rawText));
-        
-        return Array.isArray(aiResults) ? aiResults : [];
+        return JSON.parse(cleanJsonText(response.text || '{}'));
     } catch (e) {
-        console.error("AI Matcher Error:", e);
-        // Fallback: Simple keyword filter if AI fails
-        const lowerQuery = query.toLowerCase();
-        return talentPool
-            .filter(t => t.bio.toLowerCase().includes(lowerQuery) || t.categories.some(c => c.toLowerCase().includes(lowerQuery)))
-            .map(t => ({ ...t, matchScore: 70 }))
-            .slice(0, 5);
+        throw new Error("DNA Analysis Failed: JSON Parsing Error");
     }
 };
 
 // #endregion
 
-// REFINED: Lead Hunter Service - Strictly searching for CUSTOMER INTENT
-export const searchThreadsLeads = async (keyword: string): Promise<ThreadLead[]> => {
-    // Strategy: Search for questions and pain points, exclude reviews and influencers
-    const searchStrategy = `site:threads.net "${keyword}" ("求推薦" OR "有人買過嗎" OR "想買" OR "哪款好" OR "推薦嗎" OR "怎麼選") -開箱 -試吃 -業配 -合作請洽`;
-    
-    const prompt = `你是一個精準行銷獵人。請透過搜尋 Threads.net 找出台灣過去一週內，對「${keyword}」有真實購買需求或正在尋求建議的 5 則消費者貼文。
-    
-    [重要規則]
-    1. 必須排除：網紅、素人開箱、業配、行銷活動、品牌官方帳號。
-    2. 必須鎖定：正在發問、正在猶豫、抱怨現有產品想換新、或求助推薦的真實網友。
-    3. 連結檢查：請從搜尋結果中提取真實的 Threads 貼文連結。
-    
-    請以 JSON Array 格式回傳：
-    [{
-      "id": "隨機ID",
-      "username": "發文者帳號",
-      "content": "貼文原始文字內容摘要(展現意圖的部分)",
-      "permalink": "Threads 貼文連結 (請確保網址正確)",
-      "engagementScore": 0-100,
-      "purchaseIntent": "high" | "medium" | "low",
-      "reasoning": "為什麼判斷他是潛在客戶(例如：他提到預算或是特定的困擾)"
-    }]`;
-
-    try {
-        const response = await callBackend('generateContent', {
-            model: "gemini-3-pro-preview", 
-            contents: `搜尋指令: ${searchStrategy}\n\n任務: ${prompt}`,
-            config: { 
-                tools: [{ googleSearch: {} }],
-                responseMimeType: "application/json"
-            }
-        });
-
-        const data = JSON.parse(cleanJsonText(response.text || '[]'));
-        
-        // Basic validation of links - ensure they are threads.net
-        return (data as ThreadLead[]).filter(lead => 
-            lead.permalink && lead.permalink.includes('threads.net')
-        );
-    } catch (e) {
-        console.error("Lead Hunting Error:", e);
-        return [];
-    }
-};
-
-// #endregion
-
-export const analyzeCompetitors = async (competitorUrls: string[], industry: string): Promise<CompetitorInsight[]> => {
-    if (!competitorUrls || competitorUrls.length === 0) return [];
-    
-    const prompt = `你是一個資深市場情報分析員。請針對以下粉專連結進行掃描與情報分析：
-    連結列表：${competitorUrls.join(', ')}
-    產業領域：${industry}
-    
-    請找出他們本週的「發文主軸」、「受歡迎的內容類型」以及「營銷漏洞」。
-    請回傳 JSON Array:
-    [{
-      "name": "粉專名稱",
-      "recentActivity": "本週重點活動描述",
-      "vibe": "整體語氣風格",
-      "strategySuggestion": "給使用者的反擊或差異化策略建議"
-    }]`;
-
-    const response = await callBackend('generateContent', {
-        model: "gemini-3-pro-preview",
-        contents: prompt,
-        config: { 
-            tools: [{ googleSearch: {} }],
-            responseMimeType: "application/json"
-        }
-    });
-
-    try {
-        return JSON.parse(cleanJsonText(response.text || '[]'));
-    } catch (e) {
-        return [];
-    }
-};
-
-export const generateDNALabAnalysis = async (inputs: string[]): Promise<DNALabAnalysis> => {
-    const prompt = Prompts.buildDNALabAnalysisPrompt(inputs.join('\n\n'));
-    const response = await callBackend('generateContent', {
-        model: "gemini-3-pro-preview",
-        contents: prompt,
-        config: { 
-            responseMimeType: "application/json"
-        }
-    });
-    return JSON.parse(cleanJsonText(response.text || '{}'));
-};
+// #region Generators
 
 export const generatePostDraft = async (topic: string, settings: BrandSettings, options: { length: string, ctaList: CtaItem[], tempHashtags: string, includeEngagement?: boolean, imageText?: string }, topicContext?: TrendingTopic, userRole: string = 'user') => {
   const isHighTier = ['business', 'admin'].includes(userRole);
+  // Removed imagePrompt/videoPrompt from schema to save token/latency and separate concerns
   const response = await callBackend('generateContent', {
     model: isHighTier ? "gemini-3-pro-preview" : "gemini-2.5-flash",
     contents: Prompts.buildDraftPrompt(topic, settings, options, topicContext),
@@ -190,6 +91,7 @@ export const generatePostDraft = async (topic: string, settings: BrandSettings, 
   return JSON.parse(cleanJsonText(response.text || '{}'));
 };
 
+// NEW: Dedicated Image Prompt Generator
 export const generateImagePromptString = async (caption: string, intent: ImageIntent, settings: BrandSettings): Promise<string> => {
     const response = await callBackend('generateContent', {
         model: "gemini-2.5-flash",
@@ -209,7 +111,7 @@ export const generateViralTitles = async (topic: string, options: { audience: st
 };
 
 export const scoreViralTitles = async (titles: string[]): Promise<TitleScore[]> => {
-    const prompt = `Role: Click-Through Rate Predictor. Score these titles. Output JSON Array with scores.`;
+    const prompt = `Role: Click-Through Rate Predictor. Score these titles (0-10 on Emotion, Curiosity, Identity, Specific, Authenticity). Total max 50. Input: ${JSON.stringify(titles)}. Output JSON Array with scores.`;
     const response = await callBackend('generateContent', {
         model: "gemini-2.5-flash",
         contents: prompt,
@@ -246,8 +148,19 @@ export const generateViralContent = async (topic: string, options: { audience: s
             }
         }
     });
-    let data = JSON.parse(cleanJsonText(response.text || '{}'));
-    return { versions: [data.caption || '內容生成異常。'], imagePrompt: '' };
+    
+    let data;
+    try {
+        data = JSON.parse(cleanJsonText(response.text || '{}'));
+    } catch (e) {
+        console.error("JSON Parse Error in Viral Content", e);
+        return { versions: ["生成失敗，請重試。"], imagePrompt: "" };
+    }
+
+    return {
+        versions: [data.caption || '內容生成異常。'],
+        imagePrompt: '' // Viral mode now also defers image gen
+    };
 };
 
 export const generateSeoArticle = async (topic: string, length: string, keywords: string, options: { agenda: boolean, meta: boolean, faq: boolean, refLinks: boolean }) => {
@@ -275,24 +188,29 @@ export const generateSeoArticle = async (topic: string, length: string, keywords
 export const generateWeeklyReport = async (analytics: any, settings: BrandSettings, topPosts?: any) => {
     const response = await callBackend('generateContent', {
         model: "gemini-2.5-flash",
-        contents: `Act as a senior social media analyst. Report in Traditional Chinese.`
+        contents: `Act as a senior social media analyst. Brand: ${settings.industry}. Metrics: Followers ${analytics.followers}, Reach ${analytics.reach}, Engagement ${analytics.engagementRate}%. Write a weekly performance report in Traditional Chinese.`
     });
     return response.text || "報告生成失敗";
 };
 
 export const generateThreadsBatch = async (topic: string, count: number, settings: BrandSettings, personas: string[] = []): Promise<any[]> => {
+    
     let systemInstruction = Prompts.getThreadsSystemInstruction('personal');
+    
     if (personas.length > 0 && personas[0].includes('[MODE:')) {
         systemInstruction = personas[0];
+    } else {
+        systemInstruction = Prompts.getThreadsSystemInstruction('personal');
     }
-    const prompt = `${systemInstruction}\nTask: Generate ${count} distinct Threads posts about: "${topic}". Output JSON Array.`;
+
+    const prompt = `${systemInstruction}\nTask: Generate ${count} distinct Threads posts about: "${topic}". For imagePrompt use DETAILED ENGLISH suitable for Midjourney. Output JSON Array: [{ "caption": "...", "imagePrompt": "...", "imageQuery": "..." }]`;
+
     const response = await callBackend('generateContent', {
         model: "gemini-2.5-flash", 
         contents: prompt,
         config: { 
             responseMimeType: "application/json",
             responseSchema: {
-                // Fix: Added 'Type.' prefix to constant names
                 type: Type.ARRAY,
                 items: { type: Type.OBJECT, properties: { caption: { type: Type.STRING }, imagePrompt: { type: Type.STRING }, imageQuery: { type: Type.STRING } } }
             }
@@ -302,29 +220,53 @@ export const generateThreadsBatch = async (topic: string, count: number, setting
 };
 
 export const generateCommentReply = async (commentText: string, personaPrompt: string): Promise<string[]> => {
-    const prompt = `${Prompts.SYSTEM_INSTRUCTION_THREADS}\n[Persona]: ${personaPrompt}\nReply to: "${commentText}". Generate 3 options. JSON Array.`;
+    const prompt = `${Prompts.SYSTEM_INSTRUCTION_THREADS}\n[Persona]: ${personaPrompt}\nTask: Reply to comment: "${commentText}". Generate 3 options. Output JSON Array string.`;
     const response = await callBackend('generateContent', {
-        model: "gemini-3-flash-preview",
+        model: "gemini-2.5-flash",
         contents: prompt,
-        config: { 
-            responseMimeType: "application/json", 
-            // Fix: Added 'Type.' prefix to constant names
-            responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } } 
-        }
+        config: { responseMimeType: "application/json", responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } } }
     });
     return JSON.parse(cleanJsonText(response.text || '[]'));
 };
 
 export const getAiAssistantReply = async (userMessage: string, context: { currentView: string, industry: string }) => {
-    const systemPrompt = `你是 "AutoSocial 小幫手"，一位親切的社群顧問。`;
+    const systemPrompt = `
+    [角色設定]
+    你是 "AutoSocial 小幫手"，一位專門服務長輩與新手的應用程式客服。
+    你的語氣要非常親切、有耐心，使用簡單易懂的繁體中文 (台灣用語)。
+    多使用表情符號 😊👍✨ 來增加親和力。
+
+    [任務範圍]
+    1. 你只能回答關於本應用程式 (AutoSocial AI) 的操作問題、功能介紹、以及品牌設定建議。
+    2. 使用者目前的狀態：
+       - 所在頁面：${context.currentView}
+       - 產業類別：${context.industry} (若問題與設定相關，請參考此產業給建議)
+
+    [⚠️ 最高指導原則 - 嚴格遵守]
+    1. **禁止回答無關問題**：如果使用者問天氣、股票、政治或數學題，請禮貌拒絕：「不好意思，我只懂 AutoSocial 的操作，這題可能要問問 Google 喔！😊」
+    2. **禁止洩露後台資訊**：絕不可透漏資料庫結構、API Key、運算成本、或程式碼細節。若被問到，請說：「這是商業機密，我也不知道捏 🤫」。
+    3. **遇到無法解決的問題**：如果你不確定答案，或使用者顯得不耐煩，**必須** 引導他們聯繫真人客服。
+       請回覆：「這題比較專業，建議您直接聯絡我們的真人客服專員，他會幫您處理喔！」並附上：「請點擊左側選單的『聯繫客服』按鈕」。
+
+    [常用功能知識庫]
+    - 點數：1點=1元。生成FB文案扣10點，圖片扣5點，Threads文案扣2點。
+    - 品牌設定：在左側「品牌設定」填寫，AI 會依照這裡的資料模仿語氣。
+    - 排程：發文後可以在「排程與歷史」查看或修改。
+    `;
+
     try {
         const response = await callBackend('generateContent', {
-            model: "gemini-3-flash-preview", 
+            model: "gemini-2.5-flash", 
             contents: userMessage,
-            config: { systemInstruction: systemPrompt }
+            config: { 
+                systemInstruction: systemPrompt,
+                thinkingConfig: { thinkingBudget: 1024 }
+            }
         });
-        return response.text || "小幫手休息中...";
+        return response.text || "小幫手目前在休息中，請稍後再試喔 😊";
     } catch (e) {
-        return "連線不穩...";
+        return "連線稍微有點不穩定，請您檢查網路或稍後再試喔！🙏";
     }
 };
+
+// #endregion

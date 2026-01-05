@@ -17,10 +17,7 @@ const ErrorReportModal: React.FC<Props> = ({ user, currentView, onClose }) => {
   const handleSubmit = async () => {
     setIsSending(true);
     try {
-      // Fix: Add missing required 'id' property for UserReport.
-      // The service will overwrite this with a unique ID, but it's required by the type definition.
       await submitUserReport({
-        id: '',
         userId: user?.user_id || 'guest',
         userEmail: user?.email || 'guest@example.com',
         description: description || 'User reported an issue without description',

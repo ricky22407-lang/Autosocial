@@ -7,32 +7,23 @@ import { UserProfile } from '../../types';
 const SESSION_KEY = 'autosocial_session_uid';
 
 export const getCurrentUser = () => {
-    const localUid = typeof window !== 'undefined' ? localStorage.getItem(SESSION_KEY) : null;
-    
-    // 真實 Firebase Auth
-    if (!isMock && auth.currentUser) {
-        return auth.currentUser;
-    }
-
-    // 商業化修正：僅在 Mock 模式下允許讀取本地 Session
-    if (localUid && isMock) {
-         const u = MockStore.getUser(localUid);
-         return { uid: localUid, email: u ? u.email : 'demo@example.com' };
+    if (!isMock) return auth.currentUser;
+    const uid = localStorage.getItem(SESSION_KEY);
+    if (uid) {
+         const u = MockStore.getUser(uid);
+         return { uid: uid, email: u ? u.email : 'demo@example.com' };
     }
     return null;
 };
 
 export const login = async (email: string, pass: string) => {
-    // 商業化修正：不再提供硬編碼的 admin 密碼
-    // 所有用戶（包括管理員）必須通過 Firebase Authentication 註冊與登入
-    
+    // 1. Real Firebase Login
     if (!isMock) {
         const cred = await auth.signInWithEmailAndPassword(email, pass);
-        localStorage.setItem(SESSION_KEY, cred.user!.uid);
         return { user: cred.user };
     } 
     
-    // 開發者用的 Mock 登入邏輯（僅在沒設定 Firebase 時生效）
+    // 2. Mock User Login (Dev Mode)
     const user = MockStore.findUserByEmail(email);
     if (user) {
         localStorage.setItem(SESSION_KEY, user.user_id);
@@ -40,6 +31,7 @@ export const login = async (email: string, pass: string) => {
         return { user: { uid: user.user_id, email: user.email } };
     }
     
+    // Auto-register in Mock mode if user doesn't exist to simplify testing
     return await register(email, pass);
 };
 
@@ -47,7 +39,6 @@ export const register = async (email: string, pass: string) => {
     if (!isMock) {
         const cred = await auth.createUserWithEmailAndPassword(email, pass);
         await createUserProfile({ uid: cred.user!.uid, email: email });
-        localStorage.setItem(SESSION_KEY, cred.user!.uid);
         return { user: cred.user };
     } 
     
@@ -59,9 +50,11 @@ export const register = async (email: string, pass: string) => {
 };
 
 export const logout = async () => {
-    localStorage.removeItem(SESSION_KEY);
-    window.dispatchEvent(new Event('auth_state_change'));
     if (!isMock) await auth.signOut();
+    else {
+        localStorage.removeItem(SESSION_KEY);
+        window.dispatchEvent(new Event('auth_state_change'));
+    }
 };
 
 export const subscribeAuth = (callback: (user: { uid: string, email: string } | null) => void) => {
@@ -81,39 +74,61 @@ export const subscribeAuth = (callback: (user: { uid: string, email: string } | 
         });
     }
 
-    const checkMock = () => {
+    const check = () => {
          const uid = localStorage.getItem(SESSION_KEY);
-         if (uid && isMock) {
+         if(uid) {
              const u = MockStore.getUser(uid);
-             callback({ uid: uid, email: u ? u.email : 'demo@example.com' });
-             return true;
+             const email = u ? u.email : 'demo@example.com';
+             callback({ uid, email });
+         } else {
+             callback(null);
          }
-         return false;
     };
-
+    
     if (typeof window !== 'undefined') {
-        window.addEventListener('auth_state_change', checkMock);
-        setTimeout(checkMock, 0);
+        window.addEventListener('auth_state_change', check);
+        setTimeout(check, 0); 
     }
-
     return () => {
-        if (typeof window !== 'undefined') window.removeEventListener('auth_state_change', checkMock);
+        if (typeof window !== 'undefined') window.removeEventListener('auth_state_change', check);
     };
 };
 
 export const sendPasswordReset = async (email: string) => {
     if (!isMock) await auth.sendPasswordResetEmail(email);
+    else console.log(`[Mock] Password reset sent to ${email}`);
 };
 
+/**
+ * Exchange Threads OAuth Code for Long-Lived Token via Backend
+ * NOTE: App credentials are now handled server-side for security.
+ */
 export const exchangeThreadsAuth = async (code: string, redirectUri: string) => {
-    // 商業化修正：必須通過後端交換，絕對不暴露 app_secret
+    if (isMock) {
+        return { 
+            token: 'mock_threads_long_token_' + Date.now(), 
+            userId: 'mock_user_123',
+            username: 'mock_threads_user'
+        };
+    }
+
+    // Call our serverless function instead of direct external API
+    // This keeps the Client Secret hidden on the server
     const res = await fetch('/api/threads', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'exchange', code, redirectUri })
+        headers: { 
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ 
+            action: 'exchange',
+            code, 
+            redirectUri 
+        })
     });
 
     const data = await res.json();
-    if (!data.success) throw new Error(data.error || 'Threads 授權交換失敗');
-    return data.data;
+    if (!data.success) {
+        throw new Error(data.error || 'Token exchange failed on server');
+    }
+    return data.data; // { userId, token, username }
 };

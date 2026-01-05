@@ -237,7 +237,7 @@ export const buildSeoArticlePrompt = (topic: string, length: string, keywords: s
 `;
 
 // ============================================================================
-// DNA LAB PROMPT (UPDATED FOR DUAL PLATFORM)
+// DNA LAB PROMPT
 // ============================================================================
 
 const TIER_APPEARANCE_LOGIC = {
@@ -248,44 +248,41 @@ const TIER_APPEARANCE_LOGIC = {
     'admin': 'God-tier equipment. Cosmic texture. Glitch effects.'
 };
 
-export const buildDNALabAnalysisPrompt = (combinedInput: string) => `
-    Role: Social Media Psychologist & Character Designer.
-    Task: Analyze the user's "Digital DNA" based on their posts from Facebook (Public Persona) and Threads (Inner/Chaos Persona).
+export const buildDNALabAnalysisPrompt = (posts: string) => `
+    Role: Social Media Psychologist & Game Master.
+    Task: Analyze the user's Threads posts to determine their "Digital Soul Species" and RPG Stats.
     
-    [Input Data]:
-    ${combinedInput.substring(0, 15000)}
+    [Input Posts]:
+    "${posts.substring(0, 10000)}"
 
-    [Step 1: Analyze Personality Split]
-    - Compare the tone between Facebook (if present) and Threads (if present).
-    - Is there a "Gap Moe" (Contrast)? e.g., Professional on FB, unhinged on Threads.
-    
-    [Step 2: Determine Species & Archetype]
-    Assign a Fantasy Creature based on the *Synthesis* of both personas.
+    [Step 1: Determine Species & Base Look]
+    Based on the tone (e.g., Toxic, Chill, Emo, Professional, Chaotic), assign a Fantasy Creature.
     - Examples: 
-      - High Contrast (Polite FB / Toxic Threads) -> "Two-Faced Chimera" or "Suit-wearing Werewolf".
-      - Consistent Professional -> "Royal Lion" or "Data Golem".
-      - Consistent Chaos -> "Void Slime" or "Glitch Gremlin".
-      - Emotional/Artistic -> "Moon Elf" or "Nebula Jellyfish".
+      - Toxic/Chaos -> Goblin or Imp
+      - Chill/Lazy -> Sloth or Snorlax-like creature
+      - Professional -> Wise Owl or Robot
+      - Emo -> Ghost or weeping spirit
+      - Happy/Energetic -> Doge or Slime
     
-    [Step 3: Calculate Stats (0-100)]
-    - chaos: How unhinged/random? (Heavily weighted by Threads)
-    - professionalism: How business-like/polite? (Heavily weighted by FB)
+    [Step 2: Calculate Stats (0-100)]
+    - chaos: How unhinged/random?
+    - chill: How relaxed/unbothered?
     - intellect: How informative/smart?
-    - aggression: How argumentative/passionate?
-    - emo: How emotional/vulnerable?
-    - duality: The contrast level between FB and Threads behavior (High = Big difference).
+    - aggression: How argumentative?
+    - emo: How emotional/sad?
+    - luck: (Randomize this one high)
 
-    [Step 4: Generate Output]
-    - Title: RPG Style Title (e.g., "Level 99 Corporate Rebel").
-    - Comment: A witty, slightly roasting analysis of their dual nature (Traditional Chinese).
+    [Step 3: Generate Title & Roast]
+    - Title: RPG Style Title (e.g., "Level 99 Keyboard Warrior", "The Midnight Emo Lord").
+    - Comment: A short, funny, slightly roasting comment about their posting habits (Traditional Chinese).
 
     Output JSON ONLY:
     {
-      "species": "Creative Creature Name",
-      "visualDescription": "A 2D Maplestory style [Creature Name], [Adjective] expression. [Details based on duality]. Clean vector art.",
-      "stats": { "chaos": 0, "professionalism": 0, "intellect": 0, "aggression": 0, "emo": 0, "duality": 0 },
+      "species": "Name of the creature (e.g. Cyber Goblin)",
+      "visualDescription": "A cute 2D Maplestory style [Creature Name], chibi proportions, big head small body, [Color] skin.",
+      "stats": { "chaos": 0, "chill": 0, "intellect": 0, "aggression": 0, "emo": 0, "luck": 0 },
       "title": "Traditional Chinese Title",
-      "comment": "Traditional Chinese Roast about their FB vs Threads split"
+      "comment": "Traditional Chinese Roast"
     }
 `;
 
