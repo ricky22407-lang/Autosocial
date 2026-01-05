@@ -118,21 +118,19 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
     const searchQuery = `site:threads.net "${keyword}" (請問 OR 求推薦 OR 請益 OR 哪裡買 OR 什麼好)`;
     
     try {
-        // NOTE: Gemini 2.5 Flash DOES NOT support `tools: googleSearch` AND `responseMimeType: application/json` together.
-        // We must remove responseMimeType and use prompt engineering to get JSON.
+        // Upgrade: Use gemini-3-pro-preview for better reasoning and search capabilities
         const response = await callBackend('generateContent', {
-            model: 'gemini-2.5-flash', 
+            model: 'gemini-3-pro-preview', 
             contents: `
-                Role: Social Media Lead Scout.
-                Task: Search for potential customers on Threads who have a specific NEED or INTENT to buy relating to: "${keyword}".
+                Role: Social Media Lead Scout (High Intelligence).
+                Task: Deeply analyze search results to find potential customers on Threads who have a specific NEED, PROBLEM, or INTENT to buy relating to: "${keyword}".
                 
                 [Search Query]: ${searchQuery}
                 
-                [STRICT FILTERING RULES]
-                1. ✅ INCLUDE: Posts asking for advice, recommendations, or expressing a problem/need (e.g. "快過年了不知道送什麼禮盒").
-                2. ❌ EXCLUDE: Unboxing (開箱), Reviews (心得), Sharing (分享), Promotions (推薦), or "I bought this" (已購買).
-                3. ❌ EXCLUDE: Posts from brands or influencers selling things.
-                4. Focus on TAIWAN context (Traditional Chinese).
+                [STRICT FILTERING RULES - THINK STEP BY STEP]
+                1. ✅ TARGET: People asking questions, looking for advice, or expressing frustration that your product could solve.
+                2. ❌ IGNORE: Marketing posts, news articles, "Unboxing" (unless they are asking questions in it), or pure entertainment.
+                3. Focus on TAIWAN context (Traditional Chinese).
 
                 [Data Extraction]
                 - Try to extract estimated reply/like counts from the search snippet if available (e.g., "50 replies", "100 likes"). If not found, use "N/A".
@@ -144,17 +142,16 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
                     {
                         "content": "Full post text...",
                         "url": "https://www.threads.net/...",
-                        "reasoning": "Why this is a lead...",
-                        "intentScore": 8,
-                        "replyCount": "50+",
-                        "likeCount": "100+"
+                        "reasoning": "User is asking for specific recommendations for...",
+                        "intentScore": 9,
+                        "replyCount": "12",
+                        "likeCount": "50"
                     }
                 ]
             `,
             config: { 
                 tools: [{ googleSearch: {} }],
-                // responseMimeType: "application/json", // REMOVED to avoid API Error
-                // responseSchema: ... // REMOVED
+                // responseMimeType: "application/json", // REMOVED to avoid API Error with Search Tool
             }
         });
 

@@ -25,7 +25,13 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
         if (!keyword.trim()) return alert("請輸入關鍵字");
         if (!user) return alert("請先登入");
 
-        const COST = 5; // Higher value for business leads
+        // Permission Check: Pro, Business, Admin only
+        if (!['pro', 'business', 'admin'].includes(user.role)) {
+            alert("🔒 此功能僅限 Pro 專業版以上會員使用。\n\n升級後即可無限次使用商機偵測功能！");
+            return;
+        }
+
+        const COST = 0; // Free for Pro users
         const allowed = await checkAndUseQuota(user.user_id, COST, 'OPPORTUNITY_SEARCH');
         if (!allowed) return;
         onQuotaUpdate();
@@ -120,7 +126,12 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
                             onChange={e => setKeyword(e.target.value)}
                             placeholder="例如：過年禮盒、保濕精華液、台中燒肉推薦..."
                             className="w-full bg-dark border border-gray-600 rounded-xl p-4 text-white placeholder-gray-500 focus:border-yellow-500 outline-none transition-colors"
-                            onKeyDown={e => e.key === 'Enter' && handleSearch()}
+                            onKeyDown={e => {
+                                // Fix: Check isComposing to prevent IME triggers (e.g. pressing enter to select a Chinese character)
+                                if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                                    handleSearch();
+                                }
+                            }}
                         />
                     </div>
                     <button 
@@ -128,7 +139,7 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
                         disabled={isSearching}
                         className="bg-yellow-600 hover:bg-yellow-500 text-black px-8 py-4 rounded-xl font-black shadow-lg transition-all w-full md:w-auto disabled:opacity-50 flex items-center justify-center gap-2 whitespace-nowrap"
                     >
-                        {isSearching ? <div className="loader border-t-black"></div> : '💎 挖掘商機 (5點)'}
+                        {isSearching ? <div className="loader border-t-black"></div> : '💎 挖掘商機 (Pro限定)'}
                     </button>
                 </div>
                 <p className="text-xs text-gray-500 mt-3 ml-1">

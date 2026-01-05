@@ -150,8 +150,19 @@ const SettingsForm: React.FC<Props> = ({ initialSettings, onSave }) => {
 
   // --- Facebook OAuth Handlers ---
   const handleConnectFacebook = async () => {
+      console.log("[SettingsForm] Connect FB button clicked. SDK Ready:", isFbSdkReady);
+
       if (!isFbSdkReady) {
-          alert("Facebook SDK 初始化失敗或未設定 App ID。請檢查 Vercel 環境變數 (VITE_FB_APP_ID)。");
+          const env = (import.meta as any)?.env || {};
+          const appId = env.VITE_FB_APP_ID || env.REACT_APP_FB_APP_ID;
+          
+          let msg = "⚠️ 無法啟動 Facebook 登入\n\n";
+          if (!appId) {
+              msg += "原因 1：尚未設定 Facebook App ID。\n請檢查 Vercel 環境變數 'VITE_FB_APP_ID'。";
+          } else {
+              msg += "原因 2：Facebook SDK 被瀏覽器或插件阻擋。\n\n常見原因：\n• 您的瀏覽器安裝了 AdBlock (擋廣告外掛)\n• 您使用了 Brave 瀏覽器或無痕模式\n• 網路防火牆阻擋了 Facebook 網域\n\n解決方案：\n請暫時關閉此網站的擋廣告功能，並重新整理網頁。";
+          }
+          alert(msg);
           return;
       }
       
@@ -429,11 +440,16 @@ const SettingsForm: React.FC<Props> = ({ initialSettings, onSave }) => {
                     <button 
                         type="button"
                         onClick={handleConnectFacebook}
-                        disabled={isFbLoading || !isFbSdkReady}
-                        className="w-full sm:w-auto bg-blue-600 hover:bg-blue-500 text-white px-8 py-3 rounded-2xl font-black text-xs transition-all flex items-center justify-center gap-2 shadow-lg disabled:opacity-50"
+                        disabled={isFbLoading}
+                        className={`w-full sm:w-auto px-8 py-3 rounded-2xl font-black text-xs transition-all flex items-center justify-center gap-2 shadow-lg relative z-10 
+                            ${!isFbSdkReady 
+                                ? 'bg-yellow-600/20 text-yellow-400 border border-yellow-500/50 hover:bg-yellow-600/30 cursor-pointer' 
+                                : 'bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50'
+                            }`}
+                        title={!isFbSdkReady ? "點擊查看連線問題" : "連結粉絲專頁"}
                     >
-                        {isFbLoading ? <div className="loader w-3 h-3 border-t-white"></div> : '⚡'} 
-                        {isFbLoading ? '授權中...' : '一鍵連結 Facebook 帳號'}
+                        {isFbLoading ? <div className="loader w-3 h-3 border-t-white"></div> : (isFbSdkReady ? '⚡' : '⚠️')} 
+                        {isFbLoading ? '授權中...' : (isFbSdkReady ? '一鍵連結 Facebook 帳號' : '檢測連線狀態 (SDK Error)')}
                     </button>
                 </div>
 
