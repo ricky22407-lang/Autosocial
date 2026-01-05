@@ -168,7 +168,8 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
 
         // Post-processing to ensure URLs are valid threads links
         const validResults = raw.filter((item: OpportunityPost) => {
-            return item.url && item.url.includes('threads.net') && (item.intentScore || 0) >= 5;
+            // Lowered threshold from 5 to 3 to improve recall as per user feedback
+            return item.url && item.url.includes('threads.net') && (item.intentScore || 0) >= 3;
         });
 
         return validResults;

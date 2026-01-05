@@ -20,6 +20,9 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
     const [replyDraft, setReplyDraft] = useState('');
     const [isGeneratingReply, setIsGeneratingReply] = useState(false);
     const [replyAccountId, setReplyAccountId] = useState(accounts[0]?.id || '');
+    
+    // IME Composition State
+    const [isComposing, setIsComposing] = useState(false);
 
     const handleSearch = async () => {
         if (!keyword.trim()) return alert("請輸入關鍵字");
@@ -124,11 +127,12 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
                         <input 
                             value={keyword}
                             onChange={e => setKeyword(e.target.value)}
+                            onCompositionStart={() => setIsComposing(true)}
+                            onCompositionEnd={() => setIsComposing(false)}
                             placeholder="例如：過年禮盒、保濕精華液、台中燒肉推薦..."
                             className="w-full bg-dark border border-gray-600 rounded-xl p-4 text-white placeholder-gray-500 focus:border-yellow-500 outline-none transition-colors"
                             onKeyDown={e => {
-                                // Fix: Check isComposing to prevent IME triggers (e.g. pressing enter to select a Chinese character)
-                                if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                                if (e.key === 'Enter' && !isComposing) {
                                     handleSearch();
                                 }
                             }}
