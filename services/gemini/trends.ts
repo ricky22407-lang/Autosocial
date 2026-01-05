@@ -113,66 +113,57 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
 
 // NEW: Business Opportunity Search
 export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
-    // 1. Construct Targeted Query
-    const searchQuery = `site:threads.net "${keyword}" (請問 OR 請益 OR 求救 OR 覺得 OR 難用 OR 怎麼辦) -開箱 -團購 -優惠 -折扣 -下單 -蝦皮 -賣場 -代購 -廣告 when:1m`;
+    // 1. Construct Targeted Query (RELAXED VERSION)
+    // Removed 'when:1m' because Google indexing of Threads is often delayed.
+    // Removed negative keywords from here to prevent Google from returning 0 results. We filter in Prompt.
+    // Changed site:threads.net/*/post to site:threads.net to catch more results.
+    const searchQuery = `site:threads.net "${keyword}"`;
     
     try {
-        // ERROR FIX: Do NOT use responseMimeType: 'application/json' with tools: [{ googleSearch: {} }] in gemini-2.5-flash.
-        // It causes HTTP 400 "Tool use with a response mime type... is unsupported".
         const response = await callBackend('generateContent', {
             model: 'gemini-2.5-flash', 
             contents: `
-                Role: JSON Data Extractor.
-                Task: Extract user questions/problems from search results related to "${keyword}" on Threads.
+                Role: Data Analyst.
+                Task: Search for "${keyword}" on Threads and find user discussions/questions.
                 
                 [Search Query]: ${searchQuery}
                 
-                [Rules]
-                1. Focus on posts where users are ASKING for help or sharing a PROBLEM.
-                2. Ignore marketing/sales posts.
-                3. STRICT OUTPUT: Return ONLY a valid JSON Array. Do NOT write any introduction, markdown, or explanation.
-                4. If no relevant results are found, return exactly: []
-
-                [JSON Schema]
-                [
-                    {
-                        "content": "Post snippet text",
-                        "url": "https://www.threads.net/@user/post/id",
-                        "intentScore": 8,
-                        "replyCount": "10", 
-                        "likeCount": "20"
-                    }
-                ]
+                [Filtering Rules - Apply these internally]
+                1. Look for posts where users express: Needs, Questions, Complaints, or "Want to buy".
+                2. Exclude obvious ads if possible, but prioritize returning *something* over nothing.
+                3. The user needs DATA. Even if it's slightly older, return it.
+                
+                [Output Rules]
+                - Return a RAW JSON Array.
+                - Fields: "content" (summary of the post), "url" (link to thread), "intentScore" (1-10), "replyCount", "likeCount".
+                - If you can't find exact numbers, estimate or put "N/A".
+                - Format: [{"content": "...", "url": "...", "intentScore": 8, ...}]
+                - NO markdown code blocks. Just the JSON string.
             `,
             config: { 
                 tools: [{ googleSearch: {} }],
-                // responseMimeType: "application/json" // REMOVED to fix API error
+                // No responseMimeType to avoid 400 error with tools
             }
         });
 
-        // Manual cleaning since we aren't enforcing JSON mode at API level anymore
+        // Manual cleaning
         const rawText = cleanJsonText(response.text || '[]');
         
-        // Safety check for "No results" text response that might slip through
-        if (!rawText.startsWith('[') && !rawText.startsWith('{')) {
-            console.warn("AI returned text instead of JSON:", rawText);
-            return [];
-        }
-
         let raw;
         try {
             raw = JSON.parse(rawText);
         } catch (parseError) {
             console.error("Failed to parse Opportunity JSON:", rawText);
-            return []; // Fail gracefully with empty list instead of throwing
+            return []; 
         }
         
         if (!Array.isArray(raw)) return [];
 
-        // Post-processing to ensure URLs are valid threads links
+        // Post-processing
         const validResults = raw.filter((item: OpportunityPost) => {
-            const hasValidUrl = item.url && item.url.includes('threads.net') && item.url.includes('/post/');
-            const hasScore = (item.intentScore || 0) >= 3;
+            const hasValidUrl = item.url && item.url.includes('threads.net');
+            // Relaxed intent score filter to show more results
+            const hasScore = (item.intentScore || 0) >= 1; 
             return hasValidUrl && hasScore;
         });
 
