@@ -166,7 +166,7 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
                         </div>
 
                         {/* Metrics Bar (Hidden if data is invalid/null) */}
-                        {(post.replyCount && post.replyCount !== 'null' && post.likeCount && post.likeCount !== 'null') && (
+                        {(post.replyCount && post.replyCount !== 'null' && post.replyCount !== '0' && post.likeCount && post.likeCount !== 'null' && post.likeCount !== '0') && (
                             <div className="flex items-center gap-4 text-xs text-gray-500 mb-4 px-1">
                                 <span className="flex items-center gap-1" title="留言數 (估計)">
                                     💬 <span className="font-mono text-gray-300">{post.replyCount}</span>

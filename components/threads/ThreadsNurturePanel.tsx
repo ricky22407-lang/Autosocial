@@ -1,11 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
 import { BrandSettings, ThreadsAccount, UserProfile } from '../../types';
-import AccountManager from './threads/AccountManager';
-import InteractionManager from './threads/InteractionManager';
-import ContentGenerator from './threads/ContentGenerator';
-import DigitalDNALab from './threads/DigitalDNALab';
-import OpportunityScout from './threads/OpportunityScout'; // New Component
+import AccountManager from './AccountManager';
+import InteractionManager from './InteractionManager';
+import ContentGenerator from './ContentGenerator';
+import DigitalDNALab from './DigitalDNALab';
+import OpportunityScout from './OpportunityScout';
 
 interface Props {
   settings: BrandSettings;
@@ -18,14 +18,13 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
   const [activeTab, setActiveTab] = useState<'accounts' | 'interaction' | 'generator' | 'dna_lab' | 'scout'>('accounts');
   const [accounts, setAccounts] = useState<ThreadsAccount[]>(settings.threadsAccounts || []);
 
-  // Sync state when external settings change (e.g. from OAuth callback in App.tsx)
+  // Sync state when external settings change
   useEffect(() => {
       if (JSON.stringify(settings.threadsAccounts) !== JSON.stringify(accounts)) {
           setAccounts(settings.threadsAccounts || []);
       }
   }, [settings.threadsAccounts]);
 
-  // Update parent settings whenever local accounts change
   const handleAccountsChange = (newAccounts: ThreadsAccount[]) => {
       setAccounts(newAccounts);
       onSaveSettings({ ...settings, threadsAccounts: newAccounts });
@@ -43,7 +42,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
         <button onClick={() => setActiveTab('scout')} className={`px-6 py-3 font-bold whitespace-nowrap transition-colors ${activeTab === 'scout' ? 'text-yellow-400 border-b-2 border-yellow-400' : 'text-gray-500 hover:text-gray-300'}`}>商機開發</button>
         <button onClick={() => setActiveTab('interaction')} className={`px-6 py-3 font-bold whitespace-nowrap transition-colors ${activeTab === 'interaction' ? 'text-pink-400 border-b-2 border-pink-400' : 'text-gray-500 hover:text-gray-300'}`}>留言互動</button>
         <button onClick={() => setActiveTab('generator')} className={`px-6 py-3 font-bold whitespace-nowrap transition-colors ${activeTab === 'generator' ? 'text-white border-b-2' : 'text-gray-500 hover:text-gray-300'}`}>內容生成</button>
-        <button onClick={() => setActiveTab('dna_lab')} className={`px-6 py-3 font-bold whitespace-nowrap transition-colors ${activeTab === 'dna_lab' ? 'text-purple-400 border-b-2 border-purple-400' : 'text-gray-500 hover:text-gray-300'}`}>🧪 基因實驗室</button>
+        <button onClick={() => setActiveTab('dna_lab')} className={`px-6 py-3 font-bold whitespace-nowrap transition-colors ${activeTab === 'dna_lab' ? 'text-purple-400 border-b-2 border-purple-400' : 'text-gray-500 hover:text-gray-300'}`}>基因實驗室</button>
       </div>
 
       {activeTab === 'accounts' && (

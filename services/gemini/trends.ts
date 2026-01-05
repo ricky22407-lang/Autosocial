@@ -114,19 +114,18 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
 // NEW: Business Opportunity Search
 export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
     // 1. Construct Targeted Query
-    // - site:threads.net/*/post: Forces it to find specific post pages, not user profiles or search listings.
+    // - site:threads.net/*/post: Forces it to find specific post pages (not profiles).
     // - when:1m: Restricts to the last month.
     // - Negatives: Exclude sales/promo terms.
-    // - Positives: Include question/problem terms.
-    const searchQuery = `site:threads.net/*/post "${keyword}" (請問 OR 請益 OR 求救 OR 苦惱 OR 覺得 OR 難用 OR 怎麼辦) -開箱 -團購 -優惠 -折扣 -下單 -蝦皮 -賣場 -代購 when:1m`;
+    const searchQuery = `site:threads.net/*/post "${keyword}" (請問 OR 請益 OR 求救 OR 苦惱 OR 覺得 OR 難用 OR 怎麼辦) -開箱 -團購 -優惠 -折扣 -下單 -蝦皮 -賣場 -代購 -廣告 when:1m`;
     
     try {
         // Upgrade: Use gemini-3-pro-preview for better reasoning and search capabilities
         const response = await callBackend('generateContent', {
             model: 'gemini-3-pro-preview', 
             contents: `
-                Role: Social Media Lead Scout (Taiwan Region Specialist).
-                Task: Analyze search results to find potential customers on Threads who have a specific PROBLEM or QUESTION about: "${keyword}".
+                Role: Social Media Lead Scout (Taiwan Region).
+                Task: Find potential customers on Threads who have a specific PROBLEM or QUESTION about: "${keyword}".
                 
                 [Search Query]: ${searchQuery}
                 
@@ -138,8 +137,8 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
 
                 [URL Extraction Rules]
                 - You MUST extract the exact post URL from the search result.
-                - It usually looks like: https://www.threads.net/@username/post/code
-                - Do NOT use google search result links. Use the actual destination link.
+                - It MUST match the pattern: https://www.threads.net/@username/post/code
+                - Do NOT use google redirect links or search page links.
 
                 [Output Format]
                 RETURN ONLY A RAW JSON ARRAY. 
@@ -154,11 +153,10 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
                     }
                 ]
                 
-                If reply/like counts are not visible in the snippet, set them to null. Do NOT invent numbers.
+                If reply/like counts are not visible, set them to null. Do NOT invent numbers.
             `,
             config: { 
                 tools: [{ googleSearch: {} }],
-                // responseMimeType: "application/json", // Removed to avoid conflict with Search Tool in some versions
             }
         });
 
@@ -176,6 +174,7 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
         // Post-processing to ensure URLs are valid threads links
         const validResults = raw.filter((item: OpportunityPost) => {
             const hasValidUrl = item.url && item.url.includes('threads.net') && item.url.includes('/post/');
+            // Filter out very low intent items if any slipped through
             const hasScore = (item.intentScore || 0) >= 3;
             return hasValidUrl && hasScore;
         });
