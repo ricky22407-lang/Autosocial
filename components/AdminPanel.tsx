@@ -5,7 +5,7 @@ import {
   getDashboardStats, getSystemLogs, getSystemConfig, updateSystemConfig, 
   getUserReports
 } from '../services/authService';
-import { getApiServiceStatus } from '../services/geminiService'; // Import new service
+import { getApiServiceStatus } from '../services/geminiService'; 
 import { db, isMock } from '../services/firebase';
 import { UserProfile, UserRole, DashboardStats, LogEntry, SystemConfig, UserReport } from '../types';
 import { SecurityActionModal } from './admin/SecurityActionModal';
@@ -44,7 +44,11 @@ const AdminPanel: React.FC<Props> = ({ currentUser }) => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [config, setConfig] = useState<SystemConfig>({ maintenanceMode: false, dryRunMode: false });
   const [generatedKey, setGeneratedKey] = useState('');
-  const [loadingAction, setLoadingAction] = useState(false); // New global loading state for actions
+  
+  // UI Status
+  const [loadingAction, setLoadingAction] = useState(false); 
+  const [dataLoading, setDataLoading] = useState(true);
+  const [dataError, setDataError] = useState('');
 
   useEffect(() => {
     loadAllData();
@@ -59,15 +63,20 @@ const AdminPanel: React.FC<Props> = ({ currentUser }) => {
   }, [activeTab]);
 
   const loadAllData = async () => {
+    setDataLoading(true);
+    setDataError('');
     try {
-        setStats(await getDashboardStats());
+        const statsData = await getDashboardStats();
+        setStats(statsData);
         setUsers(await getAllUsers());
         setLogs(getSystemLogs());
         setConfig(getSystemConfig());
         setReports(await getUserReports());
     } catch (e: any) {
         console.error("Dashboard Load Error:", e);
-        // Do not alert constantly on load, just log
+        setDataError(e.message || "資料讀取失敗");
+    } finally {
+        setDataLoading(false);
     }
   };
 
@@ -127,6 +136,47 @@ const AdminPanel: React.FC<Props> = ({ currentUser }) => {
 
   const toggleDryRun = () => { updateSystemConfig({ dryRunMode: !config.dryRunMode }); loadAllData(); };
   const toggleMaintenance = () => { updateSystemConfig({ maintenanceMode: !config.maintenanceMode }); loadAllData(); };
+
+  if (dataLoading) {
+      return (
+          <div className="flex h-screen items-center justify-center">
+              <div className="text-center">
+                  <div className="loader border-t-primary mb-4 mx-auto"></div>
+                  <p className="text-gray-400 font-bold">正在讀取後台資料...</p>
+              </div>
+          </div>
+      );
+  }
+
+  // Error State Display
+  if (dataError) {
+      return (
+          <div className="max-w-4xl mx-auto p-8 animate-fade-in pt-20">
+              <div className="bg-red-900/30 border border-red-500/50 p-8 rounded-2xl text-center">
+                  <div className="text-5xl mb-4">❌</div>
+                  <h2 className="text-2xl font-bold text-red-400 mb-2">無法讀取後台資料</h2>
+                  <p className="text-white mb-6 bg-black/40 p-4 rounded inline-block font-mono text-sm">
+                      {dataError}
+                  </p>
+                  
+                  {dataError.includes("Permission Denied") && (
+                      <div className="text-gray-400 text-sm max-w-lg mx-auto text-left space-y-2 mb-6">
+                          <p>💡 <strong>排解建議：</strong></p>
+                          <ul className="list-disc pl-5">
+                              <li>請前往 <a href="https://console.firebase.google.com/" target="_blank" className="text-primary hover:underline">Firebase Console</a> &gt; Firestore Database &gt; Rules。</li>
+                              <li>檢查規則是否允許您的帳號讀取 <code>users</code> 集合。</li>
+                              <li>測試用規則 (不推薦用於正式環境)：<code>allow read, write: if request.auth != null;</code></li>
+                          </ul>
+                      </div>
+                  )}
+
+                  <button onClick={loadAllData} className="bg-red-600 hover:bg-red-500 text-white px-6 py-2 rounded-lg font-bold">
+                      再試一次
+                  </button>
+              </div>
+          </div>
+      );
+  }
 
   return (
     <div className="max-w-7xl mx-auto p-4 space-y-6 animate-fade-in pb-20">

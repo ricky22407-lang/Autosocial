@@ -19,20 +19,25 @@ const getQuotaForRole = (role: UserRole): number => {
 export const getAllUsers = async (): Promise<UserProfile[]> => {
     try {
         if (!isMock) {
-            // Firestore OrderBy usually requires an index. If it fails, fallback to unsorted.
-            try {
-                const snap = await db.collection('users').orderBy('created_at', 'desc').get();
-                return snap.docs.map((doc: any) => doc.data() as UserProfile);
-            } catch (indexError) {
-                console.warn("Indexing issue or missing field, falling back to simple get", indexError);
-                const snap = await db.collection('users').get();
-                return snap.docs.map((doc: any) => doc.data() as UserProfile);
+            console.log("[Admin] Fetching all users from Firestore...");
+            // Simplified query to avoid "Failed to get documents from server. (Missing Index)" errors
+            // Once you create an index in Firebase Console, you can add .orderBy('created_at', 'desc') back.
+            const snap = await db.collection('users').get();
+            
+            if (snap.empty) {
+                console.warn("[Admin] No users found in 'users' collection.");
+                return [];
             }
+
+            return snap.docs.map((doc: any) => doc.data() as UserProfile);
         } 
         return MockStore.getAllUsers();
     } catch (e: any) {
         console.error("Failed to fetch users:", e);
-        // Throwing allows the UI to catch and alert
+        // Translate common Firestore errors for better UI feedback
+        if (e.code === 'permission-denied') {
+            throw new Error("權限不足 (Permission Denied)。請檢查 Firestore Rules 設定，確保 admin 有讀取權限。");
+        }
         throw new Error(e.message || "讀取會員列表失敗");
     }
 };
