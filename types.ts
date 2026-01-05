@@ -171,6 +171,10 @@ export interface BrandSettings {
   threadsAutoPilot?: ThreadsAutoPilotConfig;
   fixedHashtags: string;
   referenceFiles: ReferenceFile[];
+  
+  // NEW: Competitor Analysis
+  competitorUrls?: string[]; // Max 5 URLs
+
   autoReply: AutoReplyConfig;
   autoPilot: AutoPilotConfig;
 }

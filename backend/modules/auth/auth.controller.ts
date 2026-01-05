@@ -19,7 +19,7 @@ export class AuthController {
 
   static async exchangeThreads(req: Request, res: Response, next: NextFunction) {
     try {
-        const { code, redirectUri } = req.body;
+        const { code, redirectUri } = (req as any).body;
         
         // SECURITY FIX: Read credentials from Server Config (Env Vars)
         // Never trust client-provided secrets
