@@ -1,6 +1,6 @@
 
-import { TrendingTopic } from '../../types';
-import { callBackend, getSystemCache, setSystemCache, shuffleArray, cleanJsonText, decodeHtml } from './core';
+import { TrendingTopic, OpportunityPost } from '../../types';
+import { callBackend, getSystemCache, setSystemCache, shuffleArray, cleanJsonText, decodeHtml, Type } from './core';
 
 // Helper to check if news image is valid (no pixels, ads, etc)
 const isValidNewsImage = (url: string): boolean => {
@@ -109,4 +109,67 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
   }
 
   return shuffleArray(uniqueTopics).slice(0, requestedCount);
+};
+
+// NEW: Business Opportunity Search
+export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
+    // Construct a targeted search query for Google Search Tool
+    // We add terms like "請問", "求推薦", "請益" to bias results towards questions
+    const searchQuery = `site:threads.net "${keyword}" (請問 OR 求推薦 OR 請益 OR 哪裡買 OR 什麼好)`;
+    
+    try {
+        const response = await callBackend('generateContent', {
+            model: 'gemini-2.5-flash', // Flash is sufficient for search + filtering
+            contents: `
+                Role: Social Media Lead Scout.
+                Task: Search for potential customers on Threads who have a specific NEED or INTENT to buy relating to: "${keyword}".
+                
+                [Search Query]: ${searchQuery}
+                
+                [STRICT FILTERING RULES]
+                1. ✅ INCLUDE: Posts asking for advice, recommendations, or expressing a problem/need (e.g. "快過年了不知道送什麼禮盒").
+                2. ❌ EXCLUDE: Unboxing (開箱), Reviews (心得), Sharing (分享), Promotions (推薦), or "I bought this" (已購買).
+                3. ❌ EXCLUDE: Posts from brands or influencers selling things.
+                4. Focus on TAIWAN context (Traditional Chinese).
+
+                [Output Format]
+                JSON Array of objects:
+                {
+                    "content": "Full post text...",
+                    "url": "https://www.threads.net/...",
+                    "reasoning": "Why this is a lead (e.g. Asking for CNY gift advice)",
+                    "intentScore": 8 (1-10, how strong is the buying intent)
+                }
+            `,
+            config: { 
+                tools: [{ googleSearch: {} }],
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: {
+                            content: { type: Type.STRING },
+                            url: { type: Type.STRING },
+                            reasoning: { type: Type.STRING },
+                            intentScore: { type: Type.NUMBER }
+                        }
+                    }
+                }
+            }
+        });
+
+        const raw = JSON.parse(cleanJsonText(response.text || '[]'));
+        
+        // Post-processing to ensure URLs are valid threads links
+        const validResults = raw.filter((item: OpportunityPost) => {
+            return item.url && item.url.includes('threads.net') && item.intentScore >= 5;
+        });
+
+        return validResults;
+
+    } catch (e: any) {
+        console.error("Opportunity search failed", e);
+        throw new Error("搜尋失敗，請稍後再試。");
+    }
 };

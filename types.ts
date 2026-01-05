@@ -230,6 +230,15 @@ export interface TrendingTopic {
   imageUrl?: string;
 }
 
+// NEW: Business Opportunity Type
+export interface OpportunityPost {
+  username?: string;
+  content: string;
+  url: string;
+  reasoning: string; // Why AI selected this
+  intentScore: number; // 1-10
+}
+
 export interface CachedTrendData {
   id: string;
   topics: TrendingTopic[];
