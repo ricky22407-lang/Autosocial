@@ -114,15 +114,15 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
 // NEW: Business Opportunity Search
 export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
     // Construct a targeted search query for Google Search Tool
-    // We add terms like "請問", "求推薦", "請益" to bias results towards questions
-    const searchQuery = `site:threads.net "${keyword}" (請問 OR 求推薦 OR 請益 OR 哪裡買 OR 什麼好)`;
+    // UPDATED: Added "台灣" to force local results and minimize non-TW Threads
+    const searchQuery = `site:threads.net "${keyword}" 台灣 (請問 OR 求推薦 OR 請益 OR 哪裡買 OR 什麼好)`;
     
     try {
         // Upgrade: Use gemini-3-pro-preview for better reasoning and search capabilities
         const response = await callBackend('generateContent', {
             model: 'gemini-3-pro-preview', 
             contents: `
-                Role: Social Media Lead Scout (High Intelligence).
+                Role: Social Media Lead Scout (Taiwan Region Specialist).
                 Task: Deeply analyze search results to find potential customers on Threads who have a specific NEED, PROBLEM, or INTENT to buy relating to: "${keyword}".
                 
                 [Search Query]: ${searchQuery}
@@ -130,7 +130,7 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
                 [STRICT FILTERING RULES - THINK STEP BY STEP]
                 1. ✅ TARGET: People asking questions, looking for advice, or expressing frustration that your product could solve.
                 2. ❌ IGNORE: Marketing posts, news articles, "Unboxing" (unless they are asking questions in it), or pure entertainment.
-                3. Focus on TAIWAN context (Traditional Chinese).
+                3. 🌍 LOCATION LOCK: Ensure the content implies user is in TAIWAN (e.g., using Traditional Chinese, NTD currency, local locations). Ignore HK/MY if distinguishable.
 
                 [Data Extraction]
                 - Try to extract estimated reply/like counts from the search snippet if available (e.g., "50 replies", "100 likes"). If not found, use "N/A".

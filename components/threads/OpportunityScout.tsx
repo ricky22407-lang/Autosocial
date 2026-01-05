@@ -129,7 +129,7 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
                             onChange={e => setKeyword(e.target.value)}
                             onCompositionStart={() => setIsComposing(true)}
                             onCompositionEnd={() => setIsComposing(false)}
-                            placeholder="例如：過年禮盒、保濕精華液、台中燒肉推薦..."
+                            placeholder="例如：過年禮盒、保濕精華液... (系統自動鎖定台灣地區)"
                             className="w-full bg-dark border border-gray-600 rounded-xl p-4 text-white placeholder-gray-500 focus:border-yellow-500 outline-none transition-colors"
                             onKeyDown={e => {
                                 if (e.key === 'Enter' && !isComposing) {
@@ -147,7 +147,7 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
                     </button>
                 </div>
                 <p className="text-xs text-gray-500 mt-3 ml-1">
-                    AI 智能過濾：系統會自動排除「開箱文」、「分享文」與「廣告文」，只鎖定「提問」、「求推薦」等具備強烈購買意圖的貼文。
+                    AI 智能過濾：系統會自動鎖定<b>台灣地區</b>貼文，並排除「開箱文」、「分享文」與「廣告文」，只鎖定「提問」、「求推薦」等具備強烈購買意圖的貼文。
                 </p>
             </div>
 
