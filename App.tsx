@@ -23,6 +23,7 @@ import QueueOverlay from './components/QueueOverlay'; // New Import
 
 // #region Services & Auth Import
 import { subscribeAuth, logout, getUserProfile, fetchUserPostsFromCloud, syncPostToCloud, deletePostFromCloud, exchangeThreadsAuth } from './services/authService';
+import { isFirebaseReady, connectionError } from './services/firebase'; // Import Check
 // #endregion
 
 // #region Icons
@@ -260,6 +261,31 @@ const App: React.FC = () => {
   const hasAutomationAccess = isProPlus || userProfile?.unlockedFeatures?.includes('AUTOMATION');
   const hasSeoAccess = isProPlus || userProfile?.unlockedFeatures?.includes('SEO');
   const hasThreadsAccess = isProPlus || userProfile?.unlockedFeatures?.includes('THREADS');
+
+  // --- SAFE MODE DIAGNOSTIC BANNER ---
+  if (!isFirebaseReady) {
+      return (
+          <div className="h-screen flex flex-col items-center justify-center bg-gray-900 text-white p-8 text-center">
+              <div className="text-6xl mb-6">⚠️</div>
+              <h1 className="text-3xl font-bold mb-4 text-red-500">系統連線異常 (SaaS Mode)</h1>
+              <p className="text-gray-300 max-w-lg mb-6 leading-relaxed">
+                  目前無法連接到 Firebase 資料庫，因此無法顯示任何資料。<br/>
+                  這通常是因為在 Vercel 部署時，未正確設定環境變數。
+              </p>
+              <div className="bg-black/50 p-6 rounded-xl border border-red-900/50 max-w-2xl w-full text-left font-mono text-sm overflow-x-auto">
+                  <p className="text-red-400 font-bold mb-2">錯誤詳情 (Debug Info):</p>
+                  <p className="mb-4">{connectionError || "Firebase Config Missing"}</p>
+                  
+                  <p className="text-gray-400 font-bold mb-2">解決方案 (Administrator):</p>
+                  <ul className="list-disc pl-5 space-y-1 text-gray-500">
+                      <li>前往 Vercel Project Settings {'>'} Environment Variables</li>
+                      <li>確保已設定 <code>VITE_FIREBASE_API_KEY</code> 等所有變數。</li>
+                      <li>設定完畢後，請務必 <strong>Redeploy</strong> (重新部署) 才會生效。</li>
+                  </ul>
+              </div>
+          </div>
+      );
+  }
 
   if (loadingAuth) return <div className="h-screen flex items-center justify-center bg-bg text-primary text-xl animate-pulse font-mono tracking-widest">INITIALIZING SYSTEM...</div>;
   

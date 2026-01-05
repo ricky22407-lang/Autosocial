@@ -9,7 +9,7 @@ declare global {
 }
 
 // ============================================================================
-// DUMMY IMPLEMENTATIONS (Prevent Crash)
+// DUMMY IMPLEMENTATIONS (Prevent Crash when Env Vars are missing)
 // ============================================================================
 const dummyAuth = {
     currentUser: null,
@@ -25,13 +25,13 @@ const dummyAuth = {
 
 const createDummyChain = () => ({
     doc: () => ({
-        get: () => Promise.reject(new Error("DB Config Missing")),
-        set: () => Promise.reject(new Error("DB Config Missing")),
-        update: () => Promise.reject(new Error("DB Config Missing")),
-        delete: () => Promise.reject(new Error("DB Config Missing")),
+        get: () => Promise.reject(new Error("DB Config Missing - Check Env Vars")),
+        set: () => Promise.reject(new Error("DB Config Missing - Check Env Vars")),
+        update: () => Promise.reject(new Error("DB Config Missing - Check Env Vars")),
+        delete: () => Promise.reject(new Error("DB Config Missing - Check Env Vars")),
         collection: createDummyChain
     }),
-    add: () => Promise.reject(new Error("DB Config Missing")),
+    add: () => Promise.reject(new Error("DB Config Missing - Check Env Vars")),
     where: () => ({
         orderBy: () => ({
             limit: () => ({ get: () => Promise.resolve({ empty: true, docs: [] }) }),
@@ -45,7 +45,7 @@ const createDummyChain = () => ({
 
 const dummyDb = {
     collection: createDummyChain,
-    runTransaction: () => Promise.reject(new Error("DB Config Missing")),
+    runTransaction: () => Promise.reject(new Error("DB Config Missing - Check Env Vars")),
     batch: () => ({ update: () => {}, delete: () => {}, commit: () => Promise.reject(new Error("DB Config Missing")) })
 };
 
@@ -97,8 +97,11 @@ let app: any;
 let auth: any = dummyAuth;
 let db: any = dummyDb;
 let firebase: any = dummyFirebase;
-// FORCE REAL MODE: We strictly disable 'isMock' to ensure SaaS production behavior.
+
+// FORCE REAL MODE: Strictly disable 'isMock' for SaaS production.
 let isMock = false; 
+let isFirebaseReady = false; // Status Flag
+let connectionError = "";
 
 const hasConfig = !!firebaseConfig.apiKey && !!firebaseConfig.projectId && firebaseConfig.apiKey !== 'undefined';
 
@@ -112,18 +115,27 @@ if (typeof window !== 'undefined' && window.firebase && hasConfig) {
       }
       auth = firebase.auth();
       db = firebase.firestore();
-      console.log("🔥 Firebase Initialized (Global CDN)");
-  } catch (e) {
+      isFirebaseReady = true;
+      console.log("🔥 Firebase Initialized (Global CDN) - Connection Ready");
+  } catch (e: any) {
       console.error("❌ Firebase Init Error:", e);
+      connectionError = e.message;
       // Fallback variables remain as dummies
   }
 } else {
-  // Only log if we expected config but didn't find it, or if SDK missing
-  if (!hasConfig) {
-      console.warn("⚠️ Firebase Environment Variables missing. App will run in Read-Only/Dummy mode until configured.");
+  // Diagnostic Logging
+  const missingKeys = Object.entries(firebaseConfig)
+      .filter(([_, v]) => !v || v === 'undefined')
+      .map(([k]) => k);
+
+  if (missingKeys.length > 0) {
+      connectionError = `Missing Env Vars: ${missingKeys.join(', ')}`;
+      console.error("❌ Critical: Firebase Config Missing.", connectionError);
+      console.warn("Please check Vercel Settings > Environment Variables. Ensure keys start with VITE_ if needed.");
   } else if (typeof window !== 'undefined' && !window.firebase) {
-      console.error("❌ Firebase SDK not loaded from CDN.");
+      connectionError = "Firebase SDK failed to load from CDN (Network Issue or Adblock).";
+      console.error("❌ Firebase SDK not loaded.");
   }
 }
 
-export { app, auth, db, isMock, firebase };
+export { app, auth, db, isMock, firebase, isFirebaseReady, connectionError };
