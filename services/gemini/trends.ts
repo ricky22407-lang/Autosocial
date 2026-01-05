@@ -113,42 +113,42 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
 
 // NEW: Business Opportunity Search
 export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
-    // 1. Construct Targeted Query (ROBUST VERSION)
-    // We use site:threads.net to be specific, but we remove strict date filters to ensure results.
-    // We let Google's relevance algorithm handle the "recent" part implicitly or explicitly via search tool context.
-    const searchQuery = `site:threads.net "${keyword}"`; 
+    // 1. Construct Targeted Query (BROAD MATCH)
+    // REMOVED quotes to allow broad matching (e.g. "聖誕交換禮物" matches "聖誕禮物")
+    // "site:threads.net" ensures we focus on the platform.
+    const searchQuery = `${keyword} site:threads.net`; 
     
     try {
         const response = await callBackend('generateContent', {
             model: 'gemini-2.5-flash', 
             contents: `
-                Role: Search Result Parser.
-                Task: Turn the search results for "${keyword}" on Threads into a JSON List.
+                Role: Social Media Scraper.
+                Task: Find user discussions on Threads related to: ${keyword}
                 
-                [Search Query]: ${searchQuery}
+                [Tool Instruction]
+                Use the Google Search tool with the query: '${searchQuery}'
                 
-                [Extraction Rules]
-                1. Look at the search results provided by the tool.
-                2. Extract EVERY result that looks like a user post.
-                3. Do not filter too strictly. If it's relevant to "${keyword}", include it.
-                4. Intent Score: Rate 1-10 (10 = Asking a question/Help needed, 1 = Random sharing).
+                [Processing Rules - STRICT]
+                1. List 5-10 posts found in the search results.
+                2. Do NOT be picky. If it mentions "${keyword}", include it.
+                3. Even if it's an old post or just sharing a photo, include it.
+                4. Extract the snippet and URL.
                 
                 [Output Format]
-                STRICTLY output a JSON Array. No intro text. No markdown blocks.
-                Example:
+                Return ONLY a JSON Array. NO preamble text.
                 [
-                    {
-                        "content": "Does anyone know where to buy good Christmas gifts?",
-                        "url": "https://www.threads.net/@user/post/123",
-                        "intentScore": 9,
-                        "replyCount": "5",
-                        "likeCount": "10"
-                    }
+                  {
+                    "content": "Summary of what the user said...",
+                    "url": "https://www.threads.net/...",
+                    "intentScore": 5,
+                    "replyCount": "N/A", 
+                    "likeCount": "N/A"
+                  }
                 ]
             `,
             config: { 
                 tools: [{ googleSearch: {} }],
-                // Important: Disable safety filters to prevent blocking "rant" or "complaint" posts which are good opportunities.
+                // SAFETY: Disable filters to ensure "rant" posts (high opportunity) aren't blocked
                 safetySettings: [
                     { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
                     { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
@@ -159,37 +159,31 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
         });
 
         const rawText = response.text || '';
+        console.log("🔍 Threads Search Raw Output:", rawText); // DEBUG LOG
+
+        // Robust JSON Parsing
+        let jsonStr = rawText;
+        const firstBracket = rawText.indexOf('[');
+        const lastBracket = rawText.lastIndexOf(']');
         
-        // Robust JSON Extraction: Find the first '[' and last ']'
-        const jsonStart = rawText.indexOf('[');
-        const jsonEnd = rawText.lastIndexOf(']');
-        
-        let validJsonStr = '[]';
-        if (jsonStart !== -1 && jsonEnd !== -1) {
-            validJsonStr = rawText.substring(jsonStart, jsonEnd + 1);
+        if (firstBracket !== -1 && lastBracket !== -1) {
+            jsonStr = rawText.substring(firstBracket, lastBracket + 1);
         } else {
-            console.warn("AI output did not contain a JSON array. Raw:", rawText);
+            console.warn("AI did not return a JSON array. Raw response:", rawText);
             return []; // Fail gracefully
         }
 
-        let raw;
         try {
-            raw = JSON.parse(validJsonStr);
-        } catch (parseError) {
-            console.error("Failed to parse Opportunity JSON. String:", validJsonStr);
-            return []; 
+            const parsed = JSON.parse(jsonStr);
+            if (Array.isArray(parsed)) {
+                // Filter to ensure valid URLs
+                return parsed.filter(p => p.url && (p.url.includes('threads.net') || p.url.includes('instagram.com')));
+            }
+        } catch (e) {
+            console.error("JSON Parse failed:", e);
         }
         
-        if (!Array.isArray(raw)) return [];
-
-        // Post-processing
-        const validResults = raw.filter((item: OpportunityPost) => {
-            const hasValidUrl = item.url && (item.url.includes('threads.net') || item.url.includes('instagram.com'));
-            // Very relaxed filter: allow almost anything so the user sees results
-            return hasValidUrl;
-        });
-
-        return validResults;
+        return [];
 
     } catch (e: any) {
         console.error("Opportunity search failed", e);
