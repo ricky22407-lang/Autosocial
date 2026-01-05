@@ -42,8 +42,9 @@ export const generateAdminKey = async (adminId: string, type: string, role?: Use
     const pointsCode = points ? `-P${points}` : '';
     const key = `KEY${featureCode}${pointsCode}-${Date.now().toString().slice(-6)}-${Math.floor(Math.random()*100)}`;
     
-    // FIX: Firestore does not accept 'undefined'. We must use 'null' or omit fields.
-    const data: AdminKey = { 
+    // FIX: Use loose typing for 'data' creation to allow 'null' values (required for Firestore),
+    // even though AdminKey interface defines them as optional (undefined).
+    const data = { 
         key, 
         type: type as any, 
         targetRole: role || null, 
@@ -63,7 +64,8 @@ export const generateAdminKey = async (adminId: string, type: string, role?: Use
             throw new Error(`金鑰寫入資料庫失敗: ${e.message}`);
         }
     } else {
-        MockStore.saveKey(data);
+        // Cast to unknown then AdminKey to bypass strict null checks for MockStore
+        MockStore.saveKey(data as unknown as AdminKey);
     }
     
     return key;
