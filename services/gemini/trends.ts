@@ -113,9 +113,12 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
 
 // NEW: Business Opportunity Search
 export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
-    // Construct a targeted search query for Google Search Tool
-    // UPDATED: Added "台灣" to force local results and minimize non-TW Threads
-    const searchQuery = `site:threads.net "${keyword}" 台灣 (請問 OR 求推薦 OR 請益 OR 哪裡買 OR 什麼好)`;
+    // 1. Construct Targeted Query
+    // - site:threads.net/*/post: Forces it to find specific post pages, not user profiles or search listings.
+    // - when:1m: Restricts to the last month.
+    // - Negatives: Exclude sales/promo terms.
+    // - Positives: Include question/problem terms.
+    const searchQuery = `site:threads.net/*/post "${keyword}" (請問 OR 請益 OR 求救 OR 苦惱 OR 覺得 OR 難用 OR 怎麼辦) -開箱 -團購 -優惠 -折扣 -下單 -蝦皮 -賣場 -代購 when:1m`;
     
     try {
         // Upgrade: Use gemini-3-pro-preview for better reasoning and search capabilities
@@ -123,35 +126,39 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
             model: 'gemini-3-pro-preview', 
             contents: `
                 Role: Social Media Lead Scout (Taiwan Region Specialist).
-                Task: Deeply analyze search results to find potential customers on Threads who have a specific NEED, PROBLEM, or INTENT to buy relating to: "${keyword}".
+                Task: Analyze search results to find potential customers on Threads who have a specific PROBLEM or QUESTION about: "${keyword}".
                 
                 [Search Query]: ${searchQuery}
                 
-                [STRICT FILTERING RULES - THINK STEP BY STEP]
-                1. ✅ TARGET: People asking questions, looking for advice, or expressing frustration that your product could solve.
-                2. ❌ IGNORE: Marketing posts, news articles, "Unboxing" (unless they are asking questions in it), or pure entertainment.
-                3. 🌍 LOCATION LOCK: Ensure the content implies user is in TAIWAN (e.g., using Traditional Chinese, NTD currency, local locations). Ignore HK/MY if distinguishable.
+                [STRICT FILTERING RULES]
+                1. ❌ DISCARD: Posts that are clearly advertisements, product unboxings (unless criticizing), group buys (團購), or news sharing.
+                2. ✅ KEEP: Real humans expressing frustration, asking for advice, or comparing products.
+                3. 🌍 LOCATION: Must appear to be Taiwan context (Traditional Chinese).
+                4. 📅 TIMEFRAME: Must be recent (within 1 month).
 
-                [Data Extraction]
-                - Try to extract estimated reply/like counts from the search snippet if available (e.g., "50 replies", "100 likes"). If not found, use "N/A".
+                [URL Extraction Rules]
+                - You MUST extract the exact post URL from the search result.
+                - It usually looks like: https://www.threads.net/@username/post/code
+                - Do NOT use google search result links. Use the actual destination link.
 
                 [Output Format]
-                RETURN ONLY A RAW JSON ARRAY. Do NOT use Markdown code blocks.
+                RETURN ONLY A RAW JSON ARRAY. 
                 Example:
                 [
                     {
                         "content": "Full post text...",
-                        "url": "https://www.threads.net/...",
-                        "reasoning": "User is asking for specific recommendations for...",
+                        "url": "https://www.threads.net/@user/post/123xyz",
                         "intentScore": 9,
-                        "replyCount": "12",
+                        "replyCount": "12", 
                         "likeCount": "50"
                     }
                 ]
+                
+                If reply/like counts are not visible in the snippet, set them to null. Do NOT invent numbers.
             `,
             config: { 
                 tools: [{ googleSearch: {} }],
-                // responseMimeType: "application/json", // REMOVED to avoid API Error with Search Tool
+                // responseMimeType: "application/json", // Removed to avoid conflict with Search Tool in some versions
             }
         });
 
@@ -168,8 +175,9 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
 
         // Post-processing to ensure URLs are valid threads links
         const validResults = raw.filter((item: OpportunityPost) => {
-            // Lowered threshold from 5 to 3 to improve recall as per user feedback
-            return item.url && item.url.includes('threads.net') && (item.intentScore || 0) >= 3;
+            const hasValidUrl = item.url && item.url.includes('threads.net') && item.url.includes('/post/');
+            const hasScore = (item.intentScore || 0) >= 3;
+            return hasValidUrl && hasScore;
         });
 
         return validResults;

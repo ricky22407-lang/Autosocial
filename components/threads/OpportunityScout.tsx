@@ -45,7 +45,7 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
         try {
             const leads = await findThreadsOpportunities(keyword);
             if (leads.length === 0) {
-                alert("AI 搜尋完畢，但未發現高潛力的商機 (可能是關鍵字太冷門，或大家都在分享而非提問)。請嘗試更換關鍵字。");
+                alert("AI 搜尋完畢，但未發現合適的商機。\n\n可能原因：\n1. 該關鍵字最近 (1個月內) 沒有人提問。\n2. 搜尋結果多為廣告文，已被系統自動過濾。\n\n建議：嘗試更生活化的關鍵字，例如「好用嗎」、「求推薦」。");
             }
             setResults(leads);
         } catch (e: any) {
@@ -103,7 +103,7 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
             } else {
                 console.warn("API Reply Error", res.error);
                 if (res.error?.includes("Unsupported post request") || res.error?.includes("permission")) {
-                    alert("⚠️ Threads API 限制：無法透過第三方工具直接回覆此貼文。\n\n請點擊「前往貼文」手動操作，並貼上已複製的文案。");
+                    alert("⚠️ Threads API 限制：無法透過第三方工具直接回覆此貼文 (對方可能設定了隱私權限)。\n\n請點擊「前往貼文」手動操作，並貼上已複製的文案。");
                     navigator.clipboard.writeText(replyDraft);
                     window.open(post.url, '_blank');
                 } else {
@@ -122,14 +122,14 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
                 <div className="flex flex-col md:flex-row gap-4 items-end">
                     <div className="flex-1 w-full">
                         <label className="block text-sm font-bold text-yellow-400 mb-2 uppercase tracking-wider">
-                            🔍 開發關鍵字 (Intent Search)
+                            商機關鍵字 (Intent Search)
                         </label>
                         <input 
                             value={keyword}
                             onChange={e => setKeyword(e.target.value)}
                             onCompositionStart={() => setIsComposing(true)}
                             onCompositionEnd={() => setIsComposing(false)}
-                            placeholder="例如：過年禮盒、保濕精華液... (系統自動鎖定台灣地區)"
+                            placeholder="例如：過年禮盒、保濕精華液... (自動搜尋最近1個月)"
                             className="w-full bg-dark border border-gray-600 rounded-xl p-4 text-white placeholder-gray-500 focus:border-yellow-500 outline-none transition-colors"
                             onKeyDown={e => {
                                 if (e.key === 'Enter' && !isComposing) {
@@ -143,11 +143,11 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
                         disabled={isSearching}
                         className="bg-yellow-600 hover:bg-yellow-500 text-black px-8 py-4 rounded-xl font-black shadow-lg transition-all w-full md:w-auto disabled:opacity-50 flex items-center justify-center gap-2 whitespace-nowrap"
                     >
-                        {isSearching ? <div className="loader border-t-black"></div> : '💎 挖掘商機 (Pro限定)'}
+                        {isSearching ? <div className="loader border-t-black"></div> : '商機開發 (Pro限定)'}
                     </button>
                 </div>
                 <p className="text-xs text-gray-500 mt-3 ml-1">
-                    AI 智能過濾：系統會自動鎖定<b>台灣地區</b>貼文，並排除「開箱文」、「分享文」與「廣告文」，只鎖定「提問」、「求推薦」等具備強烈購買意圖的貼文。
+                    AI 智能過濾：系統自動鎖定<b>台灣地區</b>、<b>近一個月</b>貼文，並排除「開箱文」、「廣告文」，只鎖定「提問」、「求推薦」等具備強烈購買意圖的貼文。
                 </p>
             </div>
 
@@ -165,20 +165,17 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
                             <p className="text-gray-300 text-sm leading-relaxed line-clamp-4 font-medium">"{post.content}"</p>
                         </div>
 
-                        {/* Analysis Box */}
-                        <div className="bg-gray-800/50 p-3 rounded-lg text-xs text-gray-400 mb-4 border border-gray-700/50">
-                            <span className="text-yellow-500 font-bold">AI 分析：</span> {post.reasoning}
-                        </div>
-
-                        {/* Metrics Bar (New) */}
-                        <div className="flex items-center gap-4 text-xs text-gray-500 mb-4 px-1">
-                            <span className="flex items-center gap-1" title="留言數 (估計)">
-                                💬 <span className="font-mono text-gray-300">{post.replyCount || '-'}</span>
-                            </span>
-                            <span className="flex items-center gap-1" title="按讚數 (估計)">
-                                ❤️ <span className="font-mono text-gray-300">{post.likeCount || '-'}</span>
-                            </span>
-                        </div>
+                        {/* Metrics Bar (Hidden if data is invalid/null) */}
+                        {(post.replyCount && post.replyCount !== 'null' && post.likeCount && post.likeCount !== 'null') && (
+                            <div className="flex items-center gap-4 text-xs text-gray-500 mb-4 px-1">
+                                <span className="flex items-center gap-1" title="留言數 (估計)">
+                                    💬 <span className="font-mono text-gray-300">{post.replyCount}</span>
+                                </span>
+                                <span className="flex items-center gap-1" title="按讚數 (估計)">
+                                    ❤️ <span className="font-mono text-gray-300">{post.likeCount}</span>
+                                </span>
+                            </div>
+                        )}
 
                         {/* Action Area */}
                         {selectedReplyId === index.toString() ? (
@@ -238,7 +235,7 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
                                     rel="noreferrer"
                                     className="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-3 rounded-lg transition-all flex items-center justify-center gap-2 border border-gray-600 hover:border-white/50 group"
                                 >
-                                    <span>↗</span> <span className="group-hover:underline decoration-1 underline-offset-4">前往貼文推廣自家產品</span>
+                                    <span>↗</span> <span className="group-hover:underline decoration-1 underline-offset-4">前往貼文推廣</span>
                                 </a>
                             </div>
                         )}
@@ -248,7 +245,7 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
             
             {!isSearching && results.length === 0 && keyword && (
                 <div className="text-center py-20 text-gray-500">
-                    輸入關鍵字並點擊「挖掘商機」開始搜尋。
+                    輸入關鍵字並點擊「商機開發」開始搜尋。
                 </div>
             )}
         </div>
