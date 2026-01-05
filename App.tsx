@@ -374,7 +374,7 @@ const App: React.FC = () => {
                                 {userProfile.subscription?.status === 'active' ? '續約日' : '重置日'}
                             </span>
                             <span className="text-gray-300 font-mono">
-                                {new Date(userProfile.subscription?.nextBillingDate || userProfile.quota_reset_date).toLocaleDateString()}
+                                {new Date(userProfile.subscription?.nextBillingDate || userProfile.quota_reset_date || 0).toLocaleDateString()}
                             </span>
                         </div>
                     )}
