@@ -13,166 +13,132 @@ export const Type = {
   OBJECT: 'OBJECT'
 };
 
-const CACHE_TTL = 12 * 60 * 60 * 1000;
+const CACHE_TTL = 12 * 60 * 60 * 1000; // 12 Hours Cache
 
-// #endregion
-
-// #region Utilities
+// #region Helper Utilities
 
 export const cleanJsonText = (text: string): string => {
-    if (!text) return '{}';
-    let clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    const firstOpen = clean.search(/[\{\[]/);
-    const lastCloseCurly = clean.lastIndexOf('}');
-    const lastCloseSquare = clean.lastIndexOf(']');
-    const lastClose = Math.max(lastCloseCurly, lastCloseSquare);
-    if (firstOpen !== -1 && lastClose !== -1 && lastClose > firstOpen) {
-        clean = clean.substring(firstOpen, lastClose + 1);
+  return text.replace(/```json/g, '').replace(/```/g, '').trim();
+};
+
+export const decodeHtml = (html: string): string => {
+  const txt = document.createElement("textarea");
+  txt.innerHTML = html;
+  return txt.value;
+};
+
+export const shuffleArray = <T>(array: T[]): T[] => {
+    let currentIndex = array.length,  randomIndex;
+    while (currentIndex !== 0) {
+      randomIndex = Math.floor(Math.random() * currentIndex);
+      currentIndex--;
+      [array[currentIndex], array[randomIndex]] = [
+        array[randomIndex], array[currentIndex]];
     }
-    return clean;
+    return array;
 };
 
-export const decodeHtml = (html: string) => {
-    try {
-        if (typeof document === 'undefined') return html;
-        const txt = document.createElement("textarea");
-        txt.innerHTML = html;
-        return txt.value;
-    } catch (e) { return html; }
-};
+// #region System Cache
 
-export const shuffleArray = <T,>(array: T[]): T[] => {
-    const arr = [...array];
-    for (let i = arr.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [arr[i], arr[j]] = [arr[j], arr[i]];
+export const getSystemCache = async (key: string) => {
+    if (isMock) {
+        const item = localStorage.getItem('cache_' + key);
+        if (!item) return null;
+        try {
+            const parsed = JSON.parse(item);
+            if (Date.now() > parsed.expiry) {
+                localStorage.removeItem('cache_' + key);
+                return null;
+            }
+            return parsed.data;
+        } catch(e) { return null; }
     }
-    return arr;
-};
-
-export const trackApiLoad = async () => {
-    if (isMock) return;
-    try {
-        const randomSlot = Math.floor(Math.random() * 5) + 1;
-        const keyField = `key_${randomSlot}`;
-        await db.collection('system_stats').doc('api_usage').set({
-            [keyField]: firebase.firestore.FieldValue.increment(1),
-            total_calls: firebase.firestore.FieldValue.increment(1),
-            last_active: Date.now()
-        }, { merge: true });
-    } catch (e) { }
-};
-
-// #endregion
-
-// #region Backend Communication
-
-// Raw fetch function (Internal)
-const _rawCallBackend = async (action: string, payload: any) => {
-    try {
-        console.log(`[Backend Call] Action: ${action}`, payload.model ? `Model: ${payload.model}` : '');
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 90000); // 90s timeout for queue wait time
-
-        const res = await fetch('/api/gemini', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action, payload }),
-            signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-
-        const contentType = res.headers.get("content-type");
-        if (contentType && contentType.indexOf("application/json") === -1) {
-             const text = await res.text();
-             console.error("Non-JSON Response from Backend:", text.substring(0, 100));
-             throw new Error("Backend Connection Failed. Please ensure Vercel Functions are running.");
-        }
-
-        const text = await res.text();
-        let data;
-        try { data = JSON.parse(text); } 
-        catch (e) { throw new Error(`Server returned invalid JSON: ${text.substring(0, 50)}...`); }
-        
-        if (!res.ok) throw new Error(data.error || 'Server Error');
-        if (action !== 'getServiceStatus') trackApiLoad(); 
-        return data;
-    } catch (e: any) {
-        console.error(`Backend API Error [${action}]:`, e);
-        if (e.name === 'AbortError') throw new Error("請求逾時 (Server Timeout)。");
-        throw e;
-    }
-};
-
-/**
- * Wrapper to decide whether to queue or not
- */
-export const callBackend = async (action: string, payload: any) => {
-    // Actions that require queuing (Heavy AI tasks)
-    const heavyActions = ['generateContent', 'generateImages', 'generateVideos'];
     
-    if (heavyActions.includes(action)) {
-        let label = 'AI 運算中';
-        if (action === 'generateImages') label = 'AI 繪圖中';
-        if (action === 'generateVideos') label = 'AI 影片生成中';
-        
-        // Wrap with Queue Logic
-        return executeWithQueue(label, () => _rawCallBackend(action, payload));
-    } else {
-        // Direct call for light tasks (status checks, RSS, etc)
-        return _rawCallBackend(action, payload);
-    }
-};
-
-export const getApiServiceStatus = async (): Promise<{ 
-    keyStatus: boolean[], 
-    totalConfigured: number, 
-    providers: { openai: boolean; ideogram: boolean; grok: boolean; } 
-}> => {
-    if (isMock) return { 
-        keyStatus: [true, true, true, false, false], 
-        totalConfigured: 3, 
-        providers: { openai: true, ideogram: true, grok: false } 
-    };
-    try {
-        return await _rawCallBackend('getServiceStatus', {});
-    } catch (e) {
-        console.error("Status check failed", e);
-        return { 
-            keyStatus: [false, false, false, false, false], 
-            totalConfigured: 0, 
-            providers: { openai: false, ideogram: false, grok: false } 
-        };
-    }
-};
-
-// #endregion
-
-// #region Cache Layer
-
-export const getSystemCache = async (key: string): Promise<any | null> => {
-    if (isMock) return null;
     try {
         const doc = await db.collection('system_cache').doc(key).get();
         if (doc.exists) {
             const data = doc.data();
-            if (data && (Date.now() - data.timestamp) < CACHE_TTL) {
-                console.log(`[Cache] Hit: ${key}`);
-                return data.data;
+            if (data.expiry > Date.now()) {
+                return JSON.parse(data.content);
             }
         }
-    } catch (e) { console.warn("Cache Read Error", e); }
+    } catch (e) { 
+        console.warn("Cache Read Error (Permission/Network)", e); 
+    }
     return null;
 };
 
 export const setSystemCache = async (key: string, data: any) => {
-    if (isMock) return;
+    const expiry = Date.now() + CACHE_TTL;
+    
+    if (isMock) {
+        localStorage.setItem('cache_' + key, JSON.stringify({ data, expiry }));
+        return;
+    }
+    
     try {
         await db.collection('system_cache').doc(key).set({
-            data,
-            timestamp: Date.now()
+            content: JSON.stringify(data),
+            expiry
         });
-    } catch (e) { console.warn("Cache Write Error", e); }
+    } catch (e) { 
+        console.warn("Cache Write Error (Permission/Network)", e); 
+    }
 };
 
-// #endregion
+// #region Backend API Caller
+
+export const callBackend = async (action: string, payload: any) => {
+    console.log(`[Backend Call] Action: ${action}`, payload.model ? `Model: ${payload.model}` : '');
+    
+    return executeWithQueue(action, async () => {
+        const controller = new AbortController();
+        // TIMEOUT EXTENDED: 300s (5 minutes) for Gemini 3 Pro Reasoning + Search
+        const timeoutId = setTimeout(() => controller.abort(), 300000); 
+
+        try {
+            const res = await fetch('/api/gemini', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action, payload }),
+                signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (!res.ok) {
+                let errorMsg = `HTTP Error ${res.status}`;
+                try {
+                    const err = await res.json();
+                    if (err.error) errorMsg = err.error;
+                } catch (e) {}
+                
+                // Retry logic for 504 Gateway Timeout (Vercel Hard Limit)
+                if (res.status === 504) {
+                    throw new Error("伺服器運算逾時 (Vercel 504)。請縮小搜尋範圍或稍後再試。");
+                }
+                
+                throw new Error(errorMsg);
+            }
+            
+            return await res.json();
+        } catch (e: any) {
+            clearTimeout(timeoutId);
+            console.error(`Backend API Error [${action}]:`, e);
+            
+            if (e.name === 'AbortError') {
+                throw new Error("請求逾時 (Server Timeout)。AI 思考或搜尋時間過長，請稍後再試。");
+            }
+            throw e;
+        }
+    });
+};
+
+export const getApiServiceStatus = async () => {
+    try {
+        return await callBackend('getServiceStatus', {});
+    } catch (e) {
+        console.warn("Failed to get API status", e);
+        return { keyStatus: [], providers: { openai: false, ideogram: false, grok: false } };
+    }
+};
