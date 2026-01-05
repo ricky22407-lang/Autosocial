@@ -72,10 +72,16 @@ const SettingsForm: React.FC<Props> = ({ initialSettings, onSave }) => {
     }
 
     // Initialize FB SDK
-    // Fix: Safe access to env variables
+    // Fix: Safely access env and DO NOT use a fallback ID.
+    // If VITE_FB_APP_ID is missing, we simply log a warning but do not init with a fake ID.
     const env = (import.meta as any)?.env || {};
-    const FB_APP_ID = env.VITE_FB_APP_ID || '787541243265741'; 
-    initFacebookSdk(FB_APP_ID).then(() => setIsFbSdkReady(true));
+    const FB_APP_ID = env.VITE_FB_APP_ID || env.REACT_APP_FB_APP_ID;
+    
+    if (FB_APP_ID) {
+        initFacebookSdk(FB_APP_ID).then(() => setIsFbSdkReady(true));
+    } else {
+        console.error("❌ Critical: Facebook App ID not found in environment variables (VITE_FB_APP_ID).");
+    }
   }, [initialSettings]);
 
   const handleChange = (field: keyof BrandSettings, value: any) => {
@@ -144,6 +150,11 @@ const SettingsForm: React.FC<Props> = ({ initialSettings, onSave }) => {
 
   // --- Facebook OAuth Handlers ---
   const handleConnectFacebook = async () => {
+      if (!isFbSdkReady) {
+          alert("Facebook SDK 初始化失敗或未設定 App ID。請檢查 Vercel 環境變數 (VITE_FB_APP_ID)。");
+          return;
+      }
+      
       setIsFbLoading(true);
       try {
           const pages = await loginAndGetPages();

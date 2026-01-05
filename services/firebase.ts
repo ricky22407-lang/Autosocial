@@ -41,7 +41,8 @@ const firebaseConfig = {
 let app: any;
 let auth: any;
 let db: any;
-let isMock = false;
+// FORCE REAL MODE: We strictly disable 'isMock' to ensure SaaS production behavior.
+let isMock = false; 
 let firebase: any; // Export the global namespace
 
 const hasConfig = !!firebaseConfig.apiKey && !!firebaseConfig.projectId && firebaseConfig.apiKey !== 'undefined';
@@ -58,17 +59,21 @@ if (typeof window !== 'undefined' && window.firebase && hasConfig) {
       db = firebase.firestore();
       console.log("🔥 Firebase Initialized (Global CDN)");
   } catch (e) {
-      console.error("Firebase Init Error:", e);
-      isMock = true; 
-      auth = {} as any; 
-      db = {} as any;
+      console.error("❌ Firebase Init Error:", e);
+      // We do NOT fall back to mock. We want the error to be visible.
+      alert("系統錯誤：無法連接資料庫。請聯繫管理員檢查 Firebase 設定。");
   }
 } else {
-  console.log("⚠️ Using MOCK mode (No Config or SDK).");
-  isMock = true;
-  auth = {} as any;
-  db = {} as any;
-  // Minimal mock for typings if needed
+  // Config Missing Case
+  console.error("❌ Critical: Firebase Config Missing. Please check Vercel Environment Variables.");
+  if (typeof window !== 'undefined') {
+      console.warn("Missing Config:", firebaseConfig);
+      // NOTE: We purposely do NOT set isMock = true here.
+      // We want the app to fail if config is missing, so the developer fixes the Env Vars.
+  }
+  
+  // Safe empty mocks to prevent immediate crash on import, but usage will fail (as expected)
+  // This allows the app to render error UIs instead of white screen.
   firebase = {
       firestore: {
           FieldValue: {

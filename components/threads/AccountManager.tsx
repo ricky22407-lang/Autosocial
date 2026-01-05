@@ -42,13 +42,12 @@ const AccountManager: React.FC<Props> = ({ accounts, setAccounts, settings, onSa
 
     // --- OAuth Handler (Popup Flow) ---
     const handleConnectThreads = () => {
-        // Support both naming conventions for env variables
-        // Fix: Safe access to env variables
+        // Fix: Safe access to env variables without invalid fallbacks
         const env = (import.meta as any)?.env || {};
         const THREADS_APP_ID = env.VITE_THREADS_APP_ID || env.REACT_APP_THREADS_APP_ID;
         
         if (!THREADS_APP_ID) {
-            alert("系統錯誤：未設定 Threads App ID。請聯繫管理員檢查環境變數 (VITE_THREADS_APP_ID)。");
+            alert("系統錯誤：未設定 Threads App ID (VITE_THREADS_APP_ID)。\n請聯繫管理員檢查環境變數。");
             return;
         }
         
