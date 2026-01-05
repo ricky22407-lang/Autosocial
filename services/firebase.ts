@@ -9,6 +9,60 @@ declare global {
 }
 
 // ============================================================================
+// DUMMY IMPLEMENTATIONS (Prevent Crash)
+// ============================================================================
+const dummyAuth = {
+    currentUser: null,
+    onAuthStateChanged: (cb: any) => {
+        cb(null); // Render as logged out
+        return () => {}; 
+    },
+    signInWithEmailAndPassword: () => Promise.reject(new Error("系統錯誤：Firebase 環境變數未設定 (Missing Config)")),
+    createUserWithEmailAndPassword: () => Promise.reject(new Error("系統錯誤：Firebase 環境變數未設定 (Missing Config)")),
+    signOut: () => Promise.resolve(),
+    sendPasswordResetEmail: () => Promise.reject(new Error("Missing Config"))
+};
+
+const createDummyChain = () => ({
+    doc: () => ({
+        get: () => Promise.reject(new Error("DB Config Missing")),
+        set: () => Promise.reject(new Error("DB Config Missing")),
+        update: () => Promise.reject(new Error("DB Config Missing")),
+        delete: () => Promise.reject(new Error("DB Config Missing")),
+        collection: createDummyChain
+    }),
+    add: () => Promise.reject(new Error("DB Config Missing")),
+    where: () => ({
+        orderBy: () => ({
+            limit: () => ({ get: () => Promise.resolve({ empty: true, docs: [] }) }),
+            get: () => Promise.resolve({ empty: true, docs: [] })
+        }),
+        get: () => Promise.resolve({ empty: true, docs: [] })
+    }),
+    orderBy: () => ({ get: () => Promise.resolve({ empty: true, docs: [] }) }),
+    get: () => Promise.resolve({ empty: true, docs: [] })
+});
+
+const dummyDb = {
+    collection: createDummyChain,
+    runTransaction: () => Promise.reject(new Error("DB Config Missing")),
+    batch: () => ({ update: () => {}, delete: () => {}, commit: () => Promise.reject(new Error("DB Config Missing")) })
+};
+
+const dummyFirebase = {
+    firestore: {
+        FieldValue: {
+            increment: () => 'INCREMENT_FIELD_VALUE',
+            serverTimestamp: () => new Date().toISOString(),
+            arrayUnion: (val: any) => val
+        }
+    },
+    auth: {
+        GoogleAuthProvider: class {}
+    }
+};
+
+// ============================================================================
 // FIREBASE CONFIGURATION
 // ============================================================================
 const getEnv = (key: string): string => {
@@ -39,11 +93,12 @@ const firebaseConfig = {
 // ============================================================================
 
 let app: any;
-let auth: any;
-let db: any;
+// Initialize with dummies BY DEFAULT to ensure export is never undefined
+let auth: any = dummyAuth;
+let db: any = dummyDb;
+let firebase: any = dummyFirebase;
 // FORCE REAL MODE: We strictly disable 'isMock' to ensure SaaS production behavior.
 let isMock = false; 
-let firebase: any; // Export the global namespace
 
 const hasConfig = !!firebaseConfig.apiKey && !!firebaseConfig.projectId && firebaseConfig.apiKey !== 'undefined';
 
@@ -60,29 +115,15 @@ if (typeof window !== 'undefined' && window.firebase && hasConfig) {
       console.log("🔥 Firebase Initialized (Global CDN)");
   } catch (e) {
       console.error("❌ Firebase Init Error:", e);
-      // We do NOT fall back to mock. We want the error to be visible.
-      alert("系統錯誤：無法連接資料庫。請聯繫管理員檢查 Firebase 設定。");
+      // Fallback variables remain as dummies
   }
 } else {
-  // Config Missing Case
-  console.error("❌ Critical: Firebase Config Missing. Please check Vercel Environment Variables.");
-  if (typeof window !== 'undefined') {
-      console.warn("Missing Config:", firebaseConfig);
-      // NOTE: We purposely do NOT set isMock = true here.
-      // We want the app to fail if config is missing, so the developer fixes the Env Vars.
+  // Only log if we expected config but didn't find it, or if SDK missing
+  if (!hasConfig) {
+      console.warn("⚠️ Firebase Environment Variables missing. App will run in Read-Only/Dummy mode until configured.");
+  } else if (typeof window !== 'undefined' && !window.firebase) {
+      console.error("❌ Firebase SDK not loaded from CDN.");
   }
-  
-  // Safe empty mocks to prevent immediate crash on import, but usage will fail (as expected)
-  // This allows the app to render error UIs instead of white screen.
-  firebase = {
-      firestore: {
-          FieldValue: {
-              increment: (n: number) => n,
-              serverTimestamp: () => Date.now(),
-              arrayUnion: (val: any) => val
-          }
-      }
-  };
 }
 
 export { app, auth, db, isMock, firebase };
