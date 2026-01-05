@@ -17,11 +17,24 @@ const getQuotaForRole = (role: UserRole): number => {
 };
 
 export const getAllUsers = async (): Promise<UserProfile[]> => {
-    if (!isMock) {
-        const snap = await db.collection('users').orderBy('created_at', 'desc').get();
-        return snap.docs.map((doc: any) => doc.data() as UserProfile);
-    } 
-    return MockStore.getAllUsers();
+    try {
+        if (!isMock) {
+            // Firestore OrderBy usually requires an index. If it fails, fallback to unsorted.
+            try {
+                const snap = await db.collection('users').orderBy('created_at', 'desc').get();
+                return snap.docs.map((doc: any) => doc.data() as UserProfile);
+            } catch (indexError) {
+                console.warn("Indexing issue or missing field, falling back to simple get", indexError);
+                const snap = await db.collection('users').get();
+                return snap.docs.map((doc: any) => doc.data() as UserProfile);
+            }
+        } 
+        return MockStore.getAllUsers();
+    } catch (e: any) {
+        console.error("Failed to fetch users:", e);
+        // Throwing allows the UI to catch and alert
+        throw new Error(e.message || "讀取會員列表失敗");
+    }
 };
 
 export const generateAdminKey = async (adminId: string, type: string, role?: UserRole, feature?: string, points?: number): Promise<string> => {
@@ -29,20 +42,29 @@ export const generateAdminKey = async (adminId: string, type: string, role?: Use
     const pointsCode = points ? `-P${points}` : '';
     const key = `KEY${featureCode}${pointsCode}-${Date.now().toString().slice(-6)}-${Math.floor(Math.random()*100)}`;
     
+    // FIX: Firestore does not accept 'undefined'. We must use 'null' or omit fields.
     const data: AdminKey = { 
         key, 
         type: type as any, 
-        targetRole: role, 
-        targetFeature: feature as any,
-        pointsAmount: points,
+        targetRole: role || null, 
+        targetFeature: (feature as any) || null,
+        pointsAmount: points || null,
         createdBy: adminId, 
         createdAt: Date.now(), 
         expiresAt: Date.now() + 3600000 * 24, // 24 Hours valid
         isUsed: false 
     };
     
-    if (!isMock) await db.collection('admin_keys').doc(key).set(data);
-    else MockStore.saveKey(data);
+    if (!isMock) {
+        try {
+            await db.collection('admin_keys').doc(key).set(data);
+        } catch (e: any) {
+            console.error("Key Gen Error:", e);
+            throw new Error(`金鑰寫入資料庫失敗: ${e.message}`);
+        }
+    } else {
+        MockStore.saveKey(data);
+    }
     
     return key;
 };
@@ -196,8 +218,10 @@ export const getDashboardStats = async (): Promise<DashboardStats> => {
     const users = await getAllUsers();
     let apiTotal = 0;
     if (!isMock) { 
-        const doc = await db.collection('system_stats').doc('api_usage').get(); 
-        if (doc.exists) apiTotal = doc.data()?.total_calls || 0; 
+        try {
+            const doc = await db.collection('system_stats').doc('api_usage').get(); 
+            if (doc.exists) apiTotal = doc.data()?.total_calls || 0; 
+        } catch(e) {}
     }
     return { totalUsers: users.length, activeUsersToday: Math.floor(users.length * 0.3), totalApiCallsToday: apiTotal || 128, errorCountToday: 0 };
 };

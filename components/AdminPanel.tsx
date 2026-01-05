@@ -39,11 +39,12 @@ const AdminPanel: React.FC<Props> = ({ currentUser }) => {
   }>({ 
       keyStatus: [], 
       providers: { openai: false, ideogram: false, grok: false } 
-  }); // New State
+  }); 
   const [securityTarget, setSecurityTarget] = useState<{uid: string, type: 'DOWNLOAD'|'DELETE'} | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [config, setConfig] = useState<SystemConfig>({ maintenanceMode: false, dryRunMode: false });
   const [generatedKey, setGeneratedKey] = useState('');
+  const [loadingAction, setLoadingAction] = useState(false); // New global loading state for actions
 
   useEffect(() => {
     loadAllData();
@@ -58,45 +59,70 @@ const AdminPanel: React.FC<Props> = ({ currentUser }) => {
   }, [activeTab]);
 
   const loadAllData = async () => {
-    setStats(await getDashboardStats());
-    setUsers(await getAllUsers());
-    setLogs(getSystemLogs());
-    setConfig(getSystemConfig());
-    setReports(await getUserReports());
+    try {
+        setStats(await getDashboardStats());
+        setUsers(await getAllUsers());
+        setLogs(getSystemLogs());
+        setConfig(getSystemConfig());
+        setReports(await getUserReports());
+    } catch (e: any) {
+        console.error("Dashboard Load Error:", e);
+        // Do not alert constantly on load, just log
+    }
   };
 
   const loadApiUsage = async () => {
-      // Load Key Status
-      const statusData = await getApiServiceStatus();
-      setApiStatus(statusData);
-
-      if (isMock) {
-          setApiUsage({ key_1: 1250, key_2: 890, key_3: 450, key_4: 120, key_5: 5, total_calls: 2715 });
-          return;
-      }
       try {
+          const statusData = await getApiServiceStatus();
+          setApiStatus(statusData);
+
+          if (isMock) {
+              setApiUsage({ key_1: 1250, key_2: 890, key_3: 450, key_4: 120, key_5: 5, total_calls: 2715 });
+              return;
+          }
           const doc = await db.collection('system_stats').doc('api_usage').get();
           if (doc.exists) setApiUsage(doc.data());
       } catch (e) { console.error("Load API Usage failed", e); }
   };
 
   const handleGenerateKey = async (type: 'RESET_QUOTA' | 'UPGRADE_ROLE', role?: UserRole) => {
-    const key = await generateAdminKey(currentUser.user_id, type, role);
-    setGeneratedKey(key);
-    loadAllData();
+    setLoadingAction(true);
+    try {
+        const key = await generateAdminKey(currentUser.user_id, type, role);
+        setGeneratedKey(key);
+        loadAllData();
+    } catch (e: any) {
+        alert(`生成失敗: ${e.message}`);
+    } finally {
+        setLoadingAction(false);
+    }
   };
 
   const handleGenerateFeatureKey = async (feature: 'ANALYTICS' | 'AUTOMATION' | 'SEO' | 'THREADS') => {
-    const key = await generateAdminKey(currentUser.user_id, 'UNLOCK_FEATURE', undefined, feature);
-    setGeneratedKey(key);
-    loadAllData();
+    setLoadingAction(true);
+    try {
+        const key = await generateAdminKey(currentUser.user_id, 'UNLOCK_FEATURE', undefined, feature);
+        setGeneratedKey(key);
+        loadAllData();
+    } catch (e: any) {
+        alert(`生成失敗: ${e.message}`);
+    } finally {
+        setLoadingAction(false);
+    }
   };
 
   const handleGeneratePointsKey = async (amount: number) => {
-    // Generate ADD_POINTS key
-    const key = await generateAdminKey(currentUser.user_id, 'ADD_POINTS', undefined, undefined, amount);
-    setGeneratedKey(key);
-    loadAllData();
+    setLoadingAction(true);
+    try {
+        // Generate ADD_POINTS key
+        const key = await generateAdminKey(currentUser.user_id, 'ADD_POINTS', undefined, undefined, amount);
+        setGeneratedKey(key);
+        loadAllData();
+    } catch (e: any) {
+        alert(`生成失敗: ${e.message}`);
+    } finally {
+        setLoadingAction(false);
+    }
   };
 
   const toggleDryRun = () => { updateSystemConfig({ dryRunMode: !config.dryRunMode }); loadAllData(); };
@@ -123,6 +149,16 @@ const AdminPanel: React.FC<Props> = ({ currentUser }) => {
             </button>
         ))}
       </div>
+
+      {/* Loading Overlay for Actions */}
+      {loadingAction && (
+          <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center backdrop-blur-sm cursor-wait">
+              <div className="bg-gray-800 p-4 rounded-xl border border-gray-600 flex items-center gap-3">
+                  <div className="loader w-5 h-5 border-t-white"></div>
+                  <span className="text-white font-bold">處理中...</span>
+              </div>
+          </div>
+      )}
 
       {activeTab === 'dashboard' && stats && (
         <div className="space-y-6">
