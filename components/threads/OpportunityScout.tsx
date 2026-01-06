@@ -3,8 +3,6 @@ import React, { useState } from 'react';
 import { OpportunityPost, ThreadsAccount, UserProfile } from '../../types';
 import { findThreadsOpportunities } from '../../services/geminiService';
 import { checkAndUseQuota } from '../../services/authService';
-import { generateCommentReply } from '../../services/geminiService';
-import { publishThreadsPost } from '../../services/threadsService';
 
 interface Props {
     accounts: ThreadsAccount[];
@@ -16,10 +14,6 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
     const [keyword, setKeyword] = useState('');
     const [results, setResults] = useState<OpportunityPost[]>([]);
     const [isSearching, setIsSearching] = useState(false);
-    const [selectedReplyId, setSelectedReplyId] = useState<string | null>(null);
-    const [replyDraft, setReplyDraft] = useState('');
-    const [isGeneratingReply, setIsGeneratingReply] = useState(false);
-    const [replyAccountId, setReplyAccountId] = useState(accounts[0]?.id || '');
     
     // IME Composition State
     const [isComposing, setIsComposing] = useState(false);
@@ -52,66 +46,6 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
             alert(`搜尋失敗: ${e.message}`);
         } finally {
             setIsSearching(false);
-        }
-    };
-
-    const handleGenerateReply = async (post: OpportunityPost, index: number) => {
-        const account = accounts.find(a => a.id === replyAccountId);
-        if (!account) return alert("請先選擇用來回覆的帳號");
-
-        setSelectedReplyId(index.toString());
-        setIsGeneratingReply(true);
-        setReplyDraft('');
-
-        try {
-            const persona = account.styleGuide || account.personaPrompt || "Professional and helpful.";
-            const replies = await generateCommentReply(post.content, persona);
-            if (replies.length > 0) {
-                setReplyDraft(replies[0]);
-            } else {
-                setReplyDraft("AI 無法生成建議，請手動撰寫。");
-            }
-        } catch (e) {
-            setReplyDraft("生成失敗，請重試。");
-        } finally {
-            setIsGeneratingReply(false);
-        }
-    };
-
-    const handleSendReply = async (post: OpportunityPost) => {
-        const match = post.url.match(/\/post\/([a-zA-Z0-9_-]+)/);
-        const threadId = match ? match[1] : null;
-
-        if (!threadId) {
-            alert("無法解析貼文 ID，請點擊「前往貼文」手動回覆。");
-            window.open(post.url, '_blank');
-            return;
-        }
-
-        const account = accounts.find(a => a.id === replyAccountId);
-        if (!account) return;
-
-        if (!confirm(`確定使用帳號 ${account.username} 發送回覆嗎？`)) return;
-
-        try {
-            const res = await publishThreadsPost(account, replyDraft, undefined, threadId);
-            
-            if (res.success) {
-                alert("回覆發送成功！");
-                setResults(prev => prev.filter(p => p !== post)); // Remove from list
-                setSelectedReplyId(null);
-            } else {
-                console.warn("API Reply Error", res.error);
-                if (res.error?.includes("Unsupported post request") || res.error?.includes("permission")) {
-                    alert("⚠️ Threads API 限制：無法透過第三方工具直接回覆此貼文 (對方可能設定了隱私權限)。\n\n請點擊「前往貼文」手動操作，並貼上已複製的文案。");
-                    navigator.clipboard.writeText(replyDraft);
-                    window.open(post.url, '_blank');
-                } else {
-                    alert(`發送失敗: ${res.error}`);
-                }
-            }
-        } catch (e: any) {
-            alert(`錯誤: ${e.message}`);
         }
     };
 
@@ -180,57 +114,17 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
                             </div>
                         )}
 
-                        {/* Action Area */}
-                        {selectedReplyId === index.toString() ? (
-                            <div className="animate-fade-in mt-auto bg-gray-800 p-4 rounded-xl border border-gray-600">
-                                <div className="flex justify-between items-center mb-2">
-                                    <label className="text-xs text-gray-400 font-bold">擬稿中...</label>
-                                    <button onClick={() => setSelectedReplyId(null)} className="text-gray-500 hover:text-white">✕</button>
-                                </div>
-                                <textarea 
-                                    value={replyDraft}
-                                    onChange={e => setReplyDraft(e.target.value)}
-                                    className="w-full h-24 bg-black/50 border border-gray-600 rounded p-2 text-sm text-white mb-2 resize-none focus:border-yellow-500 outline-none"
-                                    placeholder={isGeneratingReply ? "AI 正在撰寫中..." : "在此編輯回覆..."}
-                                />
-                                <div className="flex gap-2">
-                                    <button 
-                                        onClick={() => handleSendReply(post)}
-                                        disabled={isGeneratingReply || !replyDraft}
-                                        className="w-full bg-yellow-600 hover:bg-yellow-500 text-black font-bold py-2 rounded transition-colors disabled:opacity-50 text-xs"
-                                    >
-                                        🚀 發送回覆 (API)
-                                    </button>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="flex flex-col gap-3 mt-auto pt-4 border-t border-gray-800">
-                                <div className="flex gap-2">
-                                    <select 
-                                        value={replyAccountId} 
-                                        onChange={e => setReplyAccountId(e.target.value)}
-                                        className="bg-black border border-gray-700 rounded px-2 text-xs text-white outline-none flex-1 py-2"
-                                    >
-                                        {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.username}</option>)}
-                                    </select>
-                                    <button 
-                                        onClick={() => handleGenerateReply(post, index)}
-                                        className="flex-1 bg-white text-black font-bold py-2 rounded text-xs hover:bg-gray-200 transition-colors border border-transparent"
-                                    >
-                                        ✍️ AI 擬稿
-                                    </button>
-                                </div>
-                                
-                                <a 
-                                    href={post.url} 
-                                    target="_blank" 
-                                    rel="noreferrer"
-                                    className="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-3 rounded-lg transition-all flex items-center justify-center gap-2 border border-gray-600 hover:border-white/50 group text-xs"
-                                >
-                                    <span>↗</span> {isSearchFallback(post.url) ? '找不到直連，前往搜尋' : '前往貼文 (Short URL)'}
-                                </a>
-                            </div>
-                        )}
+                        {/* Action Area - Simplified: Just the Link Button */}
+                        <div className="mt-auto pt-4 border-t border-gray-800">
+                            <a 
+                                href={post.url} 
+                                target="_blank" 
+                                rel="noreferrer"
+                                className="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-3 rounded-lg transition-all flex items-center justify-center gap-2 border border-gray-600 hover:border-white/50 group text-xs"
+                            >
+                                <span>↗</span> {isSearchFallback(post.url) ? '找不到直連，前往搜尋' : '前往貼文 (Short URL)'}
+                            </a>
+                        </div>
                     </div>
                 ))}
             </div>
