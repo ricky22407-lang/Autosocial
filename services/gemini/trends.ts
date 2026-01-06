@@ -138,37 +138,65 @@ const extractThreadsId = (url: string): string | null => {
 };
 
 export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
-    // Query: Target Threads site specifically
-    const searchQuery = `site:threads.net "${keyword}"`; 
+    // --- Query Optimization Strategy (Taiwanese Social Media Context) ---
+    
+    // 1. Negative Keywords (Ads/Spam Firewall): 
+    // Exclude common marketing terms to filter out 90% of game ads and official promotions.
+    const excludeKeywords = "-抽獎 -禮包 -虛寶 -兌換碼 -公測 -手遊 -官方 -預約 -事前 -下載 -點擊 -連結 -主頁 -限時 -免費領取 -活動 -得獎 -名單";
+    
+    // 2. Intent Keywords (Conversational Signals):
+    // Use very specific Taiwanese online slang for asking questions/advice.
+    // Core Asking: 求推薦, 請問, 請益, 想問, 求問
+    // Opinion: 好用嗎, 評價, 心得, 避雷, 雷嗎, 推嗎, 值得嗎
+    // Decision: 挑選, 猶豫, 選擇障礙, 比較
+    // Community: 大家, 各位, 脆友, 有人知道, 有沒有人
+    // SOS: 怎麼辦, 求救
+    const intentKeywords = `("求推薦" OR "請問" OR "請益" OR "想問" OR "求問" OR "好用嗎" OR "雷嗎" OR "評價" OR "心得" OR "避雷" OR "推嗎" OR "值得嗎" OR "挑選" OR "猶豫" OR "選擇障礙" OR "大家" OR "脆友" OR "有沒有人")`;
+    
+    const searchQuery = `site:threads.net "${keyword}" ${intentKeywords} ${excludeKeywords}`; 
     
     try {
         const response = await callBackend('generateContent', {
             model: 'gemini-2.5-flash', 
             contents: `
-                Role: Social Media Researcher (Taiwan).
-                Task: Search for user discussions on Threads about: "${keyword}".
+                Role: Social Media Scout (Taiwan).
+                Task: Find genuine, recent user discussions on Threads about: "${keyword}".
                 
                 [Tool Instruction]
-                Use Google Search to find relevant Threads posts.
+                Use Google Search to find relevant Threads posts. Query: '${searchQuery}'
+                
+                [STRICT FILTERING RULES]
+                You act as a spam filter. DISCARD any result that is:
+                1. 🚫 Official Promotion: Contains "立即下載", "點擊連結", "活動開始".
+                2. 🚫 Game/App Ads: Mentions "伺服器", "虛寶", "儲值".
+                3. 🚫 Giveaway/Lottery: Mentions "抽獎", "留言送".
+                4. 🚫 News/Media Accounts: Just reporting news without personal question.
+                
+                [Target Content - "The Real Human"]
+                Only keep posts where a REAL PERSON is expressing:
+                - ❓ Confusion/Indecision ("猶豫要買哪一個", "選擇障礙").
+                - 🆘 Asking for Help ("求推薦", "有沒有人用過").
+                - ⚠️ Warning/Rant ("避雷", "千萬不要買").
+                - ❤️ Sharing Experience ("心得分享", "意外好用").
                 
                 [Output Requirement]
-                1. Find 10 distinct posts.
-                2. **IMPORTANT**: You MUST extract the URL for each post.
-                3. **LANGUAGE**: The "CONTENT" field MUST be in **Traditional Chinese (繁體中文)**.
+                1. Find 10 distinct, high-quality discussion posts.
+                2. **IMPORTANT**: Extract the URL correctly (look for threads.net/post/...).
+                3. **LANGUAGE**: The "CONTENT" summary must be in **Traditional Chinese (繁體中文)**.
                 
                 Format each result strictly as a block:
                 
                 BLOCK_START
-                CONTENT: [Summary of the post in Traditional Chinese]
-                URL: [The full link found, e.g. https://www.threads.net/...]
-                SCORE: [1-10 Intent Score]
+                CONTENT: [Summary of the user's specific question or struggle in Traditional Chinese]
+                URL: [The full link found]
+                SCORE: [1-10 Intent Score (10 = High purchase intent / Urgent need)]
                 REPLY_COUNT: [Number or N/A]
                 LIKE_COUNT: [Number or N/A]
                 BLOCK_END
             `,
             config: { 
                 tools: [{ googleSearch: {} }],
-                // High safety threshold to prevent filtering valid social content
+                // High safety threshold to prevent filtering valid social content (rants/complaints)
                 safetySettings: [
                     { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
                     { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
@@ -205,8 +233,7 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
                     // ✅ Found ID! Reconstruct the cleanest official link.
                     finalUrl = `https://www.threads.net/post/${shortcode}`;
                 } else {
-                    // ⚠️ No ID found. Fallback to a search link to ensure the button works.
-                    // This handles cases where AI halluncinated a link or Google link is encrypted/weird.
+                    // ⚠️ No ID found. Fallback to a search link.
                     const cleanQuery = content.substring(0, 40).replace(/[^\w\s\u4e00-\u9fa5]/g, ' ').trim();
                     finalUrl = `https://www.threads.net/search?q=${encodeURIComponent(cleanQuery)}`;
                 }
