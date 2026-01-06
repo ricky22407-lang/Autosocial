@@ -112,31 +112,24 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
 };
 
 // --- Smart Link Logic ---
-// This is the "Hunter" function. It scans any text for a Threads ID.
-const extractThreadsUrl = (input: string): string | null => {
-    if (!input) return null;
+// 暴力抓取 ID：只要字串中有類似 Threads ID 的結構，就直接抓出來重組
+const extractThreadsIdStrict = (text: string): string | null => {
+    if (!text) return null;
     
-    // 1. Decode & Clean
-    let decoded = input;
-    try { decoded = decodeURIComponent(input); } catch (e) {}
+    // 1. Decode URL encoded chars just in case
+    let decoded = text;
+    try { decoded = decodeURIComponent(text); } catch (e) {}
+
+    // 2. Regex for standard patterns:
+    // threads.net/post/ID
+    // threads.net/@user/post/ID
+    // threads.net/t/ID
+    // ID is usually 11 chars (alphanumeric + _ -)
+    const match = decoded.match(/(?:threads\.net\/)(?:.*\/)?(?:post|t)\/([A-Za-z0-9_-]{9,})/i);
     
-    // 2. Regex Patterns (From specific to broad)
-    // Pattern A: Standard URL: threads.net/post/ID
-    const patternA = /(?:threads\.net\/)(?:@[\w.]+\/)?(?:post|t)\/([a-zA-Z0-9_-]{9,})/;
-    const matchA = decoded.match(patternA);
-    if (matchA && matchA[1]) return `https://www.threads.net/post/${matchA[1]}`;
-
-    // Pattern B: Raw ID Extraction (Riskier, checks for base64-like strings commonly used as IDs)
-    // Only used if input looks like a partial URL or ID
-    if (input.length < 50 && /^[a-zA-Z0-9_-]{9,}$/.test(input)) {
-        return `https://www.threads.net/post/${input}`;
+    if (match && match[1]) {
+        return match[1];
     }
-
-    // 3. Fallback: If input is already a valid URL but we missed the ID, just return it if it's threads
-    if (input.includes('threads.net') && (input.startsWith('http') || input.startsWith('www'))) {
-        return input;
-    }
-
     return null;
 };
 
@@ -162,6 +155,7 @@ const executeOpportunitySearch = async (searchQuery: string, keyword: string): P
                 - Extract up to 8 distinct posts.
                 - **Language**: Summaries in Traditional Chinese.
                 - **Intent Score**: 1-10 (10 = User is begging for a recommendation).
+                - **URL**: You MUST return the exact 'threads.net/post/...' link found in the search source. Do NOT invent URLs.
                 
                 Format each result strictly:
                 BLOCK_START
@@ -185,20 +179,25 @@ const executeOpportunitySearch = async (searchQuery: string, keyword: string): P
         const rawText = response.text || '';
         console.log(`🔍 Search [${searchQuery}] Raw Length:`, rawText.length); 
         
-        // --- 1. Extract Valid URLs from Grounding Metadata (Backend Feature) ---
-        const groundingUrls: string[] = [];
+        // --- 1. Grounding Metadata Rescue Pool ---
+        // Collect all valid post links from Google Search raw data
+        const rescuePool: string[] = [];
         if (response.groundingMetadata?.groundingChunks) {
             response.groundingMetadata.groundingChunks.forEach((chunk: any) => {
-                if (chunk.web?.uri && chunk.web.uri.includes('threads.net')) {
-                    groundingUrls.push(chunk.web.uri);
+                const uri = chunk.web?.uri;
+                if (uri && uri.includes('threads.net')) {
+                    // Only keep links that look like posts
+                    if (extractThreadsIdStrict(uri)) {
+                        rescuePool.push(uri);
+                    }
                 }
             });
         }
-        console.log("🔗 Found Grounding URLs:", groundingUrls.length);
+        console.log("🔗 Rescue Pool Size:", rescuePool.length);
 
         const results: OpportunityPost[] = [];
         const blocks = rawText.split(/BLOCK_START/i);
-        let groundingIndex = 0;
+        let poolIndex = 0;
 
         for (const block of blocks) {
             if (!block.match(/BLOCK_END/i)) continue;
@@ -210,34 +209,29 @@ const executeOpportunitySearch = async (searchQuery: string, keyword: string): P
 
             if (contentMatch) {
                 const content = contentMatch[1].trim();
-                const rawUrlString = urlMatch ? urlMatch[1].trim() : '';
+                const rawUrlLine = urlMatch ? urlMatch[1].trim() : '';
                 
                 let finalUrl = '';
                 
-                // Strategy 1: Hunt for ID in the AI provided text URL
-                const extractedFromText = extractThreadsUrl(rawUrlString);
-                if (extractedFromText) {
-                    finalUrl = extractedFromText;
-                }
+                // Strategy 1: Hunt for ID in the AI provided text line
+                let id = extractThreadsIdStrict(rawUrlLine);
                 
-                // Strategy 2: Hunt for ID in Grounding Metadata (The Rescue!)
-                // If text failed, grab the next available grounding URL
-                else if (groundingUrls.length > 0) {
-                    if (groundingIndex < groundingUrls.length) {
-                        const groundingUrl = groundingUrls[groundingIndex];
-                        // Double check: does this grounding URL have an ID?
-                        const extractedFromGrounding = extractThreadsUrl(groundingUrl);
-                        if (extractedFromGrounding) {
-                            finalUrl = extractedFromGrounding;
-                        } else {
-                            finalUrl = groundingUrl; // Better than nothing
-                        }
-                        groundingIndex++;
-                    }
+                // Strategy 2: If no ID, maybe AI put the link in the Content?
+                if (!id) id = extractThreadsIdStrict(content);
+
+                // Strategy 3: Rescue from Pool (If text URL is junk/search link)
+                if (!id && poolIndex < rescuePool.length) {
+                    // Simple heuristic: Take next available real link
+                    const rescueLink = rescuePool[poolIndex];
+                    id = extractThreadsIdStrict(rescueLink);
+                    poolIndex++; 
                 }
 
-                // Strategy 3: Fallback Search
-                if (!finalUrl || (!finalUrl.includes('threads.net'))) {
+                // Construct Clean URL
+                if (id) {
+                    finalUrl = `https://www.threads.net/post/${id}`;
+                } else {
+                    // Fallback to Search URL if absolutely no ID found
                     const cleanQuery = content.substring(0, 40).replace(/[^\w\s\u4e00-\u9fa5]/g, ' ').trim();
                     finalUrl = `https://www.threads.net/search?q=${encodeURIComponent(cleanQuery)}`;
                 }
