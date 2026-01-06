@@ -111,10 +111,44 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
   return shuffleArray(uniqueTopics).slice(0, requestedCount);
 };
 
+// --- URL Cleaner Helper ---
+const generateShortThreadsUrl = (dirtyUrl: string, contentFallback: string): string => {
+    try {
+        // 1. Decode URL if it contains encoded parts
+        let url = decodeURIComponent(dirtyUrl);
+        
+        // 2. Handle Google Redirects
+        if (url.includes('google.com/url') || url.includes('googleusercontent')) {
+            const params = new URLSearchParams(new URL(url).search);
+            if (params.get('q')) url = params.get('q')!;
+            else if (params.get('url')) url = params.get('url')!;
+        }
+
+        // 3. Extract Canonical Threads URL (Strict Pattern)
+        // Matches: threads.net/@{username}/post/{postID}
+        const match = url.match(/threads\.net\/@([a-zA-Z0-9_.-]+)\/post\/([a-zA-Z0-9_-]+)/);
+        
+        if (match) {
+            // Reconstruct perfectly clean URL: https://www.threads.net/@user/post/id
+            return `https://www.threads.net/@${match[1]}/post/${match[2]}`;
+        }
+        
+        // 4. Fallback: If no valid Threads ID found, return a search URL
+        // This handles "404" or "grounding-api-redirect" relative links
+        const searchTerm = contentFallback.substring(0, 50).replace(/[^\w\s\u4e00-\u9fa5]/g, ' ').trim();
+        return `https://www.threads.net/search?q=${encodeURIComponent(searchTerm)}`;
+
+    } catch (e) {
+        // Fallback on error
+        const searchTerm = contentFallback.substring(0, 50).replace(/[^\w\s\u4e00-\u9fa5]/g, ' ').trim();
+        return `https://www.threads.net/search?q=${encodeURIComponent(searchTerm)}`;
+    }
+};
+
 // NEW: Business Opportunity Search (Markdown Parsing Strategy)
 export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
-    // Query Optimization: Use 'site:threads.net' to help Google focus, but allow variations.
-    const searchQuery = `site:threads.net "${keyword}"`; 
+    // Query Optimization: Use broader query to ensure results.
+    const searchQuery = `Threads "${keyword}"`; 
     
     try {
         const response = await callBackend('generateContent', {
@@ -127,24 +161,20 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
                 Use the Google Search tool with the query: '${searchQuery}'
                 
                 [Output Rules]
-                1. Find **10 to 15** distinct user posts/discussions.
-                2. Include complaints, questions, sharing, or general chat.
-                3. **CRITICAL - LINK FORMAT**: 
-                   - You MUST extract the actual 'https://www.threads.net/...' URL.
-                   - DO NOT use '/grounding-api-redirect/...' links.
-                   - DO NOT use google redirect links.
-                   - If the link is missing, try to reconstruct it or skip it.
-                4. **FORMAT STRICTLY** using the block format below for each post found. Do not use JSON.
+                1. Find at least 10 distinct discussions or posts.
+                2. Extract the snippet and URL if available.
+                3. **CRITICAL**: If the URL looks like a redirect or you are unsure, just provide it anyway. Do not filter results just because the link is imperfect.
+                4. **FORMAT STRICTLY** using the block format below for each post found.
                 
                 BLOCK_START
                 CONTENT: [Summary of what the user posted]
-                LINK: [https://www.threads.net/@username/post/...]
-                SCORE: [1-10]
+                LINK: [URL of the post]
+                SCORE: [1-10 (Intent Score)]
                 REPLY_COUNT: [Number or N/A]
                 LIKE_COUNT: [Number or N/A]
                 BLOCK_END
                 
-                (Repeat the block for each post found, at least 10 times)
+                (Repeat the block for each post found, ideally 10-15 times)
             `,
             config: { 
                 tools: [{ googleSearch: {} }],
@@ -173,23 +203,16 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
             const replyMatch = block.match(/REPLY_COUNT:\s*(.+)/);
             const likeMatch = block.match(/LIKE_COUNT:\s*(.+)/);
 
-            if (contentMatch && linkMatch) {
-                let url = linkMatch[1].trim();
+            if (contentMatch) {
+                const content = contentMatch[1].trim();
+                let rawUrl = linkMatch ? linkMatch[1].trim() : '';
                 
-                // --- Fix: Bad Link Filtering & Cleaning ---
-                // 1. If it starts with '/', it's a broken relative link (Grounding 404). Skip it.
-                if (url.startsWith('/')) continue;
-                
-                // 2. If it contains 'google', it might be a redirect. Skip it to be safe, or try to decode.
-                // For simplicity and safety, we strictly require 'threads.net' or 'instagram.com'
-                if (!url.includes('threads.net') && !url.includes('instagram.com')) continue;
-
-                // 3. Ensure protocol
-                if (!url.startsWith('http')) url = `https://${url}`;
+                // Smart Cleaning: Convert whatever AI found into a working Threads Link
+                const cleanUrl = generateShortThreadsUrl(rawUrl, content);
 
                 results.push({
-                    content: contentMatch[1].trim(),
-                    url: url,
+                    content: content,
+                    url: cleanUrl, // Guaranteed to be a valid URL (Direct or Search)
                     reasoning: '',
                     intentScore: scoreMatch ? parseInt(scoreMatch[1]) : 5,
                     replyCount: replyMatch ? replyMatch[1].trim() : undefined,
@@ -198,8 +221,8 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
             }
         }
 
-        // Limit results to 15 max, but return as many as found (user asked for 10+)
-        return results.slice(0, 15);
+        // Limit results to 10 max as requested
+        return results.slice(0, 10);
 
     } catch (e: any) {
         console.error("Opportunity search failed", e);

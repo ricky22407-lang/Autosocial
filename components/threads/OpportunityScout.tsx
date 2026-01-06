@@ -115,6 +115,9 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
         }
     };
 
+    // Helper: Determine if the URL is a direct link or a search fallback
+    const isSearchFallback = (url: string) => url.includes('/search?q=');
+
     return (
         <div className="space-y-6">
             {/* Search Section */}
@@ -194,20 +197,10 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
                                     <button 
                                         onClick={() => handleSendReply(post)}
                                         disabled={isGeneratingReply || !replyDraft}
-                                        className="flex-1 bg-yellow-600 hover:bg-yellow-500 text-black font-bold py-2 rounded transition-colors disabled:opacity-50 text-xs"
+                                        className="w-full bg-yellow-600 hover:bg-yellow-500 text-black font-bold py-2 rounded transition-colors disabled:opacity-50 text-xs"
                                     >
-                                        🚀 發送/複製
+                                        🚀 發送回覆 (API)
                                     </button>
-                                    {/* Link for backup inside editor */}
-                                    <a 
-                                        href={post.url} 
-                                        target="_blank" 
-                                        rel="noreferrer"
-                                        className="px-3 py-2 bg-black/40 text-gray-400 rounded hover:text-white border border-gray-600 transition-colors flex items-center justify-center"
-                                        title="開啟貼文"
-                                    >
-                                        ↗
-                                    </a>
                                 </div>
                             </div>
                         ) : (
@@ -228,14 +221,13 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
                                     </button>
                                 </div>
                                 
-                                {/* Prominent Link Button */}
                                 <a 
                                     href={post.url} 
                                     target="_blank" 
                                     rel="noreferrer"
-                                    className="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-3 rounded-lg transition-all flex items-center justify-center gap-2 border border-gray-600 hover:border-white/50 group"
+                                    className="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-3 rounded-lg transition-all flex items-center justify-center gap-2 border border-gray-600 hover:border-white/50 group text-xs"
                                 >
-                                    <span>↗</span> <span className="group-hover:underline decoration-1 underline-offset-4">前往貼文推廣</span>
+                                    <span>↗</span> {isSearchFallback(post.url) ? '找不到直連，前往搜尋' : '前往貼文 (Short URL)'}
                                 </a>
                             </div>
                         )}
