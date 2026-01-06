@@ -147,7 +147,7 @@ const CampaignPlaza: React.FC<Props> = ({ user, onQuotaUpdate }) => {
                                 </div>
                                 <button 
                                     onClick={() => handleApply(camp)}
-                                    disabled={!!applyingId || (user && camp.ownerId === user.user_id)}
+                                    disabled={!!applyingId || (!!user && camp.ownerId === user.user_id)}
                                     className={`w-full font-bold py-3 rounded-xl transition-all shadow-lg flex items-center justify-center ${user && camp.ownerId === user.user_id ? 'bg-gray-700 text-gray-400 cursor-not-allowed' : 'bg-white text-black hover:bg-gray-200'}`}
                                 >
                                     {applyingId === camp.id ? '提交中...' : (user && camp.ownerId === user.user_id ? '我的案件' : '我要報名')}
