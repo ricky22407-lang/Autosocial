@@ -94,9 +94,10 @@ export interface SocialCard {
     role: UserRole;
     tags: string[]; // e.g. "Foodie", "Travel"
     categories: string[]; // e.g. "美食", "旅遊"
+    specialties?: string[]; // New: 擅長形式 (Short Video, Blog, etc.)
     followersCount: number;
     engagementRate: number;
-    priceRange: string; // e.g. "$500 - $1,500"
+    priceRange: string; // e.g. "500 - 1,500"
     bio: string;
     isBoosted?: boolean;
     boostExpiresAt?: number;

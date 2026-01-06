@@ -21,6 +21,8 @@ export const CONNECT_CATEGORIES = [
     '生活日常 (Lifestyle)'
 ];
 
+const SPECIALTIES = ["短影音", "生活圖文", "爆文", "開箱評測", "攝影"];
+
 // --- MOCK DATA (Legacy & Fallback) ---
 const NAMES = ['Alice', 'Bob', 'Charlie', 'David', 'Eva', 'Frank', 'Grace', 'Hannah', 'Ivy', 'Jack'];
 const TAGS = ['#吃貨', '#探店', '#開箱', '#穿搭', '#日常', '#貓奴', '#新手爸媽', '#健身日記', '#科技新知'];
@@ -42,9 +44,10 @@ export const generateMockTalents = (count: number): SocialCard[] => {
             role: role as UserRole,
             tags,
             categories: [category],
+            specialties: [getRandomItem(SPECIALTIES), getRandomItem(SPECIALTIES)],
             followersCount: getRandomInt(500, 50000),
             engagementRate: parseFloat((Math.random() * 5 + 1).toFixed(2)),
-            priceRange: `$${getRandomInt(5, 20) * 100} - $${getRandomInt(30, 80) * 100}`,
+            priceRange: `${getRandomInt(5, 20) * 100} - ${getRandomInt(30, 80) * 100}`,
             bio: `嗨！我是${category.split(' ')[0]}愛好者，喜歡分享真實的體驗。歡迎廠商邀約合作！`,
             isBoosted,
             isVisible: true,
@@ -109,6 +112,8 @@ export const ConnectService = {
             }
             
             const snap = await query.get();
+            if (snap.empty) return [];
+
             const profiles = snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as SocialCard));
             
             // Client-side sort for Boosted (Firestore sort limit)
@@ -117,21 +122,26 @@ export const ConnectService = {
                 if (!a.isBoosted && b.isBoosted) return 1;
                 return b.engagementRate - a.engagementRate;
             });
-        } catch (e) {
+        } catch (e: any) {
             console.error("Fetch Talents Failed:", e);
+            if (e.code === 'permission-denied') {
+                console.warn("⚠️ Firestore Permission Error: Please update security rules in Firebase Console.");
+            }
             return [];
         }
     },
 
     getMyProfile: async (userId: string): Promise<SocialCard | null> => {
         if (isMock) {
-            // Return dummy profile if mock
             return mockTalents.find(t => t.userId === userId) || null;
         }
         try {
             const doc = await db.collection('connect_profiles').doc(userId).get();
             return doc.exists ? (doc.data() as SocialCard) : null;
-        } catch (e) { return null; }
+        } catch (e: any) { 
+            console.error("Get Profile Failed:", e);
+            return null; 
+        }
     },
 
     saveMyProfile: async (card: SocialCard) => {
@@ -141,6 +151,7 @@ export const ConnectService = {
             else mockTalents.unshift(card);
             return;
         }
+        // This is the write operation that triggers 'permission-denied' if rules are missing
         await db.collection('connect_profiles').doc(card.userId).set({
             ...card,
             updatedAt: Date.now()
@@ -158,15 +169,18 @@ export const ConnectService = {
         try {
             let query = db.collection('campaigns').where('isActive', '==', true);
             if (ownerId) {
-                query = db.collection('campaigns').where('ownerId', '==', ownerId); // Show all including inactive for owner
+                query = db.collection('campaigns').where('ownerId', '==', ownerId); 
             } else {
-                query = query.orderBy('createdAt', 'desc'); // Only active for public
+                query = query.orderBy('createdAt', 'desc');
             }
             
             const snap = await query.get();
             return snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Campaign));
-        } catch (e) {
+        } catch (e: any) {
             console.error("Fetch Campaigns Failed", e);
+            if (e.code === 'permission-denied') {
+                console.warn("⚠️ Firestore Permission Error: Please update security rules.");
+            }
             return [];
         }
     },
@@ -190,7 +204,6 @@ export const ConnectService = {
 
     // 3. ACTIONS
     unlockTalentContact: async (userId: string, talentId: string): Promise<boolean> => {
-        // In real app: create a record in 'connect_unlocks' collection
         unlockedTalents.add(talentId); // Local state for immediate UI
         
         if (!isMock) {
@@ -204,8 +217,6 @@ export const ConnectService = {
     },
 
     isUnlocked: (talentId: string): boolean => {
-        // In real app, we'd load user's unlock list on init. 
-        // For now, simple set check (client-session only).
         return unlockedTalents.has(talentId);
     },
 
@@ -213,7 +224,6 @@ export const ConnectService = {
         if (isMock) await new Promise(r => setTimeout(r, 800));
         
         if (!isMock) {
-            // Check dup
             const existing = await db.collection('campaign_applications')
                 .where('userId', '==', userId)
                 .where('campaignId', '==', campaignId)
@@ -228,7 +238,6 @@ export const ConnectService = {
                 timestamp: Date.now()
             });
             
-            // Increment count
             await db.collection('campaigns').doc(campaignId).update({
                 applicantsCount: (require('firebase/firestore').FieldValue || db.app.firebase_.firestore.FieldValue).increment(1)
             });

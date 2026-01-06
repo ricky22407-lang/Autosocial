@@ -3,12 +3,23 @@ import React, { useState, useEffect } from 'react';
 import { UserProfile, SocialCard, BrandSettings } from '../../types';
 import { ConnectService, CONNECT_CATEGORIES } from '../../services/connectService';
 import { fetchPageAnalytics } from '../../services/facebookService';
+import { fetchUserThreads } from '../../services/threadsService';
 
 interface Props {
     user: UserProfile;
     settings: BrandSettings;
     onSave: () => void;
 }
+
+const SPECIALTIES_OPTIONS = [
+    "短影音 (Reels/TikTok)",
+    "深度開箱評測",
+    "生活圖文",
+    "知識懶人包",
+    "爆文",
+    "高質感攝影",
+    "直播帶貨"
+];
 
 const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
     const [card, setCard] = useState<Partial<SocialCard>>({
@@ -17,14 +28,19 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
         role: user.role,
         tags: [],
         categories: [],
+        specialties: [],
         followersCount: 0,
         engagementRate: 0,
-        priceRange: '500 - 1,500',
+        priceRange: '500 - 1500',
         bio: '',
         isVisible: true,
         contactInfo: { email: user.email }
     });
     
+    // Price Range State
+    const [priceMin, setPriceMin] = useState<string>('500');
+    const [priceMax, setPriceMax] = useState<string>('1500');
+
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [syncing, setSyncing] = useState(false);
@@ -43,6 +59,14 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
         const profile = await ConnectService.getMyProfile(user.user_id);
         if (profile) {
             setCard(profile);
+            // Parse existing price range
+            if (profile.priceRange) {
+                const parts = profile.priceRange.replace(/[^0-9-]/g, '').split('-');
+                if (parts.length === 2) {
+                    setPriceMin(parts[0].trim());
+                    setPriceMax(parts[1].trim());
+                }
+            }
         } else {
             // Default init
             setCard(prev => ({
@@ -55,7 +79,10 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
     };
 
     const handleAutoSync = async () => {
-        if (!settings.facebookPageId && (!settings.threadsAccounts || settings.threadsAccounts.length === 0)) {
+        const hasFB = !!(settings.facebookPageId && settings.facebookToken);
+        const hasThreads = !!(settings.threadsAccounts && settings.threadsAccounts.length > 0);
+
+        if (!hasFB && !hasThreads) {
             return alert("請先至「品牌設定」連結 Facebook 粉專或 Threads 帳號，才能自動抓取數據。");
         }
 
@@ -63,27 +90,43 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
         try {
             let fbFollowers = 0;
             let fbEngagement = 0;
+            let threadsEngagement = 0;
+            let syncedSources = [];
 
-            // 1. Try FB Page Sync
-            if (settings.facebookPageId && settings.facebookToken) {
-                const analytics = await fetchPageAnalytics(settings.facebookPageId, settings.facebookToken);
-                if (analytics) {
-                    fbFollowers = analytics.followers;
-                    fbEngagement = analytics.engagementRate;
-                }
+            if (hasFB) {
+                try {
+                    const analytics = await fetchPageAnalytics(settings.facebookPageId, settings.facebookToken);
+                    if (analytics) {
+                        fbFollowers = analytics.followers;
+                        fbEngagement = analytics.engagementRate;
+                        syncedSources.push('Facebook');
+                    }
+                } catch (e) { console.warn("FB Sync Failed", e); }
             }
 
-            // 2. Try Threads Sync (Mock simulation for now as real API metrics are limited)
-            // In a real scenario, fetchUserThreads(account) and calculate avg likes/replies
-            // For now we assume FB is the primary source or user manual input if FB fails
+            if (hasThreads) {
+                try {
+                    const activeAccount = settings.threadsAccounts!.find(a => a.isActive);
+                    if (activeAccount) {
+                        const posts = await fetchUserThreads(activeAccount, 5);
+                        if (posts.length > 0) {
+                            threadsEngagement = 2.5; // Baseline estimation
+                            syncedSources.push('Threads');
+                        }
+                    }
+                } catch (e) { console.warn("Threads Sync Failed", e); }
+            }
             
-            if (fbFollowers > 0) {
+            const finalFollowers = fbFollowers > 0 ? fbFollowers : card.followersCount;
+            const finalEngagement = fbFollowers > 0 ? fbEngagement : (threadsEngagement > 0 ? threadsEngagement : card.engagementRate);
+
+            if (syncedSources.length > 0) {
                 setCard(prev => ({
                     ...prev,
-                    followersCount: fbFollowers,
-                    engagementRate: fbEngagement
+                    followersCount: finalFollowers,
+                    engagementRate: finalEngagement
                 }));
-                alert(`✅ 同步成功！\n粉絲數：${fbFollowers}\n互動率：${fbEngagement}%`);
+                alert(`✅ 同步成功！(來源: ${syncedSources.join(', ')})\n粉絲數：${finalFollowers || '(未偵測到公開數據)'}\n互動率：${finalEngagement}%`);
             } else {
                 alert("⚠️ 同步完成，但無法讀取到有效數據 (可能是權限不足或粉專無數據)。");
             }
@@ -97,9 +140,14 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
 
     const confirmSave = async () => {
         setSaving(true);
+        
+        // Format Price Range
+        const formattedPriceRange = `${parseInt(priceMin || '0').toLocaleString()} - ${parseInt(priceMax || '0').toLocaleString()}`;
+
         try {
             await ConnectService.saveMyProfile({
                 ...card,
+                priceRange: formattedPriceRange,
                 userId: user.user_id,
                 role: user.role,
             } as SocialCard);
@@ -107,7 +155,12 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
             setShowConsent(false);
             onSave();
         } catch (e: any) {
-            alert("儲存失敗: " + e.message);
+            console.error("Save failed:", e);
+            if (e.code === 'permission-denied' || e.message.includes('permission')) {
+                alert("❌ 儲存失敗：權限不足。\n\n請檢查 Firebase Firestore Rules 設定，確保您有權寫入 'connect_profiles' 集合。");
+            } else {
+                alert("儲存失敗: " + e.message);
+            }
         } finally {
             setSaving(false);
         }
@@ -117,7 +170,9 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
         if (!card.displayName || !card.categories?.length) {
             return alert("請填寫暱稱與至少一個分類");
         }
-        // Trigger Consent Modal
+        if (parseInt(priceMin) > parseInt(priceMax)) {
+            return alert("報價區間錯誤：最低價不能高於最高價");
+        }
         setShowConsent(true);
     };
 
@@ -128,6 +183,16 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
         } else {
             if (current.length >= 3) return alert("最多選擇 3 個分類");
             setCard({ ...card, categories: [...current, cat] });
+        }
+    };
+
+    const toggleSpecialty = (spec: string) => {
+        const current = card.specialties || [];
+        if (current.includes(spec)) {
+            setCard({ ...card, specialties: current.filter(s => s !== spec) });
+        } else {
+            if (current.length >= 3) return alert("擅長形式最多選擇 3 項");
+            setCard({ ...card, specialties: [...current, spec] });
         }
     };
 
@@ -165,7 +230,7 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
                             className="bg-blue-900/30 hover:bg-blue-900/50 text-blue-300 text-xs px-3 py-1.5 rounded-lg border border-blue-800 transition-colors flex items-center gap-1"
                         >
                             {syncing ? <div className="loader w-3 h-3 border-t-blue-300"></div> : '🔄'} 
-                            一鍵同步社群數據
+                            一鍵同步 (FB/Threads)
                         </button>
                     </div>
                     
@@ -189,6 +254,21 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
                         </div>
                     </div>
 
+                    <div>
+                        <label className="block text-xs text-gray-400 mb-1">擅長形式 (最多3項)</label>
+                        <div className="flex flex-wrap gap-2">
+                            {SPECIALTIES_OPTIONS.map(spec => (
+                                <button 
+                                    key={spec} 
+                                    onClick={() => toggleSpecialty(spec)}
+                                    className={`px-3 py-1 rounded-full text-xs border transition-colors whitespace-nowrap ${card.specialties?.includes(spec) ? 'bg-purple-900/50 text-purple-200 border-purple-500' : 'bg-transparent text-gray-400 border-gray-600 hover:border-gray-400'}`}
+                                >
+                                    {spec}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="block text-xs text-gray-400 mb-1">粉絲數 (可自動抓取)</label>
@@ -202,7 +282,29 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
 
                     <div>
                         <label className="block text-xs text-gray-400 mb-1">接案報價區間 (TWD)</label>
-                        <input value={card.priceRange} onChange={e => setCard({...card, priceRange: e.target.value})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white" placeholder="例: 500 - 2,000 / 篇" />
+                        <div className="flex items-center gap-2">
+                            <div className="flex-1 relative">
+                                <span className="absolute left-3 top-2.5 text-gray-500 text-xs">$</span>
+                                <input 
+                                    type="number" 
+                                    value={priceMin} 
+                                    onChange={e => setPriceMin(e.target.value)} 
+                                    className="w-full bg-dark border border-gray-600 rounded p-2 pl-6 text-white" 
+                                    placeholder="最低" 
+                                />
+                            </div>
+                            <span className="text-gray-400 font-bold">~</span>
+                            <div className="flex-1 relative">
+                                <span className="absolute left-3 top-2.5 text-gray-500 text-xs">$</span>
+                                <input 
+                                    type="number" 
+                                    value={priceMax} 
+                                    onChange={e => setPriceMax(e.target.value)} 
+                                    className="w-full bg-dark border border-gray-600 rounded p-2 pl-6 text-white" 
+                                    placeholder="最高" 
+                                />
+                            </div>
+                        </div>
                     </div>
 
                     <div>
@@ -267,6 +369,16 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
                             </div>
                         </div>
 
+                        {card.specialties && card.specialties.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mb-4">
+                                {card.specialties.map(spec => (
+                                    <span key={spec} className="text-[10px] bg-purple-900/40 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded">
+                                        {spec}
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+
                         <div className="grid grid-cols-2 gap-2 mb-4 bg-black/20 p-3 rounded-xl">
                             <div className="text-center">
                                 <p className="text-[10px] text-gray-500 uppercase tracking-widest">粉絲數</p>
@@ -281,7 +393,7 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
                         <div className="space-y-2 mb-6">
                             <div className="flex justify-between text-xs">
                                 <span className="text-gray-500">預算區間</span>
-                                <span className="text-yellow-400 font-bold">{card.priceRange || '$0'}</span>
+                                <span className="text-yellow-400 font-bold">{parseInt(priceMin || '0').toLocaleString()} - {parseInt(priceMax || '0').toLocaleString()}</span>
                             </div>
                             <div className="flex justify-between text-xs">
                                 <span className="text-gray-500">主要類別</span>
