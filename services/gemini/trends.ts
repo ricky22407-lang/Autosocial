@@ -125,49 +125,49 @@ const extractThreadsId = (url: string): string | null => {
 };
 
 export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
-    // --- Query Optimization Strategy (Simplified for Maximum Recall) ---
+    // --- Query Optimization Strategy (Standard Funnel) ---
     
-    // 1. Minimal Intent Keywords:
-    // Broadened to include "sharing" and "discussion", not just "asking".
-    // This helps catch "Gift ideas sharing" posts which are also opportunities.
-    const intentKeywords = `(討論 OR 推薦 OR 心得 OR 請問 OR 分享)`;
+    // 1. Intent Keywords (Broad Inclusion):
+    // 只要包含以下任一詞彙，就視為「潛在商機」收錄，後續交由 AI 判斷是否為廣告。
+    const intentKeywords = `(推薦 OR 求救 OR 預算 OR 尋找 OR 真實 OR 口袋名單 OR 清單)`;
     
-    // 2. NO Negative Keywords in Search Query:
-    // Google search excludes aggressively. If a post says "No gambling allowed", 
-    // a query like "-gambling" might exclude it. We let AI filter spam instead.
-    
-    const searchQuery = `site:threads.net "${keyword}" ${intentKeywords}`; 
+    // 2. Time & Site Constraint:
+    // 限定 Threads 且限定「一個月內 (when:1m)」
+    const searchQuery = `site:threads.net "${keyword}" ${intentKeywords} when:1m`; 
     
     try {
         const response = await callBackend('generateContent', {
             model: 'gemini-2.5-flash', 
             contents: `
-                Role: Social Media Scout (Taiwan).
-                Task: Find genuine user discussions on Threads about: "${keyword}".
+                Goal: Search for high-intent user discussions on Threads about "${keyword}".
                 
                 [Tool Instruction]
-                Use Google Search to find relevant Threads posts. Query: '${searchQuery}'
+                Perform a Google Search exactly as: '${searchQuery}'
                 
-                [AI FILTERING LOGIC]
-                Scan the search results and select the best 10 posts based on these priorities:
+                [AI SEMANTIC FILTERING]
+                You will receive search results containing the keywords. You must now act as a strict filter:
                 
-                1. ✅ **Genuine Human Discussion**: Prioritize real people asking questions, sharing experiences, or discussing the topic.
-                2. ✅ **Broad Relevance**: If exact "buying questions" are scarce, include "sharing" or "unboxing" posts (e.g., "This Christmas gift is great").
-                3. 🚫 **Spam Filter**: Exclude *obvious* casino/gambling bots or pure copy-paste game ads. (Official brand posts are okay if they have user comments/discussion).
+                1. 🗑️ **DISCARD** (Ignore):
+                   - Pure Advertisements / Commercial Promotions by brands.
+                   - Game/Casino spam.
+                   - Posts that are just "sharing a discount code" without discussion.
+                   - Posts older than 1 month (if snippet date is visible).
+                
+                2. ✅ **KEEP** (High Value):
+                   - **Questions/Help**: "請問大家...", "求推薦...", "預算有限...".
+                   - **Lists/Sharing**: "我的私藏清單", "真實心得分享" (User generated content).
+                   - **Discussions**: Real humans discussing the pros/cons of "${keyword}".
                 
                 [Output Requirement]
-                1. Find up to 10 distinct posts.
-                2. **IMPORTANT**: Extract the URL correctly.
-                3. **LANGUAGE**: Summary must be in **Traditional Chinese**.
+                - Extract up to 10 distinct posts.
+                - **Language**: Summaries in Traditional Chinese.
+                - **Relevance Score**: 1-10 (10 = User is actively asking to buy/use right now).
                 
-                Format each result strictly as a block:
-                
+                Format each result strictly:
                 BLOCK_START
-                CONTENT: [Summary of the post]
+                CONTENT: [Summary of the user's specific need or discussion]
                 URL: [The full link]
-                SCORE: [1-10 Relevance Score]
-                REPLY_COUNT: [Number or N/A]
-                LIKE_COUNT: [Number or N/A]
+                SCORE: [1-10]
                 BLOCK_END
             `,
             config: { 
@@ -193,8 +193,6 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
             const contentMatch = block.match(/CONTENT:\s*(.+)/);
             const urlMatch = block.match(/URL:\s*(.+)/);
             const scoreMatch = block.match(/SCORE:\s*(\d+)/);
-            const replyMatch = block.match(/REPLY_COUNT:\s*(.+)/);
-            const likeMatch = block.match(/LIKE_COUNT:\s*(.+)/);
 
             if (contentMatch) {
                 const content = contentMatch[1].trim();
@@ -217,8 +215,8 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
                     url: finalUrl,
                     reasoning: '',
                     intentScore: scoreMatch ? parseInt(scoreMatch[1]) : 5,
-                    replyCount: replyMatch ? replyMatch[1].trim() : undefined,
-                    likeCount: likeMatch ? likeMatch[1].trim() : undefined
+                    replyCount: '?',
+                    likeCount: '?'
                 });
             }
         }
