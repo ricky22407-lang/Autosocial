@@ -24,6 +24,9 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
         platforms: [],
         followersCount: 0,
         engagementRate: 0,
+        ytAvgViews: undefined,
+        tiktokAvgViews: undefined,
+        websiteAvgViews: undefined,
         priceRange: '500 - 1500',
         bio: '',
         isVisible: true,
@@ -145,9 +148,6 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
         setSyncingThreads(true);
         try {
             const posts = await fetchUserThreads(activeAccount, 5);
-            // Threads API currently doesn't give follower count easily without advanced scope.
-            // We simulate engagement rate from posts but keep followers as 0 or manual?
-            // For now, let's assume we can't get followers easily and just update engagement.
             if (posts.length > 0) {
                 const mockRate = parseFloat((Math.random() * 3 + 1).toFixed(1));
                 setPlatformStats(prev => ({ ...prev, threads: { followers: 0, engagement: mockRate } }));
@@ -173,7 +173,12 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
                 yt: { followers: stats.subscriberCount, engagement: stats.avgEngagement } 
             }));
             
-            alert(`✅ YouTube 同步成功！\n頻道: ${stats.title}\n訂閱: ${stats.subscriberCount}`);
+            // Sync Average Views
+            if (stats.avgViews > 0) {
+                setCard(prev => ({ ...prev, ytAvgViews: stats.avgViews }));
+            }
+            
+            alert(`✅ YouTube 同步成功！\n頻道: ${stats.title}\n訂閱: ${stats.subscriberCount}\n平均觀看: ${stats.avgViews || 0}`);
             if (!card.platforms?.includes('YouTube')) togglePlatform('YouTube');
 
         } catch (e: any) {
@@ -327,15 +332,15 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-xs text-gray-400 mb-1">Email *</label>
-                                <input value={card.contactInfo?.email || ''} onChange={e => setCard({...card, contactInfo: {...card.contactInfo, email: e.target.value}})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white text-sm" placeholder="必填" />
+                                <input value={card.contactInfo?.email || ''} onChange={e => setCard({...card, contactInfo: {...(card.contactInfo || { email: '', lineId: '', phone: '' }), email: e.target.value}})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white text-sm" placeholder="必填" />
                             </div>
                             <div>
                                 <label className="block text-xs text-gray-400 mb-1">Line ID</label>
-                                <input value={card.contactInfo?.lineId || ''} onChange={e => setCard({...card, contactInfo: {...card.contactInfo, lineId: e.target.value}})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white text-sm" placeholder="選填" />
+                                <input value={card.contactInfo?.lineId || ''} onChange={e => setCard({...card, contactInfo: {...(card.contactInfo || { email: '', lineId: '', phone: '' }), lineId: e.target.value}})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white text-sm" placeholder="選填" />
                             </div>
                             <div className="md:col-span-2">
                                 <label className="block text-xs text-gray-400 mb-1">手機號碼</label>
-                                <input value={card.contactInfo?.phone || ''} onChange={e => setCard({...card, contactInfo: {...card.contactInfo, phone: e.target.value}})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white text-sm" placeholder="選填" />
+                                <input value={card.contactInfo?.phone || ''} onChange={e => setCard({...card, contactInfo: {...(card.contactInfo || { email: '', lineId: '', phone: '' }), phone: e.target.value}})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white text-sm" placeholder="選填" />
                             </div>
                         </div>
                     </div>
@@ -346,6 +351,44 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
                             {CONNECT_PLATFORMS.map(p => (
                                 <button key={p} onClick={() => togglePlatform(p)} className={`px-3 py-1 rounded text-xs border transition-colors ${card.platforms?.includes(p) ? 'bg-blue-600 text-white border-blue-600' : 'bg-transparent text-gray-400 border-gray-600 hover:border-gray-400'}`}>{p}</button>
                             ))}
+                        </div>
+                    </div>
+
+                    {/* Additional Platform Metrics - NEW */}
+                    <div className="bg-dark/20 p-3 rounded border border-gray-700/50">
+                        <label className="block text-xs text-gray-400 mb-2 font-bold">自填/同步數據</label>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="block text-[10px] text-gray-500 mb-1">YT 平均觀看 (月) {platformStats.yt ? '(已同步)' : ''}</label>
+                                <input 
+                                    type="number" 
+                                    value={card.ytAvgViews || ''} 
+                                    onChange={e => setCard({...card, ytAvgViews: parseInt(e.target.value) || undefined})}
+                                    placeholder="0"
+                                    className={`w-full bg-dark border rounded p-1.5 text-xs text-white ${platformStats.yt ? 'border-green-500/50' : 'border-gray-600'}`}
+                                    disabled={!!platformStats.yt} // Disable manual edit if synced
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] text-gray-500 mb-1">TikTok 平均觀看 (月)</label>
+                                <input 
+                                    type="number" 
+                                    value={card.tiktokAvgViews || ''} 
+                                    onChange={e => setCard({...card, tiktokAvgViews: parseInt(e.target.value) || undefined})}
+                                    placeholder="自填"
+                                    className="w-full bg-dark border border-gray-600 rounded p-1.5 text-xs text-white"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] text-gray-500 mb-1">網站月平均瀏覽</label>
+                                <input 
+                                    type="number" 
+                                    value={card.websiteAvgViews || ''} 
+                                    onChange={e => setCard({...card, websiteAvgViews: parseInt(e.target.value) || undefined})}
+                                    placeholder="自填"
+                                    className="w-full bg-dark border border-gray-600 rounded p-1.5 text-xs text-white"
+                                />
+                            </div>
                         </div>
                     </div>
 
@@ -434,6 +477,13 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
                         <div className="grid grid-cols-2 gap-2 mb-4 bg-black/20 p-3 rounded-xl">
                             <div className="text-center"><p className="text-[10px] text-gray-500 uppercase">總粉絲數</p><p className="font-mono text-white font-bold">{card.followersCount?.toLocaleString() || 0}</p></div>
                             <div className="text-center border-l border-gray-700"><p className="text-[10px] text-gray-500 uppercase">平均互動率</p><p className="font-mono text-green-400 font-bold">{card.engagementRate || 0}%</p></div>
+                        </div>
+
+                        {/* Extra Metrics Preview */}
+                        <div className="grid grid-cols-3 gap-1 mb-4">
+                            {card.ytAvgViews ? <div className="text-center bg-red-900/10 rounded p-1 border border-red-900/30"><p className="text-[9px] text-red-300">YT 觀看</p><p className="text-[10px] font-bold text-white">{card.ytAvgViews.toLocaleString()}</p></div> : null}
+                            {card.tiktokAvgViews ? <div className="text-center bg-gray-800 rounded p-1 border border-gray-700"><p className="text-[9px] text-gray-400">TikTok</p><p className="text-[10px] font-bold text-white">{card.tiktokAvgViews.toLocaleString()}</p></div> : null}
+                            {card.websiteAvgViews ? <div className="text-center bg-blue-900/10 rounded p-1 border border-blue-900/30"><p className="text-[9px] text-blue-300">Web</p><p className="text-[10px] font-bold text-white">{card.websiteAvgViews.toLocaleString()}</p></div> : null}
                         </div>
 
                         <div className="space-y-2 mb-6">

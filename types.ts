@@ -104,6 +104,12 @@ export interface SocialCard {
     platforms?: string[]; // New: Operating Platforms
     followersCount: number;
     engagementRate: number;
+    
+    // New Metrics
+    ytAvgViews?: number; // YouTube avg views (monthly)
+    tiktokAvgViews?: number; // TikTok avg views (monthly, self-reported)
+    websiteAvgViews?: number; // Website avg views (monthly, self-reported)
+
     priceRange: string; // e.g. "500 - 1,500"
     bio: string;
     isBoosted?: boolean;

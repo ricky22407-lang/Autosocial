@@ -71,6 +71,12 @@ export const generateMockTalents = (count: number): SocialCard[] => {
             platforms,
             followersCount: getRandomInt(500, 50000),
             engagementRate: parseFloat((Math.random() * 5 + 1).toFixed(2)),
+            
+            // New Mock Data
+            ytAvgViews: platforms.includes('YouTube') ? getRandomInt(1000, 50000) : undefined,
+            tiktokAvgViews: platforms.includes('TikTok') ? getRandomInt(5000, 100000) : undefined,
+            websiteAvgViews: platforms.includes('Blog/Website') ? getRandomInt(500, 20000) : undefined,
+
             priceRange: `${getRandomInt(5, 20) * 100} - ${getRandomInt(30, 80) * 100}`,
             bio: `嗨！我是${category.split(' ')[0]}愛好者，喜歡分享真實的體驗。歡迎廠商邀約合作！`,
             isBoosted,

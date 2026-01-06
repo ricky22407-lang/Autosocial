@@ -13,7 +13,8 @@ const MOCK_YT_DATA = {
     subscriberCount: 15400,
     videoCount: 120,
     viewCount: 4500000,
-    avgEngagement: 4.5
+    avgEngagement: 4.5,
+    avgViews: 3500 // New field
 };
 
 export const YouTubeService = {
@@ -76,7 +77,7 @@ export const YouTubeService = {
 
         try {
             // 1. Get Channel ID (Mine)
-            const channelRes = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&mine=true&access_token=${token}`);
+            const channelRes = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,contentDetails&mine=true&access_token=${token}`);
             const channelData = await channelRes.json();
 
             if (!channelData.items || channelData.items.length === 0) {
@@ -87,20 +88,37 @@ export const YouTubeService = {
             const stats = item.statistics;
             const title = item.snippet.title;
 
-            // 2. Fetch Recent Videos for Engagement Calculation (Last 5 videos)
+            // 2. Fetch Recent Videos for Engagement Calculation (Last 10 videos)
             const uploadsPlaylistId = item.contentDetails?.relatedPlaylists?.uploads;
             let avgEngagement = 0;
+            let avgViews = 0;
 
             if (uploadsPlaylistId) {
-                // Fetch videos from uploads playlist
-                // Simplified: Just returning stat based calculation for now to save API calls in demo
-                // Engagement Rate = (Likes + Comments) / Views * 100 (Roughly)
-                // YouTube engagement is tricky, usually calculated per video.
-                // We will simulate a reasonable number based on view count if deep fetch is skipped
-                const views = parseInt(stats.viewCount);
-                const subs = parseInt(stats.subscriberCount);
-                // Rough estimation logic for API simplicity
-                avgEngagement = views > 0 ? ((views * 0.05) / views) * 100 : 0; 
+                const videosRes = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=${uploadsPlaylistId}&maxResults=10&access_token=${token}`);
+                const videosData = await videosRes.json();
+                
+                if (videosData.items && videosData.items.length > 0) {
+                    const videoIds = videosData.items.map((v: any) => v.contentDetails.videoId).join(',');
+                    const statsRes = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=statistics&id=${videoIds}&access_token=${token}`);
+                    const statsData = await statsRes.json();
+                    
+                    const totalStats = (statsData.items || []).reduce((acc: any, curr: any) => {
+                        return {
+                            views: acc.views + parseInt(curr.statistics.viewCount || 0),
+                            likes: acc.likes + parseInt(curr.statistics.likeCount || 0),
+                            comments: acc.comments + parseInt(curr.statistics.commentCount || 0)
+                        };
+                    }, { views: 0, likes: 0, comments: 0 });
+
+                    const count = statsData.items.length;
+                    if (count > 0) {
+                        avgViews = Math.round(totalStats.views / count);
+                        // Engagement: (Likes+Comments)/Views * 100
+                        if (totalStats.views > 0) {
+                            avgEngagement = parseFloat((((totalStats.likes + totalStats.comments) / totalStats.views) * 100).toFixed(2));
+                        }
+                    }
+                }
             }
 
             return {
@@ -108,7 +126,8 @@ export const YouTubeService = {
                 subscriberCount: parseInt(stats.subscriberCount),
                 videoCount: parseInt(stats.videoCount),
                 viewCount: parseInt(stats.viewCount),
-                avgEngagement: parseFloat((Math.random() * 3 + 2).toFixed(1)) // Mock engagement for now as calculating real YT engagement requires many API calls
+                avgEngagement: avgEngagement,
+                avgViews: avgViews
             };
 
         } catch (e: any) {

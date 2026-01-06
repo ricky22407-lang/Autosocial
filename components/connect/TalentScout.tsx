@@ -103,6 +103,13 @@ const TalentScout: React.FC<Props> = ({ user, onQuotaUpdate }) => {
         return `${hours}小時 ${Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))}分`;
     };
 
+    // Helper to format large numbers
+    const formatNumber = (num: number) => {
+        if (num >= 10000) return (num / 10000).toFixed(1) + '萬';
+        if (num >= 1000) return (num / 1000).toFixed(1) + 'k';
+        return num.toString();
+    };
+
     // Helper to render a card
     const renderCard = (talent: SocialCard, isUnlocked: boolean, unlockedAt?: number) => {
         return (
@@ -129,10 +136,34 @@ const TalentScout: React.FC<Props> = ({ user, onQuotaUpdate }) => {
                         </div>
                     )}
 
-                    <div className="grid grid-cols-2 gap-2 mb-4 bg-black/20 p-3 rounded-xl">
+                    <div className="grid grid-cols-2 gap-2 mb-3 bg-black/20 p-3 rounded-xl">
                         <div className="text-center"><p className="text-[10px] text-gray-500 uppercase">粉絲數</p><p className="font-mono text-white font-bold">{talent.followersCount.toLocaleString()}</p></div>
                         <div className="text-center border-l border-gray-700"><p className="text-[10px] text-gray-500 uppercase">互動率</p><p className="font-mono text-green-400 font-bold">{talent.engagementRate}%</p></div>
                     </div>
+
+                    {/* Additional Platform Metrics */}
+                    {(talent.ytAvgViews || talent.tiktokAvgViews || talent.websiteAvgViews) && (
+                        <div className="mb-4 space-y-1.5">
+                            {talent.ytAvgViews && (
+                                <div className="flex justify-between items-center text-xs bg-red-900/10 px-2 py-1 rounded border border-red-900/30">
+                                    <span className="text-red-400 font-bold flex items-center gap-1">📺 YT 月均觀看</span>
+                                    <span className="text-white font-mono">{formatNumber(talent.ytAvgViews)}</span>
+                                </div>
+                            )}
+                            {talent.tiktokAvgViews && (
+                                <div className="flex justify-between items-center text-xs bg-gray-800 px-2 py-1 rounded border border-gray-700">
+                                    <span className="text-gray-300 font-bold flex items-center gap-1">🎵 TikTok 觀看 <span className="text-[9px] opacity-50">(自填)</span></span>
+                                    <span className="text-white font-mono">{formatNumber(talent.tiktokAvgViews)}</span>
+                                </div>
+                            )}
+                            {talent.websiteAvgViews && (
+                                <div className="flex justify-between items-center text-xs bg-blue-900/10 px-2 py-1 rounded border border-blue-900/30">
+                                    <span className="text-blue-300 font-bold flex items-center gap-1">🌐 網站瀏覽 <span className="text-[9px] opacity-50">(自填)</span></span>
+                                    <span className="text-white font-mono">{formatNumber(talent.websiteAvgViews)}</span>
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     <div className="space-y-2 mb-6">
                         <div className="flex justify-between text-xs"><span className="text-gray-500">預算</span><span className="text-yellow-400 font-bold">{talent.priceRange}</span></div>
