@@ -112,23 +112,29 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
 };
 
 // --- Smart Link Logic ---
-const extractThreadsUrl = (raw: string): string | null => {
-    if (!raw) return null;
+// This is the "Hunter" function. It scans any text for a Threads ID.
+const extractThreadsUrl = (input: string): string | null => {
+    if (!input) return null;
     
-    // Clean Markdown
-    const cleanRaw = raw.replace(/[\[\]()]/g, '').trim();
+    // 1. Decode & Clean
+    let decoded = input;
+    try { decoded = decodeURIComponent(input); } catch (e) {}
+    
+    // 2. Regex Patterns (From specific to broad)
+    // Pattern A: Standard URL: threads.net/post/ID
+    const patternA = /(?:threads\.net\/)(?:@[\w.]+\/)?(?:post|t)\/([a-zA-Z0-9_-]{9,})/;
+    const matchA = decoded.match(patternA);
+    if (matchA && matchA[1]) return `https://www.threads.net/post/${matchA[1]}`;
 
-    // 1. Extract Post ID directly
-    try {
-        const match = cleanRaw.match(/\/post\/([a-zA-Z0-9_-]+)/) || cleanRaw.match(/\/t\/([a-zA-Z0-9_-]+)/);
-        if (match && match[1]) {
-            return `https://www.threads.net/post/${match[1]}`;
-        }
-    } catch (e) {}
+    // Pattern B: Raw ID Extraction (Riskier, checks for base64-like strings commonly used as IDs)
+    // Only used if input looks like a partial URL or ID
+    if (input.length < 50 && /^[a-zA-Z0-9_-]{9,}$/.test(input)) {
+        return `https://www.threads.net/post/${input}`;
+    }
 
-    // 2. Loose check
-    if (cleanRaw.includes('threads.net')) {
-        return cleanRaw;
+    // 3. Fallback: If input is already a valid URL but we missed the ID, just return it if it's threads
+    if (input.includes('threads.net') && (input.startsWith('http') || input.startsWith('www'))) {
+        return input;
     }
 
     return null;
@@ -160,8 +166,9 @@ const executeOpportunitySearch = async (searchQuery: string, keyword: string): P
                 Format each result strictly:
                 BLOCK_START
                 CONTENT: [Summary of the user's specific need]
-                URL: [The full link]
+                URL: [The full link found in search]
                 SCORE: [1-10]
+                METRICS: [Optional: 10 replies, 5 likes]
                 BLOCK_END
             `,
             config: { 
@@ -179,7 +186,6 @@ const executeOpportunitySearch = async (searchQuery: string, keyword: string): P
         console.log(`🔍 Search [${searchQuery}] Raw Length:`, rawText.length); 
         
         // --- 1. Extract Valid URLs from Grounding Metadata (Backend Feature) ---
-        // This is the source of truth if AI hallucinates URL syntax
         const groundingUrls: string[] = [];
         if (response.groundingMetadata?.groundingChunks) {
             response.groundingMetadata.groundingChunks.forEach((chunk: any) => {
@@ -200,32 +206,51 @@ const executeOpportunitySearch = async (searchQuery: string, keyword: string): P
             const contentMatch = block.match(/CONTENT:\s*(.+)/i);
             const urlMatch = block.match(/URL:\s*(.+)/i);
             const scoreMatch = block.match(/SCORE:\s*(\d+)/i);
+            const metricsMatch = block.match(/METRICS:\s*(.+)/i);
 
             if (contentMatch) {
                 const content = contentMatch[1].trim();
-                const rawUrl = urlMatch ? urlMatch[1].trim() : '';
+                const rawUrlString = urlMatch ? urlMatch[1].trim() : '';
                 
                 let finalUrl = '';
                 
-                // Attempt 1: Parse from text
-                const extracted = extractThreadsUrl(rawUrl);
+                // Strategy 1: Hunt for ID in the AI provided text URL
+                const extractedFromText = extractThreadsUrl(rawUrlString);
+                if (extractedFromText) {
+                    finalUrl = extractedFromText;
+                }
                 
-                if (extracted) {
-                    finalUrl = extracted;
-                } 
-                // Attempt 2: Use Grounding Metadata Fallback (The Rescue!)
+                // Strategy 2: Hunt for ID in Grounding Metadata (The Rescue!)
+                // If text failed, grab the next available grounding URL
                 else if (groundingUrls.length > 0) {
-                    // Try to match simple heuristic: pop the next available URL
                     if (groundingIndex < groundingUrls.length) {
-                        finalUrl = groundingUrls[groundingIndex];
+                        const groundingUrl = groundingUrls[groundingIndex];
+                        // Double check: does this grounding URL have an ID?
+                        const extractedFromGrounding = extractThreadsUrl(groundingUrl);
+                        if (extractedFromGrounding) {
+                            finalUrl = extractedFromGrounding;
+                        } else {
+                            finalUrl = groundingUrl; // Better than nothing
+                        }
                         groundingIndex++;
                     }
                 }
 
-                // If still empty, use fallback search link
+                // Strategy 3: Fallback Search
                 if (!finalUrl || (!finalUrl.includes('threads.net'))) {
                     const cleanQuery = content.substring(0, 40).replace(/[^\w\s\u4e00-\u9fa5]/g, ' ').trim();
                     finalUrl = `https://www.threads.net/search?q=${encodeURIComponent(cleanQuery)}`;
+                }
+
+                // Metrics Parsing
+                let replyCount = '0';
+                let likeCount = '0';
+                if (metricsMatch) {
+                    const mText = metricsMatch[1];
+                    const r = mText.match(/(\d+)\s*repl/i);
+                    const l = mText.match(/(\d+)\s*like/i);
+                    if (r) replyCount = r[1];
+                    if (l) likeCount = l[1];
                 }
 
                 results.push({
@@ -233,8 +258,8 @@ const executeOpportunitySearch = async (searchQuery: string, keyword: string): P
                     url: finalUrl,
                     reasoning: '',
                     intentScore: scoreMatch ? parseInt(scoreMatch[1]) : 5,
-                    replyCount: '?',
-                    likeCount: '?'
+                    replyCount,
+                    likeCount
                 });
             }
         }
@@ -247,28 +272,22 @@ const executeOpportunitySearch = async (searchQuery: string, keyword: string): P
 
 export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
     // --- Query Optimization Strategy (Multi-Stage Fallback) ---
-    // Problem: Strict search (date + site) often returns 0 results due to indexing lag or bad date calculation.
-    // Solution: Try strict -> Try moderate -> Try broad.
-    
-    // 1. Calculate Date (30 Days Ago) using Timestamp Math (Safer than setMonth)
+    // 1. Calculate Date (30 Days Ago)
     const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
     const afterDate = new Date(Date.now() - thirtyDaysMs).toISOString().split('T')[0];
 
     // Stage 1: Strict (Site + Date)
-    // "site:threads.net {keyword} after:YYYY-MM-DD"
     console.log("🚀 Opportunity Search Stage 1: Strict");
-    let results = await executeOpportunitySearch(`site:threads.net ${keyword} after:${afterDate}`, keyword);
+    let results = await executeOpportunitySearch(`site:threads.net "${keyword}" after:${afterDate}`, keyword);
 
     if (results.length === 0) {
         // Stage 2: Moderate (Site only)
-        // "site:threads.net {keyword}"
         console.log("⚠️ Stage 1 Empty. Retrying Stage 2: Moderate (No Date)...");
-        results = await executeOpportunitySearch(`site:threads.net ${keyword}`, keyword);
+        results = await executeOpportunitySearch(`site:threads.net "${keyword}"`, keyword);
     }
 
     if (results.length === 0) {
         // Stage 3: Broad (Keyword + "threads")
-        // "{keyword} threads" -> Relies on Google's relevance matching
         console.log("⚠️ Stage 2 Empty. Retrying Stage 3: Broad (Keyword + Context)...");
         results = await executeOpportunitySearch(`${keyword} threads`, keyword);
     }
