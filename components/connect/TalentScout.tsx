@@ -19,12 +19,18 @@ const TalentScout: React.FC<Props> = ({ user, onQuotaUpdate }) => {
 
     useEffect(() => {
         loadTalents();
-    }, [filter]);
+    }, [filter, user?.user_id]); // Reload if user logs in to filter self
 
     const loadTalents = async () => {
         setLoading(true);
         const data = await ConnectService.getTalents(filter === '全部' ? undefined : filter);
-        setTalents(data);
+        
+        // Filter out self
+        const filteredData = user 
+            ? data.filter(t => t.userId !== user.user_id) 
+            : data;
+
+        setTalents(filteredData);
         setLoading(false);
     };
 
@@ -38,15 +44,26 @@ const TalentScout: React.FC<Props> = ({ user, onQuotaUpdate }) => {
 
         setUnlockingId(talent.id);
         try {
+            // 1. Transaction: Deduct Quota & Log
             const allowed = await checkAndUseQuota(user.user_id, UNLOCK_COST, 'CONNECT_UNLOCK_CONTACT', { target: talent.id });
+            
             if (!allowed) {
-                alert("點數不足！請先儲值。");
+                // Determine if it was lack of funds or permission error
+                // Note: checkAndUseQuota returns false on both insufficient funds AND permission errors (caught internally)
+                // We show a generic message here, but the console has the details.
+                alert("交易失敗：點數不足或系統權限錯誤。\n(請檢查 Console 是否有 Permission Denied)");
                 return;
             }
+            
+            // 2. Refresh UI Quota
             onQuotaUpdate();
+            
+            // 3. Unlock Logic
             await ConnectService.unlockTalentContact(user.user_id, talent.id);
             alert("🔓 解鎖成功！您可以查看聯絡資訊了。");
+            
         } catch (e: any) {
+            console.error(e);
             alert(`解鎖失敗: ${e.message}`);
         } finally {
             setUnlockingId(null);
@@ -80,6 +97,11 @@ const TalentScout: React.FC<Props> = ({ user, onQuotaUpdate }) => {
                 </div>
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {talents.length === 0 && (
+                        <div className="col-span-full text-center py-10 text-gray-500">
+                            沒有找到符合條件的名片。
+                        </div>
+                    )}
                     {talents.map(talent => {
                         const isUnlocked = ConnectService.isUnlocked(talent.id);
                         const isBoosted = talent.isBoosted;
@@ -108,7 +130,7 @@ const TalentScout: React.FC<Props> = ({ user, onQuotaUpdate }) => {
                                             <h3 className={`font-bold text-white text-lg ${!isUnlocked ? 'blur-[2px] select-none' : ''}`}>
                                                 {!isUnlocked ? 'User_Hidden' : talent.displayName}
                                             </h3>
-                                            <div className="flex gap-2 mt-1">
+                                            <div className="flex gap-2 mt-1 flex-wrap">
                                                 {talent.tags.slice(0, 2).map(tag => (
                                                     <span key={tag} className="text-[10px] bg-gray-800 text-gray-400 px-2 py-0.5 rounded">
                                                         {tag}
