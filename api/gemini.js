@@ -242,7 +242,10 @@ module.exports = async function (req, res) {
       const { model, contents, config } = payload;
       const result = await executeWithRetry(async (ai) => {
           const response = await ai.models.generateContent({ model, contents, config });
-          return { text: response.text };
+          return { 
+              text: response.text,
+              groundingMetadata: response.candidates?.[0]?.groundingMetadata // Return sources for URL extraction
+          };
       });
       return res.status(200).json(result);
     }

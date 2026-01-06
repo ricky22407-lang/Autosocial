@@ -112,22 +112,30 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
 };
 
 // --- Smart Link Logic ---
-const extractThreadsId = (url: string): string | null => {
-    if (!url) return null;
+const extractThreadsUrl = (raw: string): string | null => {
+    if (!raw) return null;
+    
+    // Clean Markdown
+    const cleanRaw = raw.replace(/[\[\]()]/g, '').trim();
+
+    // 1. Extract Post ID directly
     try {
-        const decoded = decodeURIComponent(url);
-        const match = decoded.match(/\/post\/([a-zA-Z0-9_-]+)/);
+        const match = cleanRaw.match(/\/post\/([a-zA-Z0-9_-]+)/) || cleanRaw.match(/\/t\/([a-zA-Z0-9_-]+)/);
         if (match && match[1]) {
-            return match[1];
+            return `https://www.threads.net/post/${match[1]}`;
         }
     } catch (e) {}
+
+    // 2. Loose check
+    if (cleanRaw.includes('threads.net')) {
+        return cleanRaw;
+    }
+
     return null;
 };
 
 // Internal Helper for AI Execution
 const executeOpportunitySearch = async (searchQuery: string, keyword: string): Promise<OpportunityPost[]> => {
-    const intentList = ["推薦", "請益", "求救", "預算", "尋找", "真實", "口袋名單", "清單", "好用嗎"];
-    
     try {
         const response = await callBackend('generateContent', {
             model: 'gemini-2.5-flash', 
@@ -170,8 +178,21 @@ const executeOpportunitySearch = async (searchQuery: string, keyword: string): P
         const rawText = response.text || '';
         console.log(`🔍 Search [${searchQuery}] Raw Length:`, rawText.length); 
         
+        // --- 1. Extract Valid URLs from Grounding Metadata (Backend Feature) ---
+        // This is the source of truth if AI hallucinates URL syntax
+        const groundingUrls: string[] = [];
+        if (response.groundingMetadata?.groundingChunks) {
+            response.groundingMetadata.groundingChunks.forEach((chunk: any) => {
+                if (chunk.web?.uri && chunk.web.uri.includes('threads.net')) {
+                    groundingUrls.push(chunk.web.uri);
+                }
+            });
+        }
+        console.log("🔗 Found Grounding URLs:", groundingUrls.length);
+
         const results: OpportunityPost[] = [];
         const blocks = rawText.split(/BLOCK_START/i);
+        let groundingIndex = 0;
 
         for (const block of blocks) {
             if (!block.match(/BLOCK_END/i)) continue;
@@ -185,13 +206,24 @@ const executeOpportunitySearch = async (searchQuery: string, keyword: string): P
                 const rawUrl = urlMatch ? urlMatch[1].trim() : '';
                 
                 let finalUrl = '';
-                const shortcode = extractThreadsId(rawUrl);
+                
+                // Attempt 1: Parse from text
+                const extracted = extractThreadsUrl(rawUrl);
+                
+                if (extracted) {
+                    finalUrl = extracted;
+                } 
+                // Attempt 2: Use Grounding Metadata Fallback (The Rescue!)
+                else if (groundingUrls.length > 0) {
+                    // Try to match simple heuristic: pop the next available URL
+                    if (groundingIndex < groundingUrls.length) {
+                        finalUrl = groundingUrls[groundingIndex];
+                        groundingIndex++;
+                    }
+                }
 
-                if (shortcode) {
-                    finalUrl = `https://www.threads.net/post/${shortcode}`;
-                } else if (rawUrl.includes('threads.net')) {
-                    finalUrl = rawUrl;
-                } else {
+                // If still empty, use fallback search link
+                if (!finalUrl || (!finalUrl.includes('threads.net'))) {
                     const cleanQuery = content.substring(0, 40).replace(/[^\w\s\u4e00-\u9fa5]/g, ' ').trim();
                     finalUrl = `https://www.threads.net/search?q=${encodeURIComponent(cleanQuery)}`;
                 }
