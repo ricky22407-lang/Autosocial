@@ -111,44 +111,38 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
   return shuffleArray(uniqueTopics).slice(0, requestedCount);
 };
 
-// NEW: Business Opportunity Search
+// NEW: Business Opportunity Search (Markdown Parsing Strategy)
 export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
-    // 1. Construct Targeted Query (BROAD MATCH)
-    // REMOVED quotes to allow broad matching (e.g. "聖誕交換禮物" matches "聖誕禮物")
-    // "site:threads.net" ensures we focus on the platform.
-    const searchQuery = `${keyword} site:threads.net`; 
+    // Query Optimization: Combine keyword with platform name for broad Google Search coverage
+    const searchQuery = `Threads "${keyword}" 討論`; 
     
     try {
         const response = await callBackend('generateContent', {
             model: 'gemini-2.5-flash', 
             contents: `
-                Role: Social Media Scraper.
-                Task: Find user discussions on Threads related to: ${keyword}
+                Role: Social Media Researcher.
+                Task: Search for user posts on Threads related to: ${keyword}
                 
                 [Tool Instruction]
                 Use the Google Search tool with the query: '${searchQuery}'
                 
-                [Processing Rules - STRICT]
-                1. List 5-10 posts found in the search results.
-                2. Do NOT be picky. If it mentions "${keyword}", include it.
-                3. Even if it's an old post or just sharing a photo, include it.
-                4. Extract the snippet and URL.
+                [Output Rules]
+                1. Find 5-10 distinct user posts/discussions.
+                2. Include complaints, questions, sharing, or general chat.
+                3. **FORMAT STRICTLY** using the block format below for each post found. Do not use JSON.
                 
-                [Output Format]
-                Return ONLY a JSON Array. NO preamble text.
-                [
-                  {
-                    "content": "Summary of what the user said...",
-                    "url": "https://www.threads.net/...",
-                    "intentScore": 5,
-                    "replyCount": "N/A", 
-                    "likeCount": "N/A"
-                  }
-                ]
+                BLOCK_START
+                CONTENT: [Summary of what the user posted]
+                LINK: [URL of the post]
+                SCORE: [1-10]
+                REPLY_COUNT: [Number or N/A]
+                LIKE_COUNT: [Number or N/A]
+                BLOCK_END
+                
+                (Repeat the block for each post found)
             `,
             config: { 
                 tools: [{ googleSearch: {} }],
-                // SAFETY: Disable filters to ensure "rant" posts (high opportunity) aren't blocked
                 safetySettings: [
                     { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
                     { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
@@ -159,31 +153,39 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
         });
 
         const rawText = response.text || '';
-        console.log("🔍 Threads Search Raw Output:", rawText); // DEBUG LOG
+        console.log("🔍 Raw Threads Result (Markdown):", rawText.substring(0, 100)); 
 
-        // Robust JSON Parsing
-        let jsonStr = rawText;
-        const firstBracket = rawText.indexOf('[');
-        const lastBracket = rawText.lastIndexOf(']');
-        
-        if (firstBracket !== -1 && lastBracket !== -1) {
-            jsonStr = rawText.substring(firstBracket, lastBracket + 1);
-        } else {
-            console.warn("AI did not return a JSON array. Raw response:", rawText);
-            return []; // Fail gracefully
-        }
+        // Parse the Custom Block Format
+        const results: OpportunityPost[] = [];
+        const blocks = rawText.split('BLOCK_START');
 
-        try {
-            const parsed = JSON.parse(jsonStr);
-            if (Array.isArray(parsed)) {
-                // Filter to ensure valid URLs
-                return parsed.filter(p => p.url && (p.url.includes('threads.net') || p.url.includes('instagram.com')));
+        for (const block of blocks) {
+            if (!block.includes('BLOCK_END')) continue;
+            
+            const contentMatch = block.match(/CONTENT:\s*(.+)/);
+            const linkMatch = block.match(/LINK:\s*(.+)/);
+            const scoreMatch = block.match(/SCORE:\s*(\d+)/);
+            const replyMatch = block.match(/REPLY_COUNT:\s*(.+)/);
+            const likeMatch = block.match(/LIKE_COUNT:\s*(.+)/);
+
+            if (contentMatch && linkMatch) {
+                const url = linkMatch[1].trim();
+                
+                // Relaxed URL filter: Must be a URL, ideally Threads or Instagram
+                if (url.startsWith('http')) {
+                    results.push({
+                        content: contentMatch[1].trim(),
+                        url: url,
+                        reasoning: '',
+                        intentScore: scoreMatch ? parseInt(scoreMatch[1]) : 5,
+                        replyCount: replyMatch ? replyMatch[1].trim() : undefined,
+                        likeCount: likeMatch ? likeMatch[1].trim() : undefined
+                    });
+                }
             }
-        } catch (e) {
-            console.error("JSON Parse failed:", e);
         }
-        
-        return [];
+
+        return results;
 
     } catch (e: any) {
         console.error("Opportunity search failed", e);
