@@ -94,7 +94,7 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
                     <div key={index} className="bg-gradient-to-br from-gray-900 to-black p-6 rounded-2xl border border-gray-800 hover:border-yellow-500/50 transition-all group relative flex flex-col h-full">
                         {/* Intent Score Badge */}
                         <div className="absolute top-4 right-4 flex items-center gap-1 bg-yellow-900/30 text-yellow-400 px-2 py-1 rounded text-xs font-bold border border-yellow-500/20">
-                            <span>🔥 意圖: {post.intentScore}/10</span>
+                            <span>意圖分數: {post.intentScore}/10</span>
                         </div>
 
                         {/* Content */}

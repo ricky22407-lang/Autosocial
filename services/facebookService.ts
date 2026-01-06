@@ -235,6 +235,45 @@ export const fetchPageAnalytics = async (pageId: string, token?: string): Promis
   } catch (e) { throw e; }
 };
 
+export const fetchInstagramAnalytics = async (pageId: string, token: string): Promise<AnalyticsData | null> => {
+    const cleanToken = token.trim();
+    try {
+        // 1. Get Connected IG Account
+        const pageRes = await graphApi(`${pageId}?fields=instagram_business_account`, cleanToken);
+        const igId = pageRes.instagram_business_account?.id;
+        
+        if (!igId) throw new Error("此粉專未連結 Instagram 商業帳號");
+
+        // 2. Get IG Info
+        const igRes = await graphApi(`${igId}?fields=followers_count,media_count`, cleanToken);
+        
+        // 3. Get Media for Engagement Calculation (Last 10 posts)
+        let engagementRate = 0;
+        try {
+            const mediaRes = await graphApi(`${igId}/media?fields=like_count,comments_count&limit=10`, cleanToken);
+            const posts = mediaRes.data || [];
+            if (posts.length > 0) {
+                const totalInteractions = posts.reduce((acc: number, curr: any) => acc + (curr.like_count || 0) + (curr.comments_count || 0), 0);
+                // Engagement Rate = (Total Interactions / Posts) / Followers * 100
+                const avgInteractions = totalInteractions / posts.length;
+                engagementRate = parseFloat(((avgInteractions / igRes.followers_count) * 100).toFixed(2));
+            }
+        } catch(e) {}
+
+        return {
+            followers: igRes.followers_count || 0,
+            followersGrowth: 0,
+            reach: 0, // IG Reach needs insights permission, optional
+            engagementRate: engagementRate,
+            period: 'Instagram'
+        };
+
+    } catch (e: any) {
+        console.error("IG Fetch Error", e);
+        throw e;
+    }
+};
+
 export const fetchPageTopPosts = async (pageId: string, token: string): Promise<{ topReach?: TopPostData, topEngagement?: TopPostData }> => {
     const cleanToken = token.trim();
     try {

@@ -88,7 +88,7 @@ const DigitalDNALab: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) => {
             {/* Header */}
             <div className="text-center space-y-2">
                 <h2 className="text-3xl md:text-5xl font-black text-white tracking-tighter drop-shadow-[0_0_15px_rgba(0,242,234,0.5)]">
-                    🧬 數位基因實驗室
+                    數位基因實驗室
                 </h2>
                 <p className="text-gray-400 font-medium tracking-widest text-xs md:text-sm uppercase">
                     Digital Soul Diagnosis • RPG Character Gen

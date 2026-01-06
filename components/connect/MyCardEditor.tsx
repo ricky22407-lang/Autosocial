@@ -2,8 +2,9 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, SocialCard, BrandSettings } from '../../types';
 import { ConnectService, CONNECT_CATEGORIES, CONNECT_SPECIALTIES, CONNECT_PLATFORMS } from '../../services/connectService';
-import { fetchPageAnalytics } from '../../services/facebookService';
+import { fetchPageAnalytics, fetchInstagramAnalytics } from '../../services/facebookService';
 import { fetchUserThreads } from '../../services/threadsService';
+import { YouTubeService } from '../../services/youtubeService';
 import { checkAndUseQuota } from '../../services/authService';
 
 interface Props {
@@ -26,7 +27,7 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
         priceRange: '500 - 1500',
         bio: '',
         isVisible: true,
-        contactInfo: { email: user.email },
+        contactInfo: { email: user.email, lineId: '', phone: '' },
         isBoosted: false
     });
     
@@ -34,10 +35,21 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
     const [priceMin, setPriceMin] = useState<string>('500');
     const [priceMax, setPriceMax] = useState<string>('1500');
 
+    // Stats Accumulator State
+    const [platformStats, setPlatformStats] = useState<{
+        fb?: { followers: number, engagement: number };
+        threads?: { followers: number, engagement: number }; // Threads API limitations apply
+        ig?: { followers: number, engagement: number };
+        yt?: { followers: number, engagement: number };
+    }>({});
+
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [syncingFB, setSyncingFB] = useState(false);
     const [syncingThreads, setSyncingThreads] = useState(false);
+    const [syncingIG, setSyncingIG] = useState(false);
+    const [syncingYT, setSyncingYT] = useState(false);
+    
     const [newTag, setNewTag] = useState('');
     const [showConsent, setShowConsent] = useState(false);
     const [boosting, setBoosting] = useState(false);
@@ -48,6 +60,24 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
     useEffect(() => {
         loadProfile();
     }, [user.user_id]);
+
+    // Recalculate Totals whenever platformStats changes
+    useEffect(() => {
+        const stats = Object.values(platformStats);
+        if (stats.length > 0) {
+            const totalFollowers = stats.reduce((sum, s) => sum + (s.followers || 0), 0);
+            const validEngagements = stats.filter(s => s.engagement > 0);
+            const avgEngagement = validEngagements.length > 0 
+                ? validEngagements.reduce((sum, s) => sum + s.engagement, 0) / validEngagements.length 
+                : 0;
+            
+            setCard(prev => ({
+                ...prev,
+                followersCount: totalFollowers,
+                engagementRate: parseFloat(avgEngagement.toFixed(2))
+            }));
+        }
+    }, [platformStats]);
 
     const loadProfile = async () => {
         setLoading(true);
@@ -68,7 +98,8 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
                 ...prev,
                 displayName: user.email.split('@')[0],
                 avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.user_id}&backgroundColor=b6e3f4`,
-                platforms: ['Facebook'] // Default
+                platforms: ['Facebook'], // Default
+                contactInfo: { email: user.email, lineId: '', phone: '' }
             }));
         }
         setLoading(false);
@@ -80,13 +111,32 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
         try {
             const analytics = await fetchPageAnalytics(settings.facebookPageId, settings.facebookToken);
             if (analytics) {
-                setCard(prev => ({ ...prev, followersCount: analytics.followers, engagementRate: analytics.engagementRate }));
+                setPlatformStats(prev => ({ ...prev, fb: { followers: analytics.followers, engagement: analytics.engagementRate } }));
                 alert(`✅ FB 數據同步成功！\n粉絲: ${analytics.followers}, 互動: ${analytics.engagementRate}%`);
+                
+                // Auto-check platform
+                if (!card.platforms?.includes('Facebook')) togglePlatform('Facebook');
             } else {
                 alert("無法讀取粉專數據");
             }
         } catch (e: any) { alert(`同步失敗: ${e.message}`); }
         finally { setSyncingFB(false); }
+    };
+
+    const handleSyncIG = async () => {
+        if (!settings.facebookPageId || !settings.facebookToken) return alert("IG 需透過 Facebook 粉專連結。請先至「品牌設定」連結 FB，並確保該粉專已綁定 IG 商業帳號。");
+        setSyncingIG(true);
+        try {
+            const analytics = await fetchInstagramAnalytics(settings.facebookPageId, settings.facebookToken);
+            if (analytics) {
+                setPlatformStats(prev => ({ ...prev, ig: { followers: analytics.followers, engagement: analytics.engagementRate } }));
+                alert(`✅ IG 數據同步成功！\n粉絲: ${analytics.followers}, 互動: ${analytics.engagementRate}%`);
+                if (!card.platforms?.includes('Instagram')) togglePlatform('Instagram');
+            } else {
+                alert("找不到連結的 Instagram 商業帳號");
+            }
+        } catch (e: any) { alert(`同步失敗: ${e.message}\n(請確認粉專已連結 IG 商業帳號)`); }
+        finally { setSyncingIG(false); }
     };
 
     const handleSyncThreads = async () => {
@@ -95,16 +145,42 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
         setSyncingThreads(true);
         try {
             const posts = await fetchUserThreads(activeAccount, 5);
+            // Threads API currently doesn't give follower count easily without advanced scope.
+            // We simulate engagement rate from posts but keep followers as 0 or manual?
+            // For now, let's assume we can't get followers easily and just update engagement.
             if (posts.length > 0) {
-                // Mock engagement logic for Threads since API is limited
                 const mockRate = parseFloat((Math.random() * 3 + 1).toFixed(1));
-                setCard(prev => ({ ...prev, engagementRate: mockRate }));
+                setPlatformStats(prev => ({ ...prev, threads: { followers: 0, engagement: mockRate } }));
                 alert(`✅ Threads 狀態同步成功！(近期有 ${posts.length} 篇貼文)`);
+                if (!card.platforms?.includes('Threads')) togglePlatform('Threads');
             } else {
                 alert("找不到近期貼文");
             }
         } catch (e: any) { alert(`同步失敗: ${e.message}`); }
         finally { setSyncingThreads(false); }
+    };
+
+    const handleSyncYouTube = async () => {
+        setSyncingYT(true);
+        try {
+            // 1. Auth Flow (Simulated or Real)
+            const token = await YouTubeService.authenticate();
+            // 2. Fetch Data
+            const stats = await YouTubeService.fetchChannelStats(token);
+            
+            setPlatformStats(prev => ({ 
+                ...prev, 
+                yt: { followers: stats.subscriberCount, engagement: stats.avgEngagement } 
+            }));
+            
+            alert(`✅ YouTube 同步成功！\n頻道: ${stats.title}\n訂閱: ${stats.subscriberCount}`);
+            if (!card.platforms?.includes('YouTube')) togglePlatform('YouTube');
+
+        } catch (e: any) {
+            alert(`YouTube 同步失敗: ${e.message}`);
+        } finally {
+            setSyncingYT(false);
+        }
     };
 
     const handleBoostProfile = async () => {
@@ -153,6 +229,7 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
     const handleSaveClick = () => {
         if (!card.displayName || !card.categories?.length) return alert("請填寫暱稱與至少一個分類");
         if (parseInt(priceMin) > parseInt(priceMax)) return alert("報價區間錯誤：最低價不能高於最高價");
+        if (!card.contactInfo?.email) return alert("Email 為必填欄位");
         setShowConsent(true);
     };
 
@@ -207,23 +284,61 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
                 <div className="bg-card p-6 rounded-xl border border-gray-700 space-y-4">
                     <div className="flex justify-between items-center border-b border-gray-700 pb-2">
                         <h3 className="text-lg font-bold text-white">編輯資料</h3>
-                        <div className="flex gap-2">
-                            <button 
-                                onClick={handleSyncFB} disabled={syncingFB}
-                                className="bg-blue-900/30 hover:bg-blue-900/50 text-blue-300 text-xs px-3 py-1.5 rounded-lg border border-blue-800 transition-colors flex items-center gap-1"
-                            >
-                                {syncingFB ? <div className="loader w-3 h-3 border-t-blue-300"></div> : '🔄'} Sync FB
-                            </button>
-                            <button 
-                                onClick={handleSyncThreads} disabled={syncingThreads}
-                                className="bg-pink-900/30 hover:bg-pink-900/50 text-pink-300 text-xs px-3 py-1.5 rounded-lg border border-pink-800 transition-colors flex items-center gap-1"
-                            >
-                                {syncingThreads ? <div className="loader w-3 h-3 border-t-pink-300"></div> : '🔄'} Sync Threads
-                            </button>
-                        </div>
+                        <span className="text-[10px] text-gray-400">數據來源: {Object.keys(platformStats).length} 個平台已同步</span>
+                    </div>
+                    
+                    {/* Sync Buttons Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <button 
+                            onClick={handleSyncFB} disabled={syncingFB}
+                            className={`text-xs px-2 py-2 rounded-lg border transition-colors flex flex-col items-center justify-center gap-1 ${platformStats.fb ? 'bg-blue-900/40 text-blue-300 border-blue-600' : 'bg-dark text-gray-400 border-gray-700 hover:border-blue-500'}`}
+                        >
+                            {syncingFB ? <div className="loader w-3 h-3 border-t-white"></div> : '📘'}
+                            {platformStats.fb ? '已更新 FB' : '同步 FB'}
+                        </button>
+                        <button 
+                            onClick={handleSyncIG} disabled={syncingIG}
+                            className={`text-xs px-2 py-2 rounded-lg border transition-colors flex flex-col items-center justify-center gap-1 ${platformStats.ig ? 'bg-pink-900/40 text-pink-300 border-pink-600' : 'bg-dark text-gray-400 border-gray-700 hover:border-pink-500'}`}
+                        >
+                            {syncingIG ? <div className="loader w-3 h-3 border-t-white"></div> : '📸'}
+                            {platformStats.ig ? '已更新 IG' : '同步 IG'}
+                        </button>
+                        <button 
+                            onClick={handleSyncThreads} disabled={syncingThreads}
+                            className={`text-xs px-2 py-2 rounded-lg border transition-colors flex flex-col items-center justify-center gap-1 ${platformStats.threads ? 'bg-gray-700 text-white border-white' : 'bg-dark text-gray-400 border-gray-700 hover:border-gray-400'}`}
+                        >
+                            {syncingThreads ? <div className="loader w-3 h-3 border-t-white"></div> : '🧵'}
+                            {platformStats.threads ? '已更新 Threads' : '同步 Threads'}
+                        </button>
+                        <button 
+                            onClick={handleSyncYouTube} disabled={syncingYT}
+                            className={`text-xs px-2 py-2 rounded-lg border transition-colors flex flex-col items-center justify-center gap-1 ${platformStats.yt ? 'bg-red-900/40 text-red-300 border-red-600' : 'bg-dark text-gray-400 border-gray-700 hover:border-red-500'}`}
+                        >
+                            {syncingYT ? <div className="loader w-3 h-3 border-t-white"></div> : '▶️'}
+                            {platformStats.yt ? '已更新 YT' : '同步 YT'}
+                        </button>
                     </div>
                     
                     <div><label className="block text-xs text-gray-400 mb-1">顯示暱稱 *</label><input value={card.displayName} onChange={e => setCard({...card, displayName: e.target.value})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white" /></div>
+
+                    {/* Contact Info */}
+                    <div className="bg-dark/50 p-4 rounded-lg border border-gray-600">
+                        <label className="block text-xs text-yellow-400 font-bold mb-3 uppercase tracking-wider">🔒 聯絡方式 (僅解鎖後可見)</label>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-xs text-gray-400 mb-1">Email *</label>
+                                <input value={card.contactInfo?.email || ''} onChange={e => setCard({...card, contactInfo: {...card.contactInfo, email: e.target.value}})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white text-sm" placeholder="必填" />
+                            </div>
+                            <div>
+                                <label className="block text-xs text-gray-400 mb-1">Line ID</label>
+                                <input value={card.contactInfo?.lineId || ''} onChange={e => setCard({...card, contactInfo: {...card.contactInfo, lineId: e.target.value}})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white text-sm" placeholder="選填" />
+                            </div>
+                            <div className="md:col-span-2">
+                                <label className="block text-xs text-gray-400 mb-1">手機號碼</label>
+                                <input value={card.contactInfo?.phone || ''} onChange={e => setCard({...card, contactInfo: {...card.contactInfo, phone: e.target.value}})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white text-sm" placeholder="選填" />
+                            </div>
+                        </div>
+                    </div>
 
                     <div>
                         <label className="block text-xs text-gray-400 mb-1">經營平台 (可複選)</label>
@@ -253,8 +368,8 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
-                        <div><label className="block text-xs text-gray-400 mb-1">粉絲數</label><input type="number" value={card.followersCount} onChange={e => setCard({...card, followersCount: parseInt(e.target.value)})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white" /></div>
-                        <div><label className="block text-xs text-gray-400 mb-1">互動率 (%)</label><input type="number" step="0.1" value={card.engagementRate} onChange={e => setCard({...card, engagementRate: parseFloat(e.target.value)})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white" /></div>
+                        <div><label className="block text-xs text-gray-400 mb-1">總粉絲數 (自動加總)</label><input type="number" value={card.followersCount} disabled className="w-full bg-dark/50 border border-gray-600 rounded p-2 text-gray-400 cursor-not-allowed" /></div>
+                        <div><label className="block text-xs text-gray-400 mb-1">平均互動率 (%)</label><input type="number" step="0.1" value={card.engagementRate} disabled className="w-full bg-dark/50 border border-gray-600 rounded p-2 text-gray-400 cursor-not-allowed" /></div>
                     </div>
 
                     <div>
@@ -272,7 +387,13 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
                         <div className="flex flex-wrap gap-1">{card.tags?.map((t, i) => (<span key={i} className="text-[10px] bg-gray-800 text-gray-300 px-2 py-1 rounded flex items-center gap-1">{t} <button onClick={() => setCard({...card, tags: card.tags?.filter((_, idx) => idx !== i)})} className="hover:text-white">×</button></span>))}</div>
                     </div>
 
-                    <div><label className="block text-xs text-gray-400 mb-1">自我介紹</label><textarea value={card.bio} onChange={e => setCard({...card, bio: e.target.value})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white h-24 resize-none text-sm" /></div>
+                    <div>
+                        <label className="block text-xs text-gray-400 mb-1">自我介紹</label>
+                        <textarea value={card.bio} onChange={e => setCard({...card, bio: e.target.value})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white h-24 resize-none text-sm" />
+                        <p className="text-[10px] text-gray-500 mt-1">
+                            💡 小撇步：若您有經營 TikTok, YouTube, Blog 等尚未串接的平台，建議在此處貼上連結，方便廠商查閱。
+                        </p>
+                    </div>
 
                     <div className="border-t border-gray-700 pt-4">
                         <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={card.isVisible} onChange={e => setCard({...card, isVisible: e.target.checked})} className="w-4 h-4 rounded text-primary" /><span className="text-sm text-white">公開我的名片</span></label>
@@ -311,8 +432,8 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
                         )}
 
                         <div className="grid grid-cols-2 gap-2 mb-4 bg-black/20 p-3 rounded-xl">
-                            <div className="text-center"><p className="text-[10px] text-gray-500 uppercase">粉絲數</p><p className="font-mono text-white font-bold">{card.followersCount?.toLocaleString() || 0}</p></div>
-                            <div className="text-center border-l border-gray-700"><p className="text-[10px] text-gray-500 uppercase">互動率</p><p className="font-mono text-green-400 font-bold">{card.engagementRate || 0}%</p></div>
+                            <div className="text-center"><p className="text-[10px] text-gray-500 uppercase">總粉絲數</p><p className="font-mono text-white font-bold">{card.followersCount?.toLocaleString() || 0}</p></div>
+                            <div className="text-center border-l border-gray-700"><p className="text-[10px] text-gray-500 uppercase">平均互動率</p><p className="font-mono text-green-400 font-bold">{card.engagementRate || 0}%</p></div>
                         </div>
 
                         <div className="space-y-2 mb-6">
@@ -352,7 +473,7 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
                             <p>您即將發佈您的接案名片。請確認您理解以下事項：</p>
                             <ul className="list-disc pl-5 space-y-2">
                                 <li><strong>公開展示：</strong>您填寫的資料將公開於 AutoSocial Connect 平台。</li>
-                                <li><strong>聯絡資訊：</strong>Email 僅在品牌方支付點數後揭露。</li>
+                                <li><strong>聯絡資訊：</strong>Email/Line/電話 僅在品牌方支付點數解鎖後顯示。</li>
                             </ul>
                         </div>
                         <div className="flex gap-3 justify-end">

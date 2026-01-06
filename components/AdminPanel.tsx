@@ -25,6 +25,21 @@ const TAB_NAMES: Record<string, string> = {
     system: '系統設定'
 };
 
+const FIRESTORE_RULES_TEMPLATE = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAdmin() {
+      return request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    match /users/{userId} {
+      allow read, write: if request.auth != null && (request.auth.uid == userId || isAdmin());
+    }
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}`;
+
 const AdminPanel: React.FC<Props> = ({ currentUser }) => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'users' | 'api_monitor' | 'reports' | 'system' | 'keys'>('dashboard');
   
@@ -154,24 +169,36 @@ const AdminPanel: React.FC<Props> = ({ currentUser }) => {
           <div className="max-w-4xl mx-auto p-8 animate-fade-in pt-20">
               <div className="bg-red-900/30 border border-red-500/50 p-8 rounded-2xl text-center">
                   <div className="text-5xl mb-4">❌</div>
-                  <h2 className="text-2xl font-bold text-red-400 mb-2">無法讀取後台資料</h2>
+                  <h2 className="text-2xl font-bold text-red-400 mb-2">後台資料讀取失敗</h2>
                   <p className="text-white mb-6 bg-black/40 p-4 rounded inline-block font-mono text-sm">
                       {dataError}
                   </p>
                   
                   {dataError.includes("Permission Denied") && (
-                      <div className="text-gray-400 text-sm max-w-lg mx-auto text-left space-y-2 mb-6">
-                          <p>💡 <strong>排解建議：</strong></p>
-                          <ul className="list-disc pl-5">
-                              <li>請前往 <a href="https://console.firebase.google.com/" target="_blank" className="text-primary hover:underline">Firebase Console</a> &gt; Firestore Database &gt; Rules。</li>
-                              <li>檢查規則是否允許您的帳號讀取 <code>users</code> 集合。</li>
-                              <li>測試用規則 (不推薦用於正式環境)：<code>allow read, write: if request.auth != null;</code></li>
-                          </ul>
+                      <div className="text-gray-400 text-sm max-w-2xl mx-auto text-left space-y-4 mb-6 bg-black/20 p-6 rounded-xl border border-gray-700">
+                          <p className="flex items-center gap-2 text-yellow-400 font-bold">
+                              <span>💡</span> 解決方案：更新 Firebase 安全規則
+                          </p>
+                          <p>您目前的 Firestore Rules 不允許 Admin 讀取所有會員資料。請複製以下規則，並貼上至 <a href="https://console.firebase.google.com/" target="_blank" className="text-primary hover:underline font-bold">Firebase Console &gt; Firestore Database &gt; Rules</a>。</p>
+                          
+                          <div className="relative">
+                              <textarea 
+                                  readOnly 
+                                  className="w-full h-48 bg-gray-900 text-green-400 font-mono text-xs p-4 rounded border border-gray-600 focus:outline-none"
+                                  value={FIRESTORE_RULES_TEMPLATE}
+                              />
+                              <button 
+                                  onClick={() => navigator.clipboard.writeText(FIRESTORE_RULES_TEMPLATE)}
+                                  className="absolute top-2 right-2 bg-gray-700 hover:bg-gray-600 text-white text-xs px-3 py-1 rounded"
+                              >
+                                  複製代碼
+                              </button>
+                          </div>
                       </div>
                   )}
 
                   <button onClick={loadAllData} className="bg-red-600 hover:bg-red-500 text-white px-6 py-2 rounded-lg font-bold">
-                      再試一次
+                      重試連線
                   </button>
               </div>
           </div>

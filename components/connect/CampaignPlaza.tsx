@@ -23,7 +23,8 @@ const CampaignPlaza: React.FC<Props> = ({ user, onQuotaUpdate }) => {
         requirements: [], 
         category: CONNECT_CATEGORIES[0],
         targetPlatforms: [],
-        acceptedSpecialties: []
+        acceptedSpecialties: [],
+        contactInfo: { email: user?.email || '', lineId: '', phone: '' }
     });
     const [reqInput, setReqInput] = useState('');
 
@@ -50,12 +51,12 @@ const CampaignPlaza: React.FC<Props> = ({ user, onQuotaUpdate }) => {
 
         if (campaign.ownerId === user.user_id) return alert("不能報名自己的案件");
 
-        if (!confirm(`確定要報名「${campaign.brandName}」的合作案嗎？\n\n報名成功後，廠商將會收到您的履歷卡片。`)) return;
+        if (!confirm(`確定要報名「${campaign.brandName}」的合作案嗎？\n\n報名成功後，廠商將會收到您的履歷卡片與聯絡方式。`)) return;
 
         setApplyingId(campaign.id);
         try {
             await ConnectService.applyCampaign(user.user_id, campaign.id);
-            alert("✅ 報名成功！請留意 Email 通知。");
+            alert("✅ 報名成功！請留意 Email 通知。\n\n廠商審核通過後，將會主動聯繫您。");
             if(user) user.connect_applications_used = (user.connect_applications_used || 0) + 1;
         } catch (e: any) {
             alert(`報名失敗: ${e.message}`);
@@ -81,6 +82,7 @@ const CampaignPlaza: React.FC<Props> = ({ user, onQuotaUpdate }) => {
         if (!newCamp.title || !newCamp.budget || !newCamp.description) return alert("請填寫完整資訊 (標題、預算、描述)");
         if (!newCamp.targetPlatforms?.length) return alert("請選擇至少一個發布平台");
         if (!newCamp.acceptedSpecialties?.length) return alert("請選擇至少一種需求形式");
+        if (!newCamp.contactInfo?.email) return alert("請填寫聯絡 Email");
         
         try {
             await ConnectService.createCampaign({
@@ -93,6 +95,7 @@ const CampaignPlaza: React.FC<Props> = ({ user, onQuotaUpdate }) => {
                 acceptedSpecialties: newCamp.acceptedSpecialties || [],
                 targetPlatforms: newCamp.targetPlatforms || [],
                 category: newCamp.category || '其他',
+                contactInfo: newCamp.contactInfo, // Save contact info
                 deadline: Date.now() + 86400000 * 14, // 14 days default
                 quotaRequired: 0,
                 applicantsCount: 0,
@@ -223,6 +226,25 @@ const CampaignPlaza: React.FC<Props> = ({ user, onQuotaUpdate }) => {
                                 <select value={newCamp.category} onChange={e => setNewCamp({...newCamp, category: e.target.value})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white">
                                     {CONNECT_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                                 </select>
+                            </div>
+                        </div>
+
+                        {/* Contact Info - NEW SECTION */}
+                        <div className="bg-dark/50 p-4 rounded-lg border border-gray-600 mb-4">
+                            <label className="block text-xs text-purple-400 font-bold mb-3 uppercase tracking-wider">🔒 品牌聯絡窗口 (僅提供給報名者)</label>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs text-gray-400 mb-1">Email *</label>
+                                    <input value={newCamp.contactInfo?.email || ''} onChange={e => setNewCamp({...newCamp, contactInfo: {...newCamp.contactInfo, email: e.target.value} as any})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white text-sm" placeholder="必填" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs text-gray-400 mb-1">Line ID</label>
+                                    <input value={newCamp.contactInfo?.lineId || ''} onChange={e => setNewCamp({...newCamp, contactInfo: {...newCamp.contactInfo, lineId: e.target.value} as any})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white text-sm" placeholder="選填" />
+                                </div>
+                                <div className="md:col-span-2">
+                                    <label className="block text-xs text-gray-400 mb-1">手機號碼</label>
+                                    <input value={newCamp.contactInfo?.phone || ''} onChange={e => setNewCamp({...newCamp, contactInfo: {...newCamp.contactInfo, phone: e.target.value} as any})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white text-sm" placeholder="選填" />
+                                </div>
                             </div>
                         </div>
 

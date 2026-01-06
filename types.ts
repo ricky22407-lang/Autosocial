@@ -86,6 +86,12 @@ export interface UserProfile {
 }
 
 // Connect Module Types
+export interface ContactDetails {
+    email: string;
+    lineId?: string;
+    phone?: string;
+}
+
 export interface SocialCard {
     id: string; // usually same as userId
     userId: string;
@@ -102,11 +108,7 @@ export interface SocialCard {
     bio: string;
     isBoosted?: boolean;
     boostExpiresAt?: number;
-    contactInfo?: {
-        email: string;
-        lineId?: string;
-        phone?: string;
-    };
+    contactInfo?: ContactDetails;
     portfolio?: {
         imageUrl: string;
         link: string;
@@ -127,6 +129,7 @@ export interface Campaign {
     requirements: string[]; // Custom text requirements
     acceptedSpecialties?: string[]; // New: Structured requirements
     targetPlatforms?: string[]; // New: Target platforms
+    contactInfo?: ContactDetails; // New: Brand Contact Info
     category: string;
     deadline: number;
     quotaRequired: number; // For future use

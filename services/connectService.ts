@@ -77,7 +77,8 @@ export const generateMockTalents = (count: number): SocialCard[] => {
             isVisible: true,
             contactInfo: {
                 email: `user${i}@example.com`,
-                lineId: `line_${i}`
+                lineId: `line_${i}`,
+                phone: `0912-345-${100+i}`
             },
             avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${i}&backgroundColor=b6e3f4`
         };
@@ -100,6 +101,11 @@ export const generateMockCampaigns = (count: number): Campaign[] => {
             requirements: ['IG 追蹤 > 1000', '需公開帳號', '不刪文'],
             acceptedSpecialties,
             targetPlatforms: platforms,
+            contactInfo: {
+                email: `brand_${i}@brand.com`,
+                lineId: `brand_line_${i}`,
+                phone: `02-2345-${1000+i}`
+            },
             category: cat,
             deadline: Date.now() + getRandomInt(3, 30) * 24 * 60 * 60 * 1000,
             quotaRequired: 0,
@@ -112,7 +118,8 @@ export const generateMockCampaigns = (count: number): Campaign[] => {
 
 let mockTalents = generateMockTalents(12);
 let mockCampaigns = generateMockCampaigns(5);
-const unlockedTalents: Set<string> = new Set(); 
+// Map: talentId -> timestamp (for local mock testing of 3-day rule)
+const localUnlockHistory: Map<string, number> = new Map();
 
 // --- SERVICE IMPLEMENTATION ---
 
@@ -236,22 +243,50 @@ export const ConnectService = {
         await db.collection('campaigns').doc(id).delete();
     },
 
-    // 3. ACTIONS
+    // 3. ACTIONS & UNLOCKS (New 3-Day Rule)
     unlockTalentContact: async (userId: string, talentId: string): Promise<boolean> => {
-        unlockedTalents.add(talentId); // Local state for immediate UI
-        
-        if (!isMock) {
-            await db.collection('connect_unlocks').add({
-                userId,
-                talentId,
-                timestamp: Date.now()
-            });
+        if (isMock) {
+            localUnlockHistory.set(talentId, Date.now());
+            return true;
         }
+        
+        await db.collection('connect_unlocks').add({
+            userId,
+            talentId,
+            timestamp: Date.now()
+        });
         return true;
     },
 
-    isUnlocked: (talentId: string): boolean => {
-        return unlockedTalents.has(talentId);
+    // New: Fetch active unlocks for a user
+    getActiveUnlocks: async (userId: string): Promise<{ talentId: string, unlockedAt: number }[]> => {
+        const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+        const validThreshold = Date.now() - THREE_DAYS_MS;
+
+        if (isMock) {
+            const active: { talentId: string, unlockedAt: number }[] = [];
+            localUnlockHistory.forEach((timestamp, tid) => {
+                if (timestamp > validThreshold) active.push({ talentId: tid, unlockedAt: timestamp });
+            });
+            return active;
+        }
+
+        try {
+            // Firestore Query: unlocked by me AND timestamp > threshold
+            const snap = await db.collection('connect_unlocks')
+                .where('userId', '==', userId)
+                .where('timestamp', '>', validThreshold)
+                .orderBy('timestamp', 'desc')
+                .get();
+                
+            return snap.docs.map((d: any) => {
+                const data = d.data();
+                return { talentId: data.talentId, unlockedAt: data.timestamp };
+            });
+        } catch (e: any) {
+            console.error("Get Active Unlocks Failed", e);
+            return [];
+        }
     },
 
     applyCampaign: async (userId: string, campaignId: string): Promise<boolean> => {

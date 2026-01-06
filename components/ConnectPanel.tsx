@@ -38,7 +38,7 @@ const ConnectPanel: React.FC<Props> = ({ settings, user, onQuotaUpdate }) => {
             <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-4">
                 <div>
                     <h2 className="text-3xl font-black text-white tracking-tighter flex items-center gap-3">
-                        <span className="text-yellow-500 text-4xl">🤝</span> 口碑媒合市集
+                        口碑媒合市集
                     </h2>
                     <p className="text-gray-400 text-sm mt-2 font-medium">
                         AutoSocial Connect • 連結品牌與創作者的橋樑
@@ -67,21 +67,21 @@ const ConnectPanel: React.FC<Props> = ({ settings, user, onQuotaUpdate }) => {
                     onClick={() => setActiveTab('talent')}
                     className={`px-6 py-4 font-bold transition-all relative whitespace-nowrap ${activeTab === 'talent' ? 'text-yellow-400' : 'text-gray-500 hover:text-gray-300'}`}
                 >
-                    🕵️ 人才星探 (找網紅)
+                    人才星探 (找網紅)
                     {activeTab === 'talent' && <div className="absolute bottom-0 left-0 w-full h-1 bg-yellow-400 shadow-[0_0_10px_#facc15]"></div>}
                 </button>
                 <button 
                     onClick={() => setActiveTab('campaign')}
                     className={`px-6 py-4 font-bold transition-all relative whitespace-nowrap ${activeTab === 'campaign' ? 'text-purple-400' : 'text-gray-500 hover:text-gray-300'}`}
                 >
-                    📢 接案廣場 (找案子)
+                    接案廣場 (找案子)
                     {activeTab === 'campaign' && <div className="absolute bottom-0 left-0 w-full h-1 bg-purple-400 shadow-[0_0_10px_#a855f7]"></div>}
                 </button>
                 <button 
                     onClick={() => setActiveTab('mycard')}
                     className={`px-6 py-4 font-bold transition-all relative whitespace-nowrap ${activeTab === 'mycard' ? 'text-green-400' : 'text-gray-500 hover:text-gray-300'}`}
                 >
-                    💳 我的接案名片
+                    我的接案名片
                     {activeTab === 'mycard' && <div className="absolute bottom-0 left-0 w-full h-1 bg-green-400 shadow-[0_0_10px_#4ade80]"></div>}
                 </button>
             </div>
@@ -109,7 +109,7 @@ const ConnectPanel: React.FC<Props> = ({ settings, user, onQuotaUpdate }) => {
                         <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-yellow-500 to-red-500"></div>
                         
                         <h3 className="text-2xl font-black text-white mb-6 flex items-center gap-3">
-                            <span className="text-3xl">⚖️</span> 平台免責聲明與使用協議
+                            平台免責聲明與使用協議
                         </h3>
                         
                         <div className="overflow-y-auto pr-2 custom-scrollbar text-sm text-gray-300 space-y-6 leading-relaxed mb-6">
