@@ -148,11 +148,13 @@ const executeOpportunitySearch = async (searchQuery: string, keyword: string): P
                 - **Language**: Summaries in Traditional Chinese.
                 - **Intent Score**: 1-10 (10 = Asking for recommendation).
                 - **URL**: Provide the specific Threads post link if found.
+                - **SEARCH_KEYWORD**: Extract the 2-3 most important keywords from the post (e.g., "iphone 15 case recommendation"). Do NOT include "user asking for".
                 
                 Format each result strictly:
                 BLOCK_START
                 CONTENT: [Summary of the post content]
                 URL: [The full link found in search]
+                SEARCH_KEYWORD: [Concise keywords for manual search]
                 SCORE: [1-10]
                 METRICS: [Optional: 10 replies, 5 likes]
                 BLOCK_END
@@ -197,12 +199,14 @@ const executeOpportunitySearch = async (searchQuery: string, keyword: string): P
             
             const contentMatch = block.match(/CONTENT:\s*(.+)/i);
             const urlMatch = block.match(/URL:\s*(.+)/i);
+            const searchKwMatch = block.match(/SEARCH_KEYWORD:\s*(.+)/i);
             const scoreMatch = block.match(/SCORE:\s*(\d+)/i);
             const metricsMatch = block.match(/METRICS:\s*(.+)/i);
 
             if (contentMatch) {
                 const content = contentMatch[1].trim();
                 const rawUrlLine = urlMatch ? urlMatch[1].trim() : '';
+                const searchKeyword = searchKwMatch ? searchKwMatch[1].trim() : content.substring(0, 15);
                 
                 let finalUrl = '';
                 
@@ -219,9 +223,9 @@ const executeOpportunitySearch = async (searchQuery: string, keyword: string): P
                 if (id) {
                     finalUrl = `https://www.threads.net/post/${id}`;
                 } else {
-                    // Final Fallback: Search Link (Better than a broken 404 link)
-                    const cleanQuery = content.substring(0, 30).replace(/[^\w\s\u4e00-\u9fa5]/g, ' ').trim();
-                    finalUrl = `https://www.threads.net/search?q=${encodeURIComponent(cleanQuery)}`;
+                    // Final Fallback: Search Link using EXTRACTED KEYWORDS (not full summary)
+                    // This fixes the "Search page shows AI conclusion" issue
+                    finalUrl = `https://www.threads.net/search?q=${encodeURIComponent(searchKeyword)}`;
                 }
 
                 // Metrics Parsing
