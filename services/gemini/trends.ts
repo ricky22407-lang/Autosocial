@@ -112,48 +112,31 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
 };
 
 // --- Smart Link Logic ---
-// Robustly extract the Threads Post ID (Shortcode) to bypass Google redirects.
-// Matches:
-// - https://www.threads.net/@user/post/Cxyz123
-// - https://www.threads.net/post/Cxyz123?xmt=...
-// - https://google.com/url?q=https://threads.net/post/Cxyz123&...
 const extractThreadsId = (url: string): string | null => {
     if (!url) return null;
-    
     try {
-        // Decode first to handle google redirects or encoded chars
         const decoded = decodeURIComponent(url);
-        
-        // Regex: Look for "/post/" followed by the ID (alphanumeric + underscore + dash)
-        // This regex ignores everything before "/post/" so it works with or without username
         const match = decoded.match(/\/post\/([a-zA-Z0-9_-]+)/);
-        
         if (match && match[1]) {
             return match[1];
         }
-    } catch (e) {
-        // Ignore decode errors
-    }
+    } catch (e) {}
     return null;
 };
 
 export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
     // --- Query Optimization Strategy (Taiwanese Social Media Context) ---
     
-    // 1. Negative Keywords (Ads/Spam Firewall): 
-    // Exclude common marketing terms to filter out 90% of game ads and official promotions.
-    const excludeKeywords = "-抽獎 -禮包 -虛寶 -兌換碼 -公測 -手遊 -官方 -預約 -事前 -下載 -點擊 -連結 -主頁 -限時 -免費領取 -活動 -得獎 -名單";
+    // 1. Query Exclusions (Search Engine Level):
+    // Only exclude the most obvious spam (casino/game hacks) to avoid killing legit topics.
+    // REMOVED: -活動 (kills "Gift Exchange Activity"), -名單 (kills "Wishlist"), -連結 (kills "Link in bio" discussions)
+    const searchExclusions = "-娛樂城 -百家樂 -外掛 -代儲 -虛寶"; 
     
     // 2. Intent Keywords (Conversational Signals):
-    // Use very specific Taiwanese online slang for asking questions/advice.
-    // Core Asking: 求推薦, 請問, 請益, 想問, 求問
-    // Opinion: 好用嗎, 評價, 心得, 避雷, 雷嗎, 推嗎, 值得嗎
-    // Decision: 挑選, 猶豫, 選擇障礙, 比較
-    // Community: 大家, 各位, 脆友, 有人知道, 有沒有人
-    // SOS: 怎麼辦, 求救
-    const intentKeywords = `("求推薦" OR "請問" OR "請益" OR "想問" OR "求問" OR "好用嗎" OR "雷嗎" OR "評價" OR "心得" OR "避雷" OR "推嗎" OR "值得嗎" OR "挑選" OR "猶豫" OR "選擇障礙" OR "大家" OR "脆友" OR "有沒有人")`;
+    // Simplified list to ensure broader matching, then let AI filter.
+    const intentKeywords = `("求推薦" OR "請問" OR "請益" OR "想問" OR "求問" OR "好用嗎" OR "雷嗎" OR "評價" OR "心得" OR "避雷" OR "推嗎" OR "值得嗎" OR "挑選" OR "猶豫" OR "選擇障礙" OR "大家" OR "脆友")`;
     
-    const searchQuery = `site:threads.net "${keyword}" ${intentKeywords} ${excludeKeywords}`; 
+    const searchQuery = `site:threads.net "${keyword}" ${intentKeywords} ${searchExclusions}`; 
     
     try {
         const response = await callBackend('generateContent', {
@@ -165,15 +148,15 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
                 [Tool Instruction]
                 Use Google Search to find relevant Threads posts. Query: '${searchQuery}'
                 
-                [STRICT FILTERING RULES]
-                You act as a spam filter. DISCARD any result that is:
-                1. 🚫 Official Promotion: Contains "立即下載", "點擊連結", "活動開始".
-                2. 🚫 Game/App Ads: Mentions "伺服器", "虛寶", "儲值".
-                3. 🚫 Giveaway/Lottery: Mentions "抽獎", "留言送".
-                4. 🚫 News/Media Accounts: Just reporting news without personal question.
+                [AI FILTERING RULES]
+                After getting search results, YOU (the AI) must filter them based on these rules:
+                1. 🚫 **Discard** obvious Game Ads (e.g. "立即下載", "首儲優惠", "伺服器維護").
+                2. 🚫 **Discard** pure Lottery/Giveaway spam (e.g. "留言抽iPhone", "分享免費送").
+                3. ✅ **KEEP** legitimate events (e.g. "聖誕交換禮物活動", "團購").
+                4. ✅ **KEEP** requests for help/links (e.g. "求購買連結", "求名單").
                 
-                [Target Content - "The Real Human"]
-                Only keep posts where a REAL PERSON is expressing:
+                [Target Content]
+                Focus on posts where a REAL PERSON is expressing:
                 - ❓ Confusion/Indecision ("猶豫要買哪一個", "選擇障礙").
                 - 🆘 Asking for Help ("求推薦", "有沒有人用過").
                 - ⚠️ Warning/Rant ("避雷", "千萬不要買").
@@ -196,7 +179,6 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
             `,
             config: { 
                 tools: [{ googleSearch: {} }],
-                // High safety threshold to prevent filtering valid social content (rants/complaints)
                 safetySettings: [
                     { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
                     { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
@@ -230,17 +212,16 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
                 const shortcode = extractThreadsId(rawUrl);
 
                 if (shortcode) {
-                    // ✅ Found ID! Reconstruct the cleanest official link.
                     finalUrl = `https://www.threads.net/post/${shortcode}`;
                 } else {
-                    // ⚠️ No ID found. Fallback to a search link.
+                    // Fallback to search link if ID extraction fails
                     const cleanQuery = content.substring(0, 40).replace(/[^\w\s\u4e00-\u9fa5]/g, ' ').trim();
                     finalUrl = `https://www.threads.net/search?q=${encodeURIComponent(cleanQuery)}`;
                 }
 
                 results.push({
-                    content: content, // Guaranteed Traditional Chinese by Prompt
-                    url: finalUrl,    // Guaranteed to be Clean ID Link or Search Fallback
+                    content: content,
+                    url: finalUrl,
                     reasoning: '',
                     intentScore: scoreMatch ? parseInt(scoreMatch[1]) : 5,
                     replyCount: replyMatch ? replyMatch[1].trim() : undefined,
