@@ -21,7 +21,24 @@ export const CONNECT_CATEGORIES = [
     '生活日常 (Lifestyle)'
 ];
 
-const SPECIALTIES = ["短影音", "生活圖文", "爆文", "開箱評測", "攝影"];
+export const CONNECT_SPECIALTIES = [
+    "短影音 (Reels/TikTok)",
+    "深度開箱評測",
+    "生活圖文",
+    "知識懶人包",
+    "爆文",
+    "高質感攝影",
+    "直播帶貨"
+];
+
+export const CONNECT_PLATFORMS = [
+    "Facebook",
+    "Instagram",
+    "Threads",
+    "YouTube",
+    "TikTok",
+    "Blog/Website"
+];
 
 // --- MOCK DATA (Legacy & Fallback) ---
 const NAMES = ['Alice', 'Bob', 'Charlie', 'David', 'Eva', 'Frank', 'Grace', 'Hannah', 'Ivy', 'Jack'];
@@ -29,6 +46,10 @@ const TAGS = ['#吃貨', '#探店', '#開箱', '#穿搭', '#日常', '#貓奴', 
 
 const getRandomInt = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
 const getRandomItem = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+const getRandomSubset = <T>(arr: T[], max: number): T[] => {
+    const shuffled = [...arr].sort(() => 0.5 - Math.random());
+    return shuffled.slice(0, getRandomInt(1, max));
+};
 
 export const generateMockTalents = (count: number): SocialCard[] => {
     return Array.from({ length: count }).map((_, i) => {
@@ -36,6 +57,8 @@ export const generateMockTalents = (count: number): SocialCard[] => {
         const role = isBoosted ? 'business' : (Math.random() > 0.5 ? 'pro' : 'starter');
         const category = getRandomItem(CONNECT_CATEGORIES);
         const tags = [category, getRandomItem(TAGS), getRandomItem(TAGS)];
+        const platforms = getRandomSubset(CONNECT_PLATFORMS, 3);
+        const specialties = getRandomSubset(CONNECT_SPECIALTIES, 3);
         
         return {
             id: `talent_${i}`,
@@ -44,7 +67,8 @@ export const generateMockTalents = (count: number): SocialCard[] => {
             role: role as UserRole,
             tags,
             categories: [category],
-            specialties: [getRandomItem(SPECIALTIES), getRandomItem(SPECIALTIES)],
+            specialties,
+            platforms,
             followersCount: getRandomInt(500, 50000),
             engagementRate: parseFloat((Math.random() * 5 + 1).toFixed(2)),
             priceRange: `${getRandomInt(5, 20) * 100} - ${getRandomInt(30, 80) * 100}`,
@@ -63,6 +87,9 @@ export const generateMockTalents = (count: number): SocialCard[] => {
 export const generateMockCampaigns = (count: number): Campaign[] => {
     return Array.from({ length: count }).map((_, i) => {
         const cat = getRandomItem(CONNECT_CATEGORIES);
+        const platforms = getRandomSubset(CONNECT_PLATFORMS, 2);
+        const acceptedSpecialties = getRandomSubset(CONNECT_SPECIALTIES, 2);
+        
         return {
             id: `camp_${i}`,
             ownerId: `brand_${i}`,
@@ -71,6 +98,8 @@ export const generateMockCampaigns = (count: number): Campaign[] => {
             description: `我們是知名${cat.split(' ')[0]}品牌，正在尋找熱愛分享的你！只要拍攝 3 張照片 + 200 字心得，即可獲得正貨一組及稿費。`,
             budget: `$${getRandomInt(1, 5) * 1000} / 篇`,
             requirements: ['IG 追蹤 > 1000', '需公開帳號', '不刪文'],
+            acceptedSpecialties,
+            targetPlatforms: platforms,
             category: cat,
             deadline: Date.now() + getRandomInt(3, 30) * 24 * 60 * 60 * 1000,
             quotaRequired: 0,
@@ -89,7 +118,7 @@ const unlockedTalents: Set<string> = new Set();
 
 export const ConnectService = {
     // 1. TALENTS / SOCIAL CARDS
-    getTalents: async (filterCategory?: string): Promise<SocialCard[]> => {
+    getTalents: async (filterCategory?: string, filterPlatform?: string): Promise<SocialCard[]> => {
         if (isMock) {
             await new Promise(r => setTimeout(r, 500)); 
             let data = [...mockTalents];
@@ -97,6 +126,9 @@ export const ConnectService = {
             data = data.filter(t => t.isVisible);
             if (filterCategory && filterCategory !== '全部') {
                 data = data.filter(t => t.categories.includes(filterCategory));
+            }
+            if (filterPlatform && filterPlatform !== '全部') {
+                data = data.filter(t => t.platforms?.includes(filterPlatform));
             }
             return data.sort((a, b) => {
                 if (a.isBoosted && !b.isBoosted) return -1;
@@ -109,6 +141,9 @@ export const ConnectService = {
             let query = db.collection('connect_profiles').where('isVisible', '==', true);
             if (filterCategory && filterCategory !== '全部') {
                 query = query.where('categories', 'array-contains', filterCategory);
+            }
+            if (filterPlatform && filterPlatform !== '全部') {
+                query = query.where('platforms', 'array-contains', filterPlatform);
             }
             
             const snap = await query.get();
@@ -151,7 +186,6 @@ export const ConnectService = {
             else mockTalents.unshift(card);
             return;
         }
-        // This is the write operation that triggers 'permission-denied' if rules are missing
         await db.collection('connect_profiles').doc(card.userId).set({
             ...card,
             updatedAt: Date.now()
@@ -247,13 +281,19 @@ export const ConnectService = {
     },
     
     boostProfile: async (userId: string): Promise<boolean> => {
+        // Boost for 10 days
+        const DURATION = 10 * 24 * 60 * 60 * 1000;
+        
         if (isMock) {
             const t = mockTalents.find(t => t.userId === userId);
-            if(t) t.isBoosted = true;
+            if(t) {
+                t.isBoosted = true;
+                t.boostExpiresAt = Date.now() + DURATION;
+            }
             return true;
         }
         
-        const expiresAt = Date.now() + 5 * 24 * 60 * 60 * 1000; // 5 days
+        const expiresAt = Date.now() + DURATION;
         await db.collection('connect_profiles').doc(userId).update({
             isBoosted: true,
             boostExpiresAt: expiresAt

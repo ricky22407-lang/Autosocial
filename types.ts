@@ -95,6 +95,7 @@ export interface SocialCard {
     tags: string[]; // e.g. "Foodie", "Travel"
     categories: string[]; // e.g. "美食", "旅遊"
     specialties?: string[]; // New: 擅長形式 (Short Video, Blog, etc.)
+    platforms?: string[]; // New: Operating Platforms
     followersCount: number;
     engagementRate: number;
     priceRange: string; // e.g. "500 - 1,500"
@@ -123,7 +124,9 @@ export interface Campaign {
     title: string;
     description: string;
     budget: string;
-    requirements: string[];
+    requirements: string[]; // Custom text requirements
+    acceptedSpecialties?: string[]; // New: Structured requirements
+    targetPlatforms?: string[]; // New: Target platforms
     category: string;
     deadline: number;
     quotaRequired: number; // For future use
