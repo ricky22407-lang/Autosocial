@@ -111,22 +111,23 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
   return shuffleArray(uniqueTopics).slice(0, requestedCount);
 };
 
-// --- Smart Link Logic ---
-// 暴力抓取 ID：只要字串中有類似 Threads ID (11碼) 的結構，就直接抓出來重組
+// --- Strict ID Extraction Logic ---
+// 只抓取 /post/ 或 /t/ 後面跟著的 ID，並且排除 ? 或 & 之後的參數
 const extractThreadsIdStrict = (text: string): string | null => {
     if (!text) return null;
-    
-    // 1. Decode URL encoded chars just in case
     let decoded = text;
     try { decoded = decodeURIComponent(text); } catch (e) {}
 
-    // 2. Regex for standard patterns:
-    // Threads IDs are typically 11 chars (base64url style)
-    // Matches: /post/AbCdEfGhIjK or /t/AbCdEfGhIjK
-    const match = decoded.match(/(?:post|t)\/([A-Za-z0-9_-]{11})/);
+    // Regex Explanation:
+    // threads.net/           -> Domain
+    // .*                     -> Any path (e.g. @username/)
+    // (?:\/post\/|\/t\/)     -> Match either /post/ or /t/
+    // ([A-Za-z0-9_-]{5,})    -> Capture the ID (at least 5 chars, usually 11)
+    const match = decoded.match(/threads\.net\/.*(?:\/post\/|\/t\/)([A-Za-z0-9_-]{5,})/i);
     
     if (match && match[1]) {
-        return match[1];
+        // Double safety: split by query params delimiters just in case regex leaked
+        return match[1].split(/[?&/]/)[0];
     }
     return null;
 };
@@ -142,16 +143,11 @@ const executeOpportunitySearch = async (searchQuery: string, keyword: string): P
                 [Tool Instruction]
                 Perform a Google Search for: '${searchQuery}'
                 
-                [FILTERING]
-                - **Do NOT be too strict.**
-                - List any relevant Threads post found in the search results.
-                - Prefer questions or discussions, but general relevant posts are acceptable if no questions found.
-                - Exclude explicit ads if possible.
-                
                 [Output Requirement]
                 - Extract up to 8 distinct posts.
                 - **Language**: Summaries in Traditional Chinese.
-                - **Intent Score**: 1-10 (10 = Asking for recommendation, 1 = Just sharing).
+                - **Intent Score**: 1-10 (10 = Asking for recommendation).
+                - **URL**: Provide the specific Threads post link if found.
                 
                 Format each result strictly:
                 BLOCK_START
@@ -175,21 +171,22 @@ const executeOpportunitySearch = async (searchQuery: string, keyword: string): P
         const rawText = response.text || '';
         console.log(`🔍 Search [${searchQuery}] Raw Length:`, rawText.length); 
         
-        // --- 1. Grounding Metadata Rescue Pool ---
-        // Collect all valid post links from Google Search raw data
-        const rescuePool: string[] = [];
+        // --- 1. Grounding Metadata Rescue Pool (Source of Truth) ---
+        // Iterate through Google Search results to find REAL post IDs
+        const validIdsPool: string[] = [];
+        
         if (response.groundingMetadata?.groundingChunks) {
             response.groundingMetadata.groundingChunks.forEach((chunk: any) => {
                 const uri = chunk.web?.uri;
                 if (uri && uri.includes('threads.net')) {
-                    // Check if it's a post link (has ID)
-                    if (extractThreadsIdStrict(uri)) {
-                        rescuePool.push(uri);
+                    const id = extractThreadsIdStrict(uri);
+                    if (id) {
+                        validIdsPool.push(id);
                     }
                 }
             });
         }
-        console.log("🔗 Rescue Pool Size:", rescuePool.length);
+        console.log("🔗 Verified ID Pool:", validIdsPool);
 
         const results: OpportunityPost[] = [];
         const blocks = rawText.split(/BLOCK_START/i);
@@ -209,33 +206,21 @@ const executeOpportunitySearch = async (searchQuery: string, keyword: string): P
                 
                 let finalUrl = '';
                 
-                // Strategy 1: Hunt for ID in the AI provided text line
+                // Priority 1: Check if AI provided URL contains a valid ID
                 let id = extractThreadsIdStrict(rawUrlLine);
                 
-                // Strategy 2: If no ID, maybe AI put the link in the Content?
-                if (!id) id = extractThreadsIdStrict(content);
-
-                // Strategy 3: Rescue from Pool (The most reliable fallback)
-                if (!id && poolIndex < rescuePool.length) {
-                    const rescueUrl = rescuePool[poolIndex];
-                    id = extractThreadsIdStrict(rescueUrl);
-                    // If we found an ID in pool, use it. If not, just use the pool URL raw.
-                    if (id) {
-                        // Consumed this pool item
-                        poolIndex++; 
-                    } else {
-                        // Should be caught by extractThreadsIdStrict check during pool construction, but just in case
-                        finalUrl = rescueUrl;
-                        poolIndex++;
-                    }
+                // Priority 2: Use an ID from the Verified Pool (Google Search Results)
+                if (!id && poolIndex < validIdsPool.length) {
+                    id = validIdsPool[poolIndex];
+                    poolIndex++; 
                 }
 
                 // Construct Clean URL if ID found
                 if (id) {
                     finalUrl = `https://www.threads.net/post/${id}`;
-                } else if (!finalUrl) {
-                    // Final Fallback: Search Link
-                    const cleanQuery = content.substring(0, 40).replace(/[^\w\s\u4e00-\u9fa5]/g, ' ').trim();
+                } else {
+                    // Final Fallback: Search Link (Better than a broken 404 link)
+                    const cleanQuery = content.substring(0, 30).replace(/[^\w\s\u4e00-\u9fa5]/g, ' ').trim();
                     finalUrl = `https://www.threads.net/search?q=${encodeURIComponent(cleanQuery)}`;
                 }
 
@@ -274,7 +259,6 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
     const afterDate = new Date(Date.now() - thirtyDaysMs).toISOString().split('T')[0];
 
     // Stage 1: Strict (Site + Date)
-    // Relaxed Prompt inside executeOpportunitySearch handles the rest
     console.log("🚀 Opportunity Search Stage 1: Site + Date");
     let results = await executeOpportunitySearch(`site:threads.net "${keyword}" after:${afterDate}`, keyword);
 
