@@ -125,54 +125,47 @@ const extractThreadsId = (url: string): string | null => {
 };
 
 export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
-    // --- Query Optimization Strategy (Taiwanese Social Media Context) ---
+    // --- Query Optimization Strategy (Simplified for Maximum Recall) ---
     
-    // 1. Query Exclusions (Search Engine Level):
-    // Only exclude the most obvious spam (casino/game hacks) to avoid killing legit topics.
-    // REMOVED: -活動 (kills "Gift Exchange Activity"), -名單 (kills "Wishlist"), -連結 (kills "Link in bio" discussions)
-    const searchExclusions = "-娛樂城 -百家樂 -外掛 -代儲 -虛寶"; 
+    // 1. Minimal Intent Keywords:
+    // Broadened to include "sharing" and "discussion", not just "asking".
+    // This helps catch "Gift ideas sharing" posts which are also opportunities.
+    const intentKeywords = `(討論 OR 推薦 OR 心得 OR 請問 OR 分享)`;
     
-    // 2. Intent Keywords (Conversational Signals):
-    // Simplified list to ensure broader matching, then let AI filter.
-    const intentKeywords = `("求推薦" OR "請問" OR "請益" OR "想問" OR "求問" OR "好用嗎" OR "雷嗎" OR "評價" OR "心得" OR "避雷" OR "推嗎" OR "值得嗎" OR "挑選" OR "猶豫" OR "選擇障礙" OR "大家" OR "脆友")`;
+    // 2. NO Negative Keywords in Search Query:
+    // Google search excludes aggressively. If a post says "No gambling allowed", 
+    // a query like "-gambling" might exclude it. We let AI filter spam instead.
     
-    const searchQuery = `site:threads.net "${keyword}" ${intentKeywords} ${searchExclusions}`; 
+    const searchQuery = `site:threads.net "${keyword}" ${intentKeywords}`; 
     
     try {
         const response = await callBackend('generateContent', {
             model: 'gemini-2.5-flash', 
             contents: `
                 Role: Social Media Scout (Taiwan).
-                Task: Find genuine, recent user discussions on Threads about: "${keyword}".
+                Task: Find genuine user discussions on Threads about: "${keyword}".
                 
                 [Tool Instruction]
                 Use Google Search to find relevant Threads posts. Query: '${searchQuery}'
                 
-                [AI FILTERING RULES]
-                After getting search results, YOU (the AI) must filter them based on these rules:
-                1. 🚫 **Discard** obvious Game Ads (e.g. "立即下載", "首儲優惠", "伺服器維護").
-                2. 🚫 **Discard** pure Lottery/Giveaway spam (e.g. "留言抽iPhone", "分享免費送").
-                3. ✅ **KEEP** legitimate events (e.g. "聖誕交換禮物活動", "團購").
-                4. ✅ **KEEP** requests for help/links (e.g. "求購買連結", "求名單").
+                [AI FILTERING LOGIC]
+                Scan the search results and select the best 10 posts based on these priorities:
                 
-                [Target Content]
-                Focus on posts where a REAL PERSON is expressing:
-                - ❓ Confusion/Indecision ("猶豫要買哪一個", "選擇障礙").
-                - 🆘 Asking for Help ("求推薦", "有沒有人用過").
-                - ⚠️ Warning/Rant ("避雷", "千萬不要買").
-                - ❤️ Sharing Experience ("心得分享", "意外好用").
+                1. ✅ **Genuine Human Discussion**: Prioritize real people asking questions, sharing experiences, or discussing the topic.
+                2. ✅ **Broad Relevance**: If exact "buying questions" are scarce, include "sharing" or "unboxing" posts (e.g., "This Christmas gift is great").
+                3. 🚫 **Spam Filter**: Exclude *obvious* casino/gambling bots or pure copy-paste game ads. (Official brand posts are okay if they have user comments/discussion).
                 
                 [Output Requirement]
-                1. Find 10 distinct, high-quality discussion posts.
-                2. **IMPORTANT**: Extract the URL correctly (look for threads.net/post/...).
-                3. **LANGUAGE**: The "CONTENT" summary must be in **Traditional Chinese (繁體中文)**.
+                1. Find up to 10 distinct posts.
+                2. **IMPORTANT**: Extract the URL correctly.
+                3. **LANGUAGE**: Summary must be in **Traditional Chinese**.
                 
                 Format each result strictly as a block:
                 
                 BLOCK_START
-                CONTENT: [Summary of the user's specific question or struggle in Traditional Chinese]
-                URL: [The full link found]
-                SCORE: [1-10 Intent Score (10 = High purchase intent / Urgent need)]
+                CONTENT: [Summary of the post]
+                URL: [The full link]
+                SCORE: [1-10 Relevance Score]
                 REPLY_COUNT: [Number or N/A]
                 LIKE_COUNT: [Number or N/A]
                 BLOCK_END
