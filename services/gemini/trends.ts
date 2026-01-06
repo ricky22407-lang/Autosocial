@@ -124,27 +124,10 @@ const extractThreadsId = (url: string): string | null => {
     return null;
 };
 
-export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
-    // --- Query Optimization Strategy (Funnel 2.0) ---
-    // User Complaint: Search returns no results.
-    // Root Cause: Search string too complex for Search API strict matching.
-    // Solution:
-    // 1. Broad Retrieval: Search only Keyword + Site + Date.
-    // 2. Strict Filtering: Let AI LLM filter for "Intent Keywords" from the broader set.
-    
-    // 1. Calculate Date (1 Month Ago)
-    const dateObj = new Date();
-    dateObj.setMonth(dateObj.getMonth() - 1);
-    const afterDate = dateObj.toISOString().split('T')[0];
-
-    // 2. Broad Query (Retrieval Layer)
-    // We REMOVED the complex (OR OR OR) list here to ensure we get *some* results first.
-    // We add "Threads" explicitly to text to help grounding.
-    const searchQuery = `site:threads.net "${keyword}" after:${afterDate}`; 
-    
-    // 3. Intent Keywords (Filtering Layer - Passed to System Instruction)
+// Internal Helper for AI Execution
+const executeOpportunitySearch = async (searchQuery: string, keyword: string): Promise<OpportunityPost[]> => {
     const intentList = ["推薦", "請益", "求救", "預算", "尋找", "真實", "口袋名單", "清單", "好用嗎"];
-
+    
     try {
         const response = await callBackend('generateContent', {
             model: 'gemini-2.5-flash', 
@@ -154,16 +137,15 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
                 [Tool Instruction]
                 Perform a Google Search for: '${searchQuery}'
                 
-                [AI SEMANTIC FILTERING - STRICT]
+                [AI SEMANTIC FILTERING]
                 You have search results. Now filter them.
-                A result is a VALID OPPORTUNITY if and only if:
-                1. It is from Threads.
+                A result is a VALID OPPORTUNITY if:
+                1. It is from Threads.net (or relevant discussion).
                 2. It is relevant to "${keyword}".
-                3. It contains at least one of these intents: ${intentList.join(', ')}.
-                4. It is NOT a clear advertisement or bot spam.
+                3. It implies a user question, discussion, or buying intent.
                 
                 [Output Requirement]
-                - Extract 5-10 distinct posts that match the above criteria.
+                - Extract up to 8 distinct posts.
                 - **Language**: Summaries in Traditional Chinese.
                 - **Intent Score**: 1-10 (10 = User is begging for a recommendation).
                 
@@ -186,11 +168,8 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
         });
 
         const rawText = response.text || '';
-        console.log("🔍 Threads Search Raw Length:", rawText.length); 
+        console.log(`🔍 Search [${searchQuery}] Raw Length:`, rawText.length); 
         
-        // Debug: Log the first 100 chars to see if it's an error message
-        if (rawText.length < 500) console.log("🔍 Raw Snippet:", rawText.substring(0, 100));
-
         const results: OpportunityPost[] = [];
         const blocks = rawText.split(/BLOCK_START/i);
 
@@ -205,14 +184,14 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
                 const content = contentMatch[1].trim();
                 const rawUrl = urlMatch ? urlMatch[1].trim() : '';
                 
-                // --- SMART URL RECONSTRUCTION ---
                 let finalUrl = '';
                 const shortcode = extractThreadsId(rawUrl);
 
                 if (shortcode) {
                     finalUrl = `https://www.threads.net/post/${shortcode}`;
+                } else if (rawUrl.includes('threads.net')) {
+                    finalUrl = rawUrl;
                 } else {
-                    // Fallback to search link if ID extraction fails
                     const cleanQuery = content.substring(0, 40).replace(/[^\w\s\u4e00-\u9fa5]/g, ' ').trim();
                     finalUrl = `https://www.threads.net/search?q=${encodeURIComponent(cleanQuery)}`;
                 }
@@ -227,22 +206,40 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
                 });
             }
         }
-
-        // --- FALLBACK: If Strict Search yielded 0 results, try broader search (removing date) ---
-        // This addresses the user frustration of "No Results" by at least showing something relevant, even if slightly older.
-        if (results.length === 0) {
-             console.log("⚠️ Strict search yielded 0 results. Attempting fallback (No Date Limit)...");
-             // Recursively call? No, too complex. Just return empty or handle UI side.
-             // Ideally we'd do a second call here, but for now let's just return empty and let UI handle "No Result" message.
-             // Or, we can modify the query in the first place? No, user required strict date.
-             // Returning empty is technically correct per spec, but bad UX.
-             // Let's assume the simplified query fixed the "0 results" issue caused by complexity.
-        }
-
-        return results.slice(0, 10);
-
-    } catch (e: any) {
-        console.error("Opportunity search failed", e);
-        return []; 
+        return results;
+    } catch (e) {
+        console.error("Execute search failed:", e);
+        return [];
     }
+};
+
+export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
+    // --- Query Optimization Strategy (Multi-Stage Fallback) ---
+    // Problem: Strict search (date + site) often returns 0 results due to indexing lag or bad date calculation.
+    // Solution: Try strict -> Try moderate -> Try broad.
+    
+    // 1. Calculate Date (30 Days Ago) using Timestamp Math (Safer than setMonth)
+    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+    const afterDate = new Date(Date.now() - thirtyDaysMs).toISOString().split('T')[0];
+
+    // Stage 1: Strict (Site + Date)
+    // "site:threads.net {keyword} after:YYYY-MM-DD"
+    console.log("🚀 Opportunity Search Stage 1: Strict");
+    let results = await executeOpportunitySearch(`site:threads.net ${keyword} after:${afterDate}`, keyword);
+
+    if (results.length === 0) {
+        // Stage 2: Moderate (Site only)
+        // "site:threads.net {keyword}"
+        console.log("⚠️ Stage 1 Empty. Retrying Stage 2: Moderate (No Date)...");
+        results = await executeOpportunitySearch(`site:threads.net ${keyword}`, keyword);
+    }
+
+    if (results.length === 0) {
+        // Stage 3: Broad (Keyword + "threads")
+        // "{keyword} threads" -> Relies on Google's relevance matching
+        console.log("⚠️ Stage 2 Empty. Retrying Stage 3: Broad (Keyword + Context)...");
+        results = await executeOpportunitySearch(`${keyword} threads`, keyword);
+    }
+
+    return results.slice(0, 10);
 };
