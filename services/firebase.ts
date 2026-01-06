@@ -17,21 +17,21 @@ const dummyAuth = {
         cb(null); // Render as logged out
         return () => {}; 
     },
-    signInWithEmailAndPassword: () => Promise.reject(new Error("系統錯誤：Firebase 環境變數未設定 (Missing Config)")),
-    createUserWithEmailAndPassword: () => Promise.reject(new Error("系統錯誤：Firebase 環境變數未設定 (Missing Config)")),
+    signInWithEmailAndPassword: () => Promise.reject(new Error("系統錯誤：Firebase 環境變數未設定 (Mock Mode Active)")),
+    createUserWithEmailAndPassword: () => Promise.reject(new Error("系統錯誤：Firebase 環境變數未設定 (Mock Mode Active)")),
     signOut: () => Promise.resolve(),
     sendPasswordResetEmail: () => Promise.reject(new Error("Missing Config"))
 };
 
 const createDummyChain = () => ({
     doc: () => ({
-        get: () => Promise.reject(new Error("DB Config Missing - Check Env Vars")),
-        set: () => Promise.reject(new Error("DB Config Missing - Check Env Vars")),
-        update: () => Promise.reject(new Error("DB Config Missing - Check Env Vars")),
-        delete: () => Promise.reject(new Error("DB Config Missing - Check Env Vars")),
+        get: () => Promise.reject(new Error("DB Config Missing (Mock Mode)")),
+        set: () => Promise.reject(new Error("DB Config Missing (Mock Mode)")),
+        update: () => Promise.reject(new Error("DB Config Missing (Mock Mode)")),
+        delete: () => Promise.reject(new Error("DB Config Missing (Mock Mode)")),
         collection: createDummyChain
     }),
-    add: () => Promise.reject(new Error("DB Config Missing - Check Env Vars")),
+    add: () => Promise.reject(new Error("DB Config Missing (Mock Mode)")),
     where: () => ({
         orderBy: () => ({
             limit: () => ({ get: () => Promise.resolve({ empty: true, docs: [] }) }),
@@ -45,7 +45,7 @@ const createDummyChain = () => ({
 
 const dummyDb = {
     collection: createDummyChain,
-    runTransaction: () => Promise.reject(new Error("DB Config Missing - Check Env Vars")),
+    runTransaction: () => Promise.reject(new Error("DB Config Missing (Mock Mode)")),
     batch: () => ({ update: () => {}, delete: () => {}, commit: () => Promise.reject(new Error("DB Config Missing")) })
 };
 
@@ -98,14 +98,14 @@ let auth: any = dummyAuth;
 let db: any = dummyDb;
 let firebase: any = dummyFirebase;
 
-// FORCE REAL MODE: Strictly disable 'isMock' for SaaS production.
-let isMock = false; 
+const hasConfig = !!firebaseConfig.apiKey && !!firebaseConfig.projectId && firebaseConfig.apiKey !== 'undefined';
+
+// Auto-detect mode: If config is missing, force Mock Mode to allow Preview to work
+let isMock = !hasConfig; 
 let isFirebaseReady = false; // Status Flag
 let connectionError = "";
 
-const hasConfig = !!firebaseConfig.apiKey && !!firebaseConfig.projectId && firebaseConfig.apiKey !== 'undefined';
-
-if (typeof window !== 'undefined' && window.firebase && hasConfig) {
+if (hasConfig && typeof window !== 'undefined' && window.firebase) {
   try {
       firebase = window.firebase;
       if (!firebase.apps.length) {
@@ -116,26 +116,20 @@ if (typeof window !== 'undefined' && window.firebase && hasConfig) {
       auth = firebase.auth();
       db = firebase.firestore();
       isFirebaseReady = true;
+      isMock = false; // Ensure real mode is active if config exists
       console.log("🔥 Firebase Initialized (Global CDN) - Connection Ready");
   } catch (e: any) {
-      console.error("❌ Firebase Init Error:", e);
+      console.error("❌ Firebase Init Error, falling back to Mock:", e);
       connectionError = e.message;
-      // Fallback variables remain as dummies
+      isMock = true; // Fallback to mock on error
+      isFirebaseReady = true; // Allow app to continue
   }
 } else {
-  // Diagnostic Logging
-  const missingKeys = Object.entries(firebaseConfig)
-      .filter(([_, v]) => !v || v === 'undefined')
-      .map(([k]) => k);
-
-  if (missingKeys.length > 0) {
-      connectionError = `Missing Env Vars: ${missingKeys.join(', ')}`;
-      console.error("❌ Critical: Firebase Config Missing.", connectionError);
-      console.warn("Please check Vercel Settings > Environment Variables. Ensure keys start with VITE_ if needed.");
-  } else if (typeof window !== 'undefined' && !window.firebase) {
-      connectionError = "Firebase SDK failed to load from CDN (Network Issue or Adblock).";
-      console.error("❌ Firebase SDK not loaded.");
-  }
+  // Preview Mode / No Config -> Activate Mock Mode
+  console.warn("⚠️ Firebase Config Missing. Switching to MOCK MODE for Preview.");
+  isMock = true;
+  isFirebaseReady = true; // Allow app to continue using MockStore
+  connectionError = "Preview Mode (Mock Data)";
 }
 
 export { app, auth, db, isMock, firebase, isFirebaseReady, connectionError };

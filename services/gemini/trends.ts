@@ -206,7 +206,8 @@ const executeOpportunitySearch = async (searchQuery: string, keyword: string): P
             if (contentMatch) {
                 const content = contentMatch[1].trim();
                 const rawUrlLine = urlMatch ? urlMatch[1].trim() : '';
-                const searchKeyword = searchKwMatch ? searchKwMatch[1].trim() : content.substring(0, 15);
+                // Fallback to content snippet if keyword is missing, but prefer keyword
+                const searchKeyword = searchKwMatch ? searchKwMatch[1].trim() : content.substring(0, 20);
                 
                 let finalUrl = '';
                 

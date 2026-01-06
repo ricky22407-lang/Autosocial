@@ -9,6 +9,7 @@ import ScheduleList from './components/ScheduleList';
 import AnalyticsDashboard from './components/AnalyticsDashboard';
 import AutomationPanel from './components/AutomationPanel';
 import ThreadsNurturePanel from './components/ThreadsNurturePanel';
+import ConnectPanel from './components/ConnectPanel'; // New Import
 import Login from './components/Login';
 import AdminPanel from './components/AdminPanel';
 import SeoArticleGenerator from './components/SeoArticleGenerator';
@@ -18,12 +19,12 @@ import KeyRedemptionModal from './components/KeyRedemptionModal';
 import PricingPanel from './components/PricingPanel';
 import ContactSupportPanel from './components/ContactSupportPanel'; 
 import AiAssistantBubble from './components/AiAssistantBubble'; 
-import QueueOverlay from './components/QueueOverlay'; // New Import
+import QueueOverlay from './components/QueueOverlay'; 
 // #endregion
 
 // #region Services & Auth Import
 import { subscribeAuth, logout, getUserProfile, fetchUserPostsFromCloud, syncPostToCloud, deletePostFromCloud, exchangeThreadsAuth } from './services/authService';
-import { isFirebaseReady, connectionError } from './services/firebase'; // Import Check
+import { isFirebaseReady, isMock } from './services/firebase'; 
 // #endregion
 
 // #region Icons
@@ -35,6 +36,7 @@ const Icons = {
   Automation: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>,
   Seo: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>,
   Threads: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" /></svg>,
+  Connect: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>,
   Referral: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" /></svg>,
   Pricing: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
   Key: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>,
@@ -87,6 +89,7 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isProcessingThreads, setIsProcessingThreads] = useState(false);
 
+  // ... (Existing OAuth and Auth Logic) ...
   // POPUP FLOW DETECTION: Check if we are running inside a popup for OAuth
   useEffect(() => {
       const params = new URLSearchParams(window.location.search);
@@ -262,30 +265,8 @@ const App: React.FC = () => {
   const hasSeoAccess = isProPlus || userProfile?.unlockedFeatures?.includes('SEO');
   const hasThreadsAccess = isProPlus || userProfile?.unlockedFeatures?.includes('THREADS');
 
-  // --- SAFE MODE DIAGNOSTIC BANNER ---
-  if (!isFirebaseReady) {
-      return (
-          <div className="h-screen flex flex-col items-center justify-center bg-gray-900 text-white p-8 text-center">
-              <div className="text-6xl mb-6">⚠️</div>
-              <h1 className="text-3xl font-bold mb-4 text-red-500">系統連線異常 (SaaS Mode)</h1>
-              <p className="text-gray-300 max-w-lg mb-6 leading-relaxed">
-                  目前無法連接到 Firebase 資料庫，因此無法顯示任何資料。<br/>
-                  這通常是因為在 Vercel 部署時，未正確設定環境變數。
-              </p>
-              <div className="bg-black/50 p-6 rounded-xl border border-red-900/50 max-w-2xl w-full text-left font-mono text-sm overflow-x-auto">
-                  <p className="text-red-400 font-bold mb-2">錯誤詳情 (Debug Info):</p>
-                  <p className="mb-4">{connectionError || "Firebase Config Missing"}</p>
-                  
-                  <p className="text-gray-400 font-bold mb-2">解決方案 (Administrator):</p>
-                  <ul className="list-disc pl-5 space-y-1 text-gray-500">
-                      <li>前往 Vercel Project Settings {'>'} Environment Variables</li>
-                      <li>確保已設定 <code>VITE_FIREBASE_API_KEY</code> 等所有變數。</li>
-                      <li>設定完畢後，請務必 <strong>Redeploy</strong> (重新部署) 才會生效。</li>
-                  </ul>
-              </div>
-          </div>
-      );
-  }
+  // Note: The blocking "Safe Mode Diagnostic Banner" has been removed to allow Preview Mode to work.
+  // The app will now fallback to Mock Mode (localStorage) if Firebase config is missing.
 
   if (loadingAuth) return <div className="h-screen flex items-center justify-center bg-bg text-primary text-xl animate-pulse font-mono tracking-widest">INITIALIZING SYSTEM...</div>;
   
@@ -343,6 +324,14 @@ const App: React.FC = () => {
           <h1 className="text-2xl font-black text-white tracking-tighter cursor-pointer flex items-center gap-2 select-none" onClick={() => setView(AppView.CREATE)}>
             AUTO<span className="text-neon-cyan drop-shadow-[0_0_8px_rgba(0,242,234,0.6)]">SOCIAL</span>
           </h1>
+          
+          {/* Mock Mode Indicator */}
+          {isMock && (
+              <div className="mt-2 text-[10px] bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded border border-yellow-500/50 text-center font-bold tracking-wider">
+                  ⚠️ Preview Mode (Mock Data)
+              </div>
+          )}
+
           <div className="mt-6 p-4 glass-card rounded-xl border border-white/10 bg-black/20">
             {userProfile ? (
                 <>
@@ -367,7 +356,7 @@ const App: React.FC = () => {
                         <span>{userProfile.quota_used} / {userProfile.quota_total}</span>
                     </div>
                     
-                    {/* NEW: Renewal Date Display */}
+                    {/* Renewal Date Display */}
                     {(userProfile.subscription?.nextBillingDate || userProfile.quota_reset_date) && (
                         <div className="pt-2 border-t border-white/10 flex justify-between text-[9px] font-medium tracking-wider">
                             <span className="text-gray-500">
@@ -396,6 +385,7 @@ const App: React.FC = () => {
           <NavItem viewId={AppView.AUTOMATION} label="全自動化" icon={Icons.Automation} active={view === AppView.AUTOMATION} onClick={() => hasAutomationAccess ? setView(AppView.AUTOMATION) : alert("需升級至 Pro 方案")} disabled={!hasAutomationAccess} badge={!hasAutomationAccess ? "LOCKED" : ""} />
           <NavItem viewId={AppView.SEO_ARTICLES} label="SEO 文章" icon={Icons.Seo} active={view === AppView.SEO_ARTICLES} onClick={() => hasSeoAccess ? setView(AppView.SEO_ARTICLES) : alert("需升級至 Pro 方案")} disabled={!hasSeoAccess} badge={!hasSeoAccess ? "LOCKED" : ""} />
           <NavItem viewId={AppView.THREADS_NURTURE} label="Threads 進階功能" icon={Icons.Threads} active={view === AppView.THREADS_NURTURE} onClick={() => hasThreadsAccess ? setView(AppView.THREADS_NURTURE) : alert("需升級至 Pro 方案")} disabled={!hasThreadsAccess} badge={!hasThreadsAccess ? "LOCKED" : ""} />
+          <NavItem viewId={AppView.CONNECT} label="口碑媒合 (Beta)" icon={Icons.Connect} active={view === AppView.CONNECT} onClick={setView} badge="NEW" />
           
           <div className="mt-6 mb-2 px-6">
               <p className="text-[10px] text-gray-500 font-black tracking-[0.2em] uppercase">成長工具</p>
@@ -465,6 +455,7 @@ const App: React.FC = () => {
             {view === AppView.AUTOMATION && <AutomationPanel settings={settings} onSave={handleSaveSettings} />}
             {view === AppView.SEO_ARTICLES && <SeoArticleGenerator user={userProfile} onQuotaUpdate={refreshProfile} />}
             {view === AppView.THREADS_NURTURE && <ThreadsNurturePanel settings={settings} user={userProfile} onSaveSettings={handleSaveSettings} onQuotaUpdate={refreshProfile} />}
+            {view === AppView.CONNECT && <ConnectPanel settings={settings} user={userProfile} onQuotaUpdate={refreshProfile} />}
             {view === AppView.PRICING && <PricingPanel user={userProfile} onContactClick={() => setView(AppView.CONTACT_SUPPORT)} />}
             {view === AppView.REFERRAL && <ReferralPanel user={userProfile} onQuotaUpdate={refreshProfile} />}
             {view === AppView.CONTACT_SUPPORT && <ContactSupportPanel />}

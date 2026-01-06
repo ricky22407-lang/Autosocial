@@ -19,6 +19,7 @@ export enum AppView {
   AUTOMATION = 'AUTOMATION',
   SEO_ARTICLES = 'SEO_ARTICLES',
   THREADS_NURTURE = 'THREADS_NURTURE',
+  CONNECT = 'CONNECT', // New View
   PRICING = 'PRICING',
   REFERRAL = 'REFERRAL',
   CONTACT_SUPPORT = 'CONTACT_SUPPORT',
@@ -74,8 +75,59 @@ export interface UserProfile {
   unlockedFeatures?: string[];
   isSuspended?: boolean;
   last_api_call_timestamp?: number;
+  
+  // Connect Module Limits
+  connect_invites_used?: number;
+  connect_applications_used?: number;
+  
   created_at: number;
   updated_at: number;
+}
+
+// Connect Module Types
+export interface SocialCard {
+    id: string; // usually same as userId
+    userId: string;
+    displayName: string;
+    avatarUrl?: string;
+    role: UserRole;
+    tags: string[]; // e.g. "Foodie", "Travel"
+    categories: string[]; // e.g. "美食", "旅遊"
+    followersCount: number;
+    engagementRate: number;
+    priceRange: string; // e.g. "$500 - $1,500"
+    bio: string;
+    isBoosted?: boolean;
+    boostExpiresAt?: number;
+    contactInfo?: {
+        email: string;
+        lineId?: string;
+        phone?: string;
+    };
+    portfolio?: {
+        imageUrl: string;
+        link: string;
+        stats: string;
+    }[];
+    updatedAt?: number;
+    isVisible: boolean;
+}
+
+export interface Campaign {
+    id: string;
+    ownerId: string; // Brand User ID
+    brandName: string;
+    brandLogo?: string;
+    title: string;
+    description: string;
+    budget: string;
+    requirements: string[];
+    category: string;
+    deadline: number;
+    quotaRequired: number; // For future use
+    applicantsCount: number;
+    createdAt: number;
+    isActive: boolean;
 }
 
 // Social & Brand
@@ -142,6 +194,9 @@ export interface BrandSettings {
   };
   autoPilot?: AutoPilotConfig;
   threadsAutoPilot?: ThreadsAutoPilotConfig;
+  
+  // Connect Module Settings
+  connectProfile?: SocialCard;
 }
 
 // Content
