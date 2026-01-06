@@ -113,8 +113,8 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
 
 // NEW: Business Opportunity Search (Markdown Parsing Strategy)
 export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
-    // Query Optimization: Combine keyword with platform name for broad Google Search coverage
-    const searchQuery = `Threads "${keyword}" 討論`; 
+    // Query Optimization: Use 'site:threads.net' to help Google focus, but allow variations.
+    const searchQuery = `site:threads.net "${keyword}"`; 
     
     try {
         const response = await callBackend('generateContent', {
@@ -127,19 +127,24 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
                 Use the Google Search tool with the query: '${searchQuery}'
                 
                 [Output Rules]
-                1. Find 5-10 distinct user posts/discussions.
+                1. Find **10 to 15** distinct user posts/discussions.
                 2. Include complaints, questions, sharing, or general chat.
-                3. **FORMAT STRICTLY** using the block format below for each post found. Do not use JSON.
+                3. **CRITICAL - LINK FORMAT**: 
+                   - You MUST extract the actual 'https://www.threads.net/...' URL.
+                   - DO NOT use '/grounding-api-redirect/...' links.
+                   - DO NOT use google redirect links.
+                   - If the link is missing, try to reconstruct it or skip it.
+                4. **FORMAT STRICTLY** using the block format below for each post found. Do not use JSON.
                 
                 BLOCK_START
                 CONTENT: [Summary of what the user posted]
-                LINK: [URL of the post]
+                LINK: [https://www.threads.net/@username/post/...]
                 SCORE: [1-10]
                 REPLY_COUNT: [Number or N/A]
                 LIKE_COUNT: [Number or N/A]
                 BLOCK_END
                 
-                (Repeat the block for each post found)
+                (Repeat the block for each post found, at least 10 times)
             `,
             config: { 
                 tools: [{ googleSearch: {} }],
@@ -153,7 +158,7 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
         });
 
         const rawText = response.text || '';
-        console.log("🔍 Raw Threads Result (Markdown):", rawText.substring(0, 100)); 
+        console.log("🔍 Raw Threads Result (Markdown):", rawText.substring(0, 200) + "..."); 
 
         // Parse the Custom Block Format
         const results: OpportunityPost[] = [];
@@ -169,23 +174,32 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
             const likeMatch = block.match(/LIKE_COUNT:\s*(.+)/);
 
             if (contentMatch && linkMatch) {
-                const url = linkMatch[1].trim();
+                let url = linkMatch[1].trim();
                 
-                // Relaxed URL filter: Must be a URL, ideally Threads or Instagram
-                if (url.startsWith('http')) {
-                    results.push({
-                        content: contentMatch[1].trim(),
-                        url: url,
-                        reasoning: '',
-                        intentScore: scoreMatch ? parseInt(scoreMatch[1]) : 5,
-                        replyCount: replyMatch ? replyMatch[1].trim() : undefined,
-                        likeCount: likeMatch ? likeMatch[1].trim() : undefined
-                    });
-                }
+                // --- Fix: Bad Link Filtering & Cleaning ---
+                // 1. If it starts with '/', it's a broken relative link (Grounding 404). Skip it.
+                if (url.startsWith('/')) continue;
+                
+                // 2. If it contains 'google', it might be a redirect. Skip it to be safe, or try to decode.
+                // For simplicity and safety, we strictly require 'threads.net' or 'instagram.com'
+                if (!url.includes('threads.net') && !url.includes('instagram.com')) continue;
+
+                // 3. Ensure protocol
+                if (!url.startsWith('http')) url = `https://${url}`;
+
+                results.push({
+                    content: contentMatch[1].trim(),
+                    url: url,
+                    reasoning: '',
+                    intentScore: scoreMatch ? parseInt(scoreMatch[1]) : 5,
+                    replyCount: replyMatch ? replyMatch[1].trim() : undefined,
+                    likeCount: likeMatch ? likeMatch[1].trim() : undefined
+                });
             }
         }
 
-        return results;
+        // Limit results to 15 max, but return as many as found (user asked for 10+)
+        return results.slice(0, 15);
 
     } catch (e: any) {
         console.error("Opportunity search failed", e);
