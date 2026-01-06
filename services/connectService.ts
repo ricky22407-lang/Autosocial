@@ -2,9 +2,27 @@
 import { SocialCard, Campaign, UserRole, UserProfile } from '../types';
 import { db, isMock } from './firebase';
 
+// --- SHARED CONSTANTS ---
+export const CONNECT_CATEGORIES = [
+    '美食 (Food)', 
+    '旅遊 (Travel)', 
+    '美妝保養 (Beauty)', 
+    '3C科技 (Tech)', 
+    '攝影 (Photography)', 
+    '運動健身 (Fitness)', 
+    '親子育兒 (Parenting)', 
+    '寵物 (Pets)', 
+    '穿搭時尚 (Fashion)', 
+    '商業理財 (Finance)', 
+    '汽車機車 (Auto)', 
+    '遊戲動漫 (Gaming)', 
+    '居家裝潢 (Home)', 
+    '知識教育 (Education)', 
+    '生活日常 (Lifestyle)'
+];
+
 // --- MOCK DATA (Legacy & Fallback) ---
 const NAMES = ['Alice', 'Bob', 'Charlie', 'David', 'Eva', 'Frank', 'Grace', 'Hannah', 'Ivy', 'Jack'];
-const CATEGORIES = ['美食', '旅遊', '美妝', '3C', '攝影', '健身', '親子', '寵物'];
 const TAGS = ['#吃貨', '#探店', '#開箱', '#穿搭', '#日常', '#貓奴', '#新手爸媽', '#健身日記', '#科技新知'];
 
 const getRandomInt = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
@@ -14,7 +32,7 @@ export const generateMockTalents = (count: number): SocialCard[] => {
     return Array.from({ length: count }).map((_, i) => {
         const isBoosted = Math.random() > 0.8;
         const role = isBoosted ? 'business' : (Math.random() > 0.5 ? 'pro' : 'starter');
-        const category = getRandomItem(CATEGORIES);
+        const category = getRandomItem(CONNECT_CATEGORIES);
         const tags = [category, getRandomItem(TAGS), getRandomItem(TAGS)];
         
         return {
@@ -27,7 +45,7 @@ export const generateMockTalents = (count: number): SocialCard[] => {
             followersCount: getRandomInt(500, 50000),
             engagementRate: parseFloat((Math.random() * 5 + 1).toFixed(2)),
             priceRange: `$${getRandomInt(5, 20) * 100} - $${getRandomInt(30, 80) * 100}`,
-            bio: `嗨！我是${category}愛好者，喜歡分享真實的體驗。歡迎廠商邀約合作！`,
+            bio: `嗨！我是${category.split(' ')[0]}愛好者，喜歡分享真實的體驗。歡迎廠商邀約合作！`,
             isBoosted,
             isVisible: true,
             contactInfo: {
@@ -40,21 +58,24 @@ export const generateMockTalents = (count: number): SocialCard[] => {
 };
 
 export const generateMockCampaigns = (count: number): Campaign[] => {
-    return Array.from({ length: count }).map((_, i) => ({
-        id: `camp_${i}`,
-        ownerId: `brand_${i}`,
-        brandName: `Brand ${String.fromCharCode(65 + i)}`,
-        title: `【${getRandomItem(CATEGORIES)}】新品推廣體驗大使募集中`,
-        description: `我們是知名${getRandomItem(CATEGORIES)}品牌，正在尋找熱愛分享的你！只要拍攝 3 張照片 + 200 字心得，即可獲得正貨一組及稿費。`,
-        budget: `$${getRandomInt(1, 5) * 1000} / 篇`,
-        requirements: ['IG 追蹤 > 1000', '需公開帳號', '不刪文'],
-        category: getRandomItem(CATEGORIES),
-        deadline: Date.now() + getRandomInt(3, 30) * 24 * 60 * 60 * 1000,
-        quotaRequired: 0,
-        applicantsCount: getRandomInt(0, 50),
-        createdAt: Date.now(),
-        isActive: true
-    }));
+    return Array.from({ length: count }).map((_, i) => {
+        const cat = getRandomItem(CONNECT_CATEGORIES);
+        return {
+            id: `camp_${i}`,
+            ownerId: `brand_${i}`,
+            brandName: `Brand ${String.fromCharCode(65 + i)}`,
+            title: `【${cat.split(' ')[0]}】新品推廣體驗大使募集中`,
+            description: `我們是知名${cat.split(' ')[0]}品牌，正在尋找熱愛分享的你！只要拍攝 3 張照片 + 200 字心得，即可獲得正貨一組及稿費。`,
+            budget: `$${getRandomInt(1, 5) * 1000} / 篇`,
+            requirements: ['IG 追蹤 > 1000', '需公開帳號', '不刪文'],
+            category: cat,
+            deadline: Date.now() + getRandomInt(3, 30) * 24 * 60 * 60 * 1000,
+            quotaRequired: 0,
+            applicantsCount: getRandomInt(0, 50),
+            createdAt: Date.now(),
+            isActive: true
+        };
+    });
 };
 
 let mockTalents = generateMockTalents(12);
@@ -71,7 +92,7 @@ export const ConnectService = {
             let data = [...mockTalents];
             // Filter out invisible if mock
             data = data.filter(t => t.isVisible);
-            if (filterCategory) {
+            if (filterCategory && filterCategory !== '全部') {
                 data = data.filter(t => t.categories.includes(filterCategory));
             }
             return data.sort((a, b) => {
@@ -83,7 +104,7 @@ export const ConnectService = {
 
         try {
             let query = db.collection('connect_profiles').where('isVisible', '==', true);
-            if (filterCategory) {
+            if (filterCategory && filterCategory !== '全部') {
                 query = query.where('categories', 'array-contains', filterCategory);
             }
             

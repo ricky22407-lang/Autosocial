@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { SocialCard, UserProfile } from '../../types';
-import { ConnectService } from '../../services/connectService';
+import { ConnectService, CONNECT_CATEGORIES } from '../../services/connectService';
 import { checkAndUseQuota } from '../../services/authService';
 
 interface Props {
@@ -9,7 +9,7 @@ interface Props {
     onQuotaUpdate: () => void;
 }
 
-const CATEGORIES = ['全部', '美食', '旅遊', '美妝', '3C', '攝影', '健身', '親子', '寵物'];
+const CATEGORIES = ['全部', ...CONNECT_CATEGORIES];
 
 const TalentScout: React.FC<Props> = ({ user, onQuotaUpdate }) => {
     const [talents, setTalents] = useState<SocialCard[]>([]);

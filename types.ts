@@ -76,9 +76,10 @@ export interface UserProfile {
   isSuspended?: boolean;
   last_api_call_timestamp?: number;
   
-  // Connect Module Limits
+  // Connect Module Limits & Status
   connect_invites_used?: number;
   connect_applications_used?: number;
+  hasAgreedConnectTerms?: boolean; // New Field: Legal Disclaimer Agreement
   
   created_at: number;
   updated_at: number;

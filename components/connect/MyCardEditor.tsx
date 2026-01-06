@@ -1,16 +1,16 @@
 
 import React, { useState, useEffect } from 'react';
-import { UserProfile, SocialCard, UserRole } from '../../types';
-import { ConnectService } from '../../services/connectService';
+import { UserProfile, SocialCard, BrandSettings } from '../../types';
+import { ConnectService, CONNECT_CATEGORIES } from '../../services/connectService';
+import { fetchPageAnalytics } from '../../services/facebookService';
 
 interface Props {
     user: UserProfile;
+    settings: BrandSettings;
     onSave: () => void;
 }
 
-const CATEGORIES = ['美食', '旅遊', '美妝', '3C', '攝影', '健身', '親子', '寵物', '理財', '生活'];
-
-const MyCardEditor: React.FC<Props> = ({ user, onSave }) => {
+const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
     const [card, setCard] = useState<Partial<SocialCard>>({
         userId: user.user_id,
         displayName: '',
@@ -27,7 +27,9 @@ const MyCardEditor: React.FC<Props> = ({ user, onSave }) => {
     
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    const [syncing, setSyncing] = useState(false);
     const [newTag, setNewTag] = useState('');
+    const [showConsent, setShowConsent] = useState(false);
 
     // Permission Check
     const canCreate = ['starter', 'pro', 'business', 'admin'].includes(user.role);
@@ -52,10 +54,48 @@ const MyCardEditor: React.FC<Props> = ({ user, onSave }) => {
         setLoading(false);
     };
 
-    const handleSave = async () => {
-        if (!card.displayName || !card.categories?.length) {
-            return alert("請填寫暱稱與至少一個分類");
+    const handleAutoSync = async () => {
+        if (!settings.facebookPageId && (!settings.threadsAccounts || settings.threadsAccounts.length === 0)) {
+            return alert("請先至「品牌設定」連結 Facebook 粉專或 Threads 帳號，才能自動抓取數據。");
         }
+
+        setSyncing(true);
+        try {
+            let fbFollowers = 0;
+            let fbEngagement = 0;
+
+            // 1. Try FB Page Sync
+            if (settings.facebookPageId && settings.facebookToken) {
+                const analytics = await fetchPageAnalytics(settings.facebookPageId, settings.facebookToken);
+                if (analytics) {
+                    fbFollowers = analytics.followers;
+                    fbEngagement = analytics.engagementRate;
+                }
+            }
+
+            // 2. Try Threads Sync (Mock simulation for now as real API metrics are limited)
+            // In a real scenario, fetchUserThreads(account) and calculate avg likes/replies
+            // For now we assume FB is the primary source or user manual input if FB fails
+            
+            if (fbFollowers > 0) {
+                setCard(prev => ({
+                    ...prev,
+                    followersCount: fbFollowers,
+                    engagementRate: fbEngagement
+                }));
+                alert(`✅ 同步成功！\n粉絲數：${fbFollowers}\n互動率：${fbEngagement}%`);
+            } else {
+                alert("⚠️ 同步完成，但無法讀取到有效數據 (可能是權限不足或粉專無數據)。");
+            }
+
+        } catch (e: any) {
+            alert(`同步失敗: ${e.message}`);
+        } finally {
+            setSyncing(false);
+        }
+    };
+
+    const confirmSave = async () => {
         setSaving(true);
         try {
             await ConnectService.saveMyProfile({
@@ -64,12 +104,21 @@ const MyCardEditor: React.FC<Props> = ({ user, onSave }) => {
                 role: user.role,
             } as SocialCard);
             alert("✅ 名片已儲存並更新至廣場！");
+            setShowConsent(false);
             onSave();
         } catch (e: any) {
             alert("儲存失敗: " + e.message);
         } finally {
             setSaving(false);
         }
+    };
+
+    const handleSaveClick = () => {
+        if (!card.displayName || !card.categories?.length) {
+            return alert("請填寫暱稱與至少一個分類");
+        }
+        // Trigger Consent Modal
+        setShowConsent(true);
     };
 
     const toggleCategory = (cat: string) => {
@@ -103,11 +152,22 @@ const MyCardEditor: React.FC<Props> = ({ user, onSave }) => {
     if (loading) return <div className="p-10 text-center text-gray-500">載入名片資料中...</div>;
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-fade-in">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-fade-in relative">
+            
             {/* Left: Form */}
             <div className="space-y-6">
                 <div className="bg-card p-6 rounded-xl border border-gray-700 space-y-4">
-                    <h3 className="text-lg font-bold text-white border-b border-gray-700 pb-2">編輯資料</h3>
+                    <div className="flex justify-between items-center border-b border-gray-700 pb-2">
+                        <h3 className="text-lg font-bold text-white">編輯資料</h3>
+                        <button 
+                            onClick={handleAutoSync}
+                            disabled={syncing}
+                            className="bg-blue-900/30 hover:bg-blue-900/50 text-blue-300 text-xs px-3 py-1.5 rounded-lg border border-blue-800 transition-colors flex items-center gap-1"
+                        >
+                            {syncing ? <div className="loader w-3 h-3 border-t-blue-300"></div> : '🔄'} 
+                            一鍵同步社群數據
+                        </button>
+                    </div>
                     
                     <div>
                         <label className="block text-xs text-gray-400 mb-1">顯示暱稱 *</label>
@@ -116,12 +176,12 @@ const MyCardEditor: React.FC<Props> = ({ user, onSave }) => {
 
                     <div>
                         <label className="block text-xs text-gray-400 mb-1">主要分類 (最多3個) *</label>
-                        <div className="flex flex-wrap gap-2">
-                            {CATEGORIES.map(cat => (
+                        <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto custom-scrollbar p-1 border border-gray-700/50 rounded bg-black/20">
+                            {CONNECT_CATEGORIES.map(cat => (
                                 <button 
                                     key={cat} 
                                     onClick={() => toggleCategory(cat)}
-                                    className={`px-3 py-1 rounded text-xs border transition-colors ${card.categories?.includes(cat) ? 'bg-primary text-black border-primary' : 'bg-transparent text-gray-400 border-gray-600'}`}
+                                    className={`px-3 py-1 rounded text-xs border transition-colors whitespace-nowrap ${card.categories?.includes(cat) ? 'bg-primary text-black border-primary' : 'bg-transparent text-gray-400 border-gray-600 hover:border-gray-400'}`}
                                 >
                                     {cat}
                                 </button>
@@ -131,7 +191,7 @@ const MyCardEditor: React.FC<Props> = ({ user, onSave }) => {
 
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-xs text-gray-400 mb-1">粉絲數 (預估)</label>
+                            <label className="block text-xs text-gray-400 mb-1">粉絲數 (可自動抓取)</label>
                             <input type="number" value={card.followersCount} onChange={e => setCard({...card, followersCount: parseInt(e.target.value)})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white" />
                         </div>
                         <div>
@@ -174,7 +234,7 @@ const MyCardEditor: React.FC<Props> = ({ user, onSave }) => {
                 </div>
 
                 <div className="flex justify-end">
-                    <button onClick={handleSave} disabled={saving} className="bg-primary hover:bg-cyan-400 text-black font-bold py-3 px-8 rounded-xl shadow-lg transition-all disabled:opacity-50">
+                    <button onClick={handleSaveClick} disabled={saving} className="bg-primary hover:bg-cyan-400 text-black font-bold py-3 px-8 rounded-xl shadow-lg transition-all disabled:opacity-50">
                         {saving ? '儲存中...' : '儲存設定'}
                     </button>
                 </div>
@@ -240,6 +300,47 @@ const MyCardEditor: React.FC<Props> = ({ user, onSave }) => {
                     <p>提示：完整的名片將增加廠商聯繫的意願。</p>
                 </div>
             </div>
+
+            {/* Consent Modal */}
+            {showConsent && (
+                <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[200] p-6 backdrop-blur-sm animate-fade-in">
+                    <div className="bg-gray-900 border border-gray-600 rounded-xl max-w-md w-full p-6 shadow-2xl relative">
+                        <h3 className="text-xl font-black text-white mb-4 flex items-center gap-2">
+                            ⚠️ 資料公開聲明 (Data Privacy)
+                        </h3>
+                        <div className="text-sm text-gray-300 space-y-4 mb-6 leading-relaxed">
+                            <p>
+                                您即將儲存並發佈您的接案名片。請確認您理解以下事項：
+                            </p>
+                            <ul className="list-disc pl-5 space-y-2">
+                                <li>
+                                    <strong>公開展示：</strong>您填寫的資料（暱稱、粉絲數、報價、自我介紹）將公開於 AutoSocial Connect 平台，供品牌方與其他會員搜尋瀏覽。
+                                </li>
+                                <li>
+                                    <strong>聯絡資訊：</strong>您的 Email 或 Line ID 僅在品牌方支付點數解鎖後才會顯示，但請勿在「自我介紹」中直接填寫私密個資。
+                                </li>
+                                <li>
+                                    <strong>真實性承諾：</strong>若您使用自動串接功能，即代表同意平台讀取並顯示您的社群帳號公開數據（如追蹤數）。
+                                </li>
+                            </ul>
+                        </div>
+                        <div className="flex gap-3 justify-end">
+                            <button 
+                                onClick={() => setShowConsent(false)}
+                                className="px-4 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+                            >
+                                取消
+                            </button>
+                            <button 
+                                onClick={confirmSave}
+                                className="px-6 py-2 rounded-lg bg-primary hover:bg-cyan-400 text-black font-bold transition-colors"
+                            >
+                                我同意並儲存
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

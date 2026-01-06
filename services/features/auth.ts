@@ -132,3 +132,15 @@ export const exchangeThreadsAuth = async (code: string, redirectUri: string) => 
     }
     return data.data; // { userId, token, username }
 };
+
+export const agreeToConnectTerms = async (userId: string) => {
+    if (!isMock) {
+        await db.collection('users').doc(userId).update({ hasAgreedConnectTerms: true });
+    } else {
+        const user = MockStore.getUser(userId);
+        if (user) {
+            user.hasAgreedConnectTerms = true;
+            MockStore.saveUser(user);
+        }
+    }
+};

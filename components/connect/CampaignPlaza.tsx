@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Campaign, UserProfile } from '../../types';
-import { ConnectService } from '../../services/connectService';
+import { ConnectService, CONNECT_CATEGORIES } from '../../services/connectService';
 import { checkAndUseQuota } from '../../services/authService';
 
 interface Props {
@@ -17,7 +17,7 @@ const CampaignPlaza: React.FC<Props> = ({ user, onQuotaUpdate }) => {
     // Create Campaign State
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [newCamp, setNewCamp] = useState<Partial<Campaign>>({
-        title: '', description: '', budget: '', requirements: [], category: '美食'
+        title: '', description: '', budget: '', requirements: [], category: CONNECT_CATEGORIES[0]
     });
     const [reqInput, setReqInput] = useState('');
 
@@ -168,7 +168,12 @@ const CampaignPlaza: React.FC<Props> = ({ user, onQuotaUpdate }) => {
                             <div><label className="text-xs text-gray-400 block mb-1">案件標題</label><input value={newCamp.title} onChange={e => setNewCamp({...newCamp, title: e.target.value})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white" placeholder="例如：新品試吃體驗" /></div>
                             <div><label className="text-xs text-gray-400 block mb-1">預算/酬勞</label><input value={newCamp.budget} onChange={e => setNewCamp({...newCamp, budget: e.target.value})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white" placeholder="例如：$1,000 / 篇" /></div>
                             <div><label className="text-xs text-gray-400 block mb-1">品牌名稱</label><input value={newCamp.brandName} onChange={e => setNewCamp({...newCamp, brandName: e.target.value})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white" /></div>
-                            <div><label className="text-xs text-gray-400 block mb-1">類別</label><select value={newCamp.category} onChange={e => setNewCamp({...newCamp, category: e.target.value})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white"><option>美食</option><option>美妝</option><option>旅遊</option><option>3C</option></select></div>
+                            <div>
+                                <label className="text-xs text-gray-400 block mb-1">類別</label>
+                                <select value={newCamp.category} onChange={e => setNewCamp({...newCamp, category: e.target.value})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white">
+                                    {CONNECT_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                                </select>
+                            </div>
                             <div><label className="text-xs text-gray-400 block mb-1">案件詳情</label><textarea value={newCamp.description} onChange={e => setNewCamp({...newCamp, description: e.target.value})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white h-24" /></div>
                             <div>
                                 <label className="text-xs text-gray-400 block mb-1">需求條件 (Enter 新增)</label>
