@@ -125,43 +125,48 @@ const extractThreadsId = (url: string): string | null => {
 };
 
 export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
-    // --- Query Optimization Strategy (Standard Funnel) ---
+    // --- Query Optimization Strategy (Time-Bound Funnel) ---
     
-    // 1. Intent Keywords (Broad Inclusion):
-    // 只要包含以下任一詞彙，就視為「潛在商機」收錄，後續交由 AI 判斷是否為廣告。
-    const intentKeywords = `(推薦 OR 求救 OR 預算 OR 尋找 OR 真實 OR 口袋名單 OR 清單)`;
+    // 1. Calculate Date (1 Month Ago) for 'after:' operator
+    // 'after:YYYY-MM-DD' is more reliable than 'when:1m' in some Google Search contexts.
+    const dateObj = new Date();
+    dateObj.setMonth(dateObj.getMonth() - 1);
+    const afterDate = dateObj.toISOString().split('T')[0];
+
+    // 2. Intent Keywords (Broad Inclusion):
+    // Added '請益' (Asking for advice) which is very common in Taiwan.
+    const intentKeywords = `(推薦 OR 請益 OR 求救 OR 預算 OR 尋找 OR 真實 OR 口袋名單 OR 清單)`;
     
-    // 2. Time & Site Constraint:
-    // 限定 Threads 且限定「一個月內 (when:1m)」
-    const searchQuery = `site:threads.net "${keyword}" ${intentKeywords} when:1m`; 
+    // 3. Construct Query
+    // Removed quotes around keyword to allow flexible matching (e.g. "聖誕 禮物" matches "聖誕禮物")
+    const searchQuery = `site:threads.net ${keyword} ${intentKeywords} after:${afterDate}`; 
     
     try {
         const response = await callBackend('generateContent', {
             model: 'gemini-2.5-flash', 
             contents: `
-                Goal: Search for high-intent user discussions on Threads about "${keyword}".
+                Goal: Search for recent (past month) user discussions on Threads about "${keyword}".
                 
                 [Tool Instruction]
-                Perform a Google Search exactly as: '${searchQuery}'
+                Perform a Google Search for: '${searchQuery}'
                 
                 [AI SEMANTIC FILTERING]
-                You will receive search results containing the keywords. You must now act as a strict filter:
+                The search results are already filtered by date. Now filter for QUALITY:
                 
                 1. 🗑️ **DISCARD** (Ignore):
-                   - Pure Advertisements / Commercial Promotions by brands.
+                   - Pure Brand Advertisements (Official Accounts).
                    - Game/Casino spam.
-                   - Posts that are just "sharing a discount code" without discussion.
-                   - Posts older than 1 month (if snippet date is visible).
+                   - Posts that just share a discount code with no discussion.
                 
                 2. ✅ **KEEP** (High Value):
-                   - **Questions/Help**: "請問大家...", "求推薦...", "預算有限...".
-                   - **Lists/Sharing**: "我的私藏清單", "真實心得分享" (User generated content).
-                   - **Discussions**: Real humans discussing the pros/cons of "${keyword}".
+                   - **Questions/Help**: "請問...", "求推薦...", "預算...", "有人用過嗎".
+                   - **Lists/Sharing**: "我的私藏清單", "真實心得".
+                   - **Discussions**: Real humans discussing "${keyword}".
                 
                 [Output Requirement]
-                - Extract up to 10 distinct posts.
+                - Extract 5-10 distinct posts.
                 - **Language**: Summaries in Traditional Chinese.
-                - **Relevance Score**: 1-10 (10 = User is actively asking to buy/use right now).
+                - **Relevance Score**: 1-10 (10 = High buying intent).
                 
                 Format each result strictly:
                 BLOCK_START
@@ -185,14 +190,15 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
         console.log("🔍 Threads Search Raw Length:", rawText.length); 
 
         const results: OpportunityPost[] = [];
-        const blocks = rawText.split('BLOCK_START');
+        // Use case-insensitive regex for block splitting to be safer
+        const blocks = rawText.split(/BLOCK_START/i);
 
         for (const block of blocks) {
-            if (!block.includes('BLOCK_END')) continue;
+            if (!block.match(/BLOCK_END/i)) continue;
             
-            const contentMatch = block.match(/CONTENT:\s*(.+)/);
-            const urlMatch = block.match(/URL:\s*(.+)/);
-            const scoreMatch = block.match(/SCORE:\s*(\d+)/);
+            const contentMatch = block.match(/CONTENT:\s*(.+)/i);
+            const urlMatch = block.match(/URL:\s*(.+)/i);
+            const scoreMatch = block.match(/SCORE:\s*(\d+)/i);
 
             if (contentMatch) {
                 const content = contentMatch[1].trim();
@@ -206,6 +212,7 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
                     finalUrl = `https://www.threads.net/post/${shortcode}`;
                 } else {
                     // Fallback to search link if ID extraction fails
+                    // This ensures the user always has a clickable link even if the direct post link is messy
                     const cleanQuery = content.substring(0, 40).replace(/[^\w\s\u4e00-\u9fa5]/g, ' ').trim();
                     finalUrl = `https://www.threads.net/search?q=${encodeURIComponent(cleanQuery)}`;
                 }
