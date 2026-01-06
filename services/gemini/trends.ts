@@ -112,7 +112,7 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
 };
 
 // --- Smart Link Logic ---
-// 暴力抓取 ID：只要字串中有類似 Threads ID 的結構，就直接抓出來重組
+// 暴力抓取 ID：只要字串中有類似 Threads ID (11碼) 的結構，就直接抓出來重組
 const extractThreadsIdStrict = (text: string): string | null => {
     if (!text) return null;
     
@@ -121,11 +121,9 @@ const extractThreadsIdStrict = (text: string): string | null => {
     try { decoded = decodeURIComponent(text); } catch (e) {}
 
     // 2. Regex for standard patterns:
-    // threads.net/post/ID
-    // threads.net/@user/post/ID
-    // threads.net/t/ID
-    // ID is usually 11 chars (alphanumeric + _ -)
-    const match = decoded.match(/(?:threads\.net\/)(?:.*\/)?(?:post|t)\/([A-Za-z0-9_-]{9,})/i);
+    // Threads IDs are typically 11 chars (base64url style)
+    // Matches: /post/AbCdEfGhIjK or /t/AbCdEfGhIjK
+    const match = decoded.match(/(?:post|t)\/([A-Za-z0-9_-]{11})/);
     
     if (match && match[1]) {
         return match[1];
@@ -139,27 +137,25 @@ const executeOpportunitySearch = async (searchQuery: string, keyword: string): P
         const response = await callBackend('generateContent', {
             model: 'gemini-2.5-flash', 
             contents: `
-                Goal: Find active buying/discussion opportunities on Threads about "${keyword}".
+                Goal: Find active opportunities on Threads about "${keyword}".
                 
                 [Tool Instruction]
                 Perform a Google Search for: '${searchQuery}'
                 
-                [AI SEMANTIC FILTERING]
-                You have search results. Now filter them.
-                A result is a VALID OPPORTUNITY if:
-                1. It is from Threads.net (or relevant discussion).
-                2. It is relevant to "${keyword}".
-                3. It implies a user question, discussion, or buying intent.
+                [FILTERING]
+                - **Do NOT be too strict.**
+                - List any relevant Threads post found in the search results.
+                - Prefer questions or discussions, but general relevant posts are acceptable if no questions found.
+                - Exclude explicit ads if possible.
                 
                 [Output Requirement]
                 - Extract up to 8 distinct posts.
                 - **Language**: Summaries in Traditional Chinese.
-                - **Intent Score**: 1-10 (10 = User is begging for a recommendation).
-                - **URL**: You MUST return the exact 'threads.net/post/...' link found in the search source. Do NOT invent URLs.
+                - **Intent Score**: 1-10 (10 = Asking for recommendation, 1 = Just sharing).
                 
                 Format each result strictly:
                 BLOCK_START
-                CONTENT: [Summary of the user's specific need]
+                CONTENT: [Summary of the post content]
                 URL: [The full link found in search]
                 SCORE: [1-10]
                 METRICS: [Optional: 10 replies, 5 likes]
@@ -186,7 +182,7 @@ const executeOpportunitySearch = async (searchQuery: string, keyword: string): P
             response.groundingMetadata.groundingChunks.forEach((chunk: any) => {
                 const uri = chunk.web?.uri;
                 if (uri && uri.includes('threads.net')) {
-                    // Only keep links that look like posts
+                    // Check if it's a post link (has ID)
                     if (extractThreadsIdStrict(uri)) {
                         rescuePool.push(uri);
                     }
@@ -219,19 +215,26 @@ const executeOpportunitySearch = async (searchQuery: string, keyword: string): P
                 // Strategy 2: If no ID, maybe AI put the link in the Content?
                 if (!id) id = extractThreadsIdStrict(content);
 
-                // Strategy 3: Rescue from Pool (If text URL is junk/search link)
+                // Strategy 3: Rescue from Pool (The most reliable fallback)
                 if (!id && poolIndex < rescuePool.length) {
-                    // Simple heuristic: Take next available real link
-                    const rescueLink = rescuePool[poolIndex];
-                    id = extractThreadsIdStrict(rescueLink);
-                    poolIndex++; 
+                    const rescueUrl = rescuePool[poolIndex];
+                    id = extractThreadsIdStrict(rescueUrl);
+                    // If we found an ID in pool, use it. If not, just use the pool URL raw.
+                    if (id) {
+                        // Consumed this pool item
+                        poolIndex++; 
+                    } else {
+                        // Should be caught by extractThreadsIdStrict check during pool construction, but just in case
+                        finalUrl = rescueUrl;
+                        poolIndex++;
+                    }
                 }
 
-                // Construct Clean URL
+                // Construct Clean URL if ID found
                 if (id) {
                     finalUrl = `https://www.threads.net/post/${id}`;
-                } else {
-                    // Fallback to Search URL if absolutely no ID found
+                } else if (!finalUrl) {
+                    // Final Fallback: Search Link
                     const cleanQuery = content.substring(0, 40).replace(/[^\w\s\u4e00-\u9fa5]/g, ' ').trim();
                     finalUrl = `https://www.threads.net/search?q=${encodeURIComponent(cleanQuery)}`;
                 }
@@ -271,18 +274,19 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
     const afterDate = new Date(Date.now() - thirtyDaysMs).toISOString().split('T')[0];
 
     // Stage 1: Strict (Site + Date)
-    console.log("🚀 Opportunity Search Stage 1: Strict");
+    // Relaxed Prompt inside executeOpportunitySearch handles the rest
+    console.log("🚀 Opportunity Search Stage 1: Site + Date");
     let results = await executeOpportunitySearch(`site:threads.net "${keyword}" after:${afterDate}`, keyword);
 
     if (results.length === 0) {
-        // Stage 2: Moderate (Site only)
-        console.log("⚠️ Stage 1 Empty. Retrying Stage 2: Moderate (No Date)...");
+        // Stage 2: Moderate (Site only) - Remove date constraint if Stage 1 fails
+        console.log("⚠️ Stage 1 Empty. Retrying Stage 2: Site Only...");
         results = await executeOpportunitySearch(`site:threads.net "${keyword}"`, keyword);
     }
 
     if (results.length === 0) {
-        // Stage 3: Broad (Keyword + "threads")
-        console.log("⚠️ Stage 2 Empty. Retrying Stage 3: Broad (Keyword + Context)...");
+        // Stage 3: Broad (Keyword + "threads") - Relies on Google's relevance matching
+        console.log("⚠️ Stage 2 Empty. Retrying Stage 3: Broad...");
         results = await executeOpportunitySearch(`${keyword} threads`, keyword);
     }
 
