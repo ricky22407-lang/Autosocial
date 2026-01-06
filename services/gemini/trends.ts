@@ -111,45 +111,64 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
   return shuffleArray(uniqueTopics).slice(0, requestedCount);
 };
 
-// NEW: Business Opportunity Search
+// --- Smart Link Logic ---
+// Robustly extract the Threads Post ID (Shortcode) to bypass Google redirects.
+// Matches:
+// - https://www.threads.net/@user/post/Cxyz123
+// - https://www.threads.net/post/Cxyz123?xmt=...
+// - https://google.com/url?q=https://threads.net/post/Cxyz123&...
+const extractThreadsId = (url: string): string | null => {
+    if (!url) return null;
+    
+    try {
+        // Decode first to handle google redirects or encoded chars
+        const decoded = decodeURIComponent(url);
+        
+        // Regex: Look for "/post/" followed by the ID (alphanumeric + underscore + dash)
+        // This regex ignores everything before "/post/" so it works with or without username
+        const match = decoded.match(/\/post\/([a-zA-Z0-9_-]+)/);
+        
+        if (match && match[1]) {
+            return match[1];
+        }
+    } catch (e) {
+        // Ignore decode errors
+    }
+    return null;
+};
+
 export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
-    // Query Optimization: Target specific site
+    // Query: Target Threads site specifically
     const searchQuery = `site:threads.net "${keyword}"`; 
     
     try {
         const response = await callBackend('generateContent', {
             model: 'gemini-2.5-flash', 
             contents: `
-                Role: Social Media Researcher (Taiwan Market).
-                Language: Traditional Chinese (繁體中文).
-                
-                Task: Search for user posts on Threads related to: ${keyword}
+                Role: Social Media Researcher (Taiwan).
+                Task: Search for user discussions on Threads about: "${keyword}".
                 
                 [Tool Instruction]
-                Use the Google Search tool with the query: '${searchQuery}'
+                Use Google Search to find relevant Threads posts.
                 
-                [Core Requirement]
-                1. Identify specific **POSTS** (not just user profiles).
-                2. Extract the **SHORTCODE** (ID) from the URL. 
-                   - Example URL: threads.net/@user/post/Cxyz123
-                   - Shortcode: Cxyz123
-                3. **Ignore** any results that do not have a /post/ structure.
+                [Output Requirement]
+                1. Find 10 distinct posts.
+                2. **IMPORTANT**: You MUST extract the URL for each post.
+                3. **LANGUAGE**: The "CONTENT" field MUST be in **Traditional Chinese (繁體中文)**.
                 
-                [Output Format]
-                Provide a raw text block for each post found. Use the exact format below:
-
+                Format each result strictly as a block:
+                
                 BLOCK_START
-                CONTENT: [Summary of the post in Traditional Chinese 繁體中文]
-                ID: [The extracted Shortcode, e.g. Cxyz123]
-                SCORE: [1-10 (Intent Score)]
+                CONTENT: [Summary of the post in Traditional Chinese]
+                URL: [The full link found, e.g. https://www.threads.net/...]
+                SCORE: [1-10 Intent Score]
                 REPLY_COUNT: [Number or N/A]
                 LIKE_COUNT: [Number or N/A]
                 BLOCK_END
-                
-                (Repeat for 10-12 posts)
             `,
             config: { 
                 tools: [{ googleSearch: {} }],
+                // High safety threshold to prevent filtering valid social content
                 safetySettings: [
                     { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
                     { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
@@ -160,9 +179,8 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
         });
 
         const rawText = response.text || '';
-        console.log("🔍 Threads Search Raw:", rawText.substring(0, 100) + "..."); 
+        console.log("🔍 Threads Search Raw Length:", rawText.length); 
 
-        // Parse the Custom Block Format
         const results: OpportunityPost[] = [];
         const blocks = rawText.split('BLOCK_START');
 
@@ -170,33 +188,32 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
             if (!block.includes('BLOCK_END')) continue;
             
             const contentMatch = block.match(/CONTENT:\s*(.+)/);
-            const idMatch = block.match(/ID:\s*([a-zA-Z0-9_-]+)/); // Capture the shortcode
+            const urlMatch = block.match(/URL:\s*(.+)/);
             const scoreMatch = block.match(/SCORE:\s*(\d+)/);
             const replyMatch = block.match(/REPLY_COUNT:\s*(.+)/);
             const likeMatch = block.match(/LIKE_COUNT:\s*(.+)/);
 
             if (contentMatch) {
                 const content = contentMatch[1].trim();
-                const shortcode = idMatch ? idMatch[1].trim() : '';
+                const rawUrl = urlMatch ? urlMatch[1].trim() : '';
                 
-                // --- URL CONSTRUCTION STRATEGY ---
+                // --- SMART URL RECONSTRUCTION ---
                 let finalUrl = '';
-                
-                if (shortcode && shortcode.length > 5) {
-                    // Method A: We have the ID. Reconstruct the cleanest possible URL.
-                    // Format: https://www.threads.net/post/{shortcode}
+                const shortcode = extractThreadsId(rawUrl);
+
+                if (shortcode) {
+                    // ✅ Found ID! Reconstruct the cleanest official link.
                     finalUrl = `https://www.threads.net/post/${shortcode}`;
                 } else {
-                    // Method B: Fallback (ID extraction failed). 
-                    // Use a search link as a safe fallback so the button still works.
-                    // This prevents "404" or "google.com" links.
-                    const cleanContent = content.substring(0, 50).replace(/[^\w\s\u4e00-\u9fa5]/g, ' ').trim();
-                    finalUrl = `https://www.threads.net/search?q=${encodeURIComponent(cleanContent)}`;
+                    // ⚠️ No ID found. Fallback to a search link to ensure the button works.
+                    // This handles cases where AI halluncinated a link or Google link is encrypted/weird.
+                    const cleanQuery = content.substring(0, 40).replace(/[^\w\s\u4e00-\u9fa5]/g, ' ').trim();
+                    finalUrl = `https://www.threads.net/search?q=${encodeURIComponent(cleanQuery)}`;
                 }
 
                 results.push({
-                    content: content,
-                    url: finalUrl, // Guaranteed to be clean
+                    content: content, // Guaranteed Traditional Chinese by Prompt
+                    url: finalUrl,    // Guaranteed to be Clean ID Link or Search Fallback
                     reasoning: '',
                     intentScore: scoreMatch ? parseInt(scoreMatch[1]) : 5,
                     replyCount: replyMatch ? replyMatch[1].trim() : undefined,
