@@ -4,6 +4,12 @@ import { ThreadsAccount } from "../types";
 const THREADS_API_BASE = 'https://graph.threads.net/v1.0';
 const THREADS_GRAPH_BASE = 'https://graph.threads.net';
 
+// Helper to get Env safely
+const getThreadsAppId = () => {
+    const env = (import.meta as any).env || {};
+    return env.VITE_THREADS_APP_ID || env.REACT_APP_THREADS_APP_ID || '';
+};
+
 /**
  * Publishes a TEXT post to Threads.
  * Note: Threads API for Image/Video requires a public URL accessible by Meta's servers.
@@ -25,9 +31,6 @@ export const publishThreadsPost = async (
     params.append('access_token', account.token);
     params.append('text', text);
     
-    // If replying, use the generic threads endpoint but with reply_to_id? 
-    // Actually, for Threads API, creating a reply is the same as creating a thread, just adding reply_to_id usually in params or specific edge?
-    // According to docs: POST /me/threads with 'reply_to_id' param.
     if (replyToId) {
         params.append('reply_to_id', replyToId);
     }
@@ -35,8 +38,6 @@ export const publishThreadsPost = async (
     let endpoint = `${THREADS_API_BASE}/${account.userId}/threads`;
 
     // Attempt Image if URL is public (http/https)
-    // Note: DataURI (base64) is NOT supported by Threads API directly via URL param.
-    // Threads strictly requires public URLs.
     if (imageUrl && (imageUrl.startsWith('http://') || imageUrl.startsWith('https://'))) {
         params.append('media_type', 'IMAGE');
         params.append('image_url', imageUrl);
@@ -59,8 +60,6 @@ export const publishThreadsPost = async (
     const creationId = containerData.id;
 
     // 2. Publish Media Container
-    // POST /{user_id}/threads_publish
-    // params: creation_id, access_token
     const publishParams = new URLSearchParams();
     publishParams.append('access_token', account.token);
     publishParams.append('creation_id', creationId);
@@ -98,34 +97,29 @@ export const fetchUserThreads = async (account: ThreadsAccount, limit = 5) => {
         return data.data || [];
     } catch (e: any) {
         console.error("Fetch threads failed", e);
-        return [];
+        // Throw error to UI instead of silent fail, so user knows if token is invalid
+        throw new Error(e.message || "讀取貼文失敗");
     }
 };
 
 /**
  * Fetch Replies for a specific Media Object (Thread)
- * Note: Threads API 'replies' edge might be restricted or require specific scopes.
- * If 'replies' edge is not available on v1, we might simulate empty or use 'conversation' if avail.
- * Assuming v1 standard 'replies' edge availability.
  */
 export const fetchMediaReplies = async (account: ThreadsAccount, mediaId: string) => {
     try {
-        // Requesting replies
-        const fields = 'id,text,timestamp,username,permalink'; // username might need expansion if field exists, else from owner node
+        const fields = 'id,text,timestamp,username,permalink'; 
         const url = `${THREADS_API_BASE}/${mediaId}/replies?fields=${fields}&access_token=${account.token}`;
         const res = await fetch(url);
         const data = await res.json();
         if (data.error) throw new Error(data.error.message);
         return data.data || [];
     } catch (e: any) {
-        // console.warn("Fetch replies failed (API might strictly limit reading others)", e);
         return [];
     }
 };
 
 /**
  * Refresh Long-Lived Token
- * GET https://graph.threads.net/refresh_access_token?grant_type=th_refresh_token&access_token=...
  */
 export const refreshThreadsToken = async (token: string): Promise<{ success: boolean; newToken?: string; error?: string }> => {
     try {

@@ -1,10 +1,12 @@
 
-import { UserProfile, AdminKey, SystemConfig, UsageLog } from '../types';
+import { UserProfile, AdminKey, SystemConfig, UsageLog, SocialCard, Campaign } from '../types';
 
 const DB_USERS = 'autosocial_db_users';
 const DB_KEYS = 'autosocial_keys';
 const DB_CONFIG = 'sys_config';
-const DB_LOGS = 'autosocial_logs'; // Added for completeness
+const DB_LOGS = 'autosocial_logs';
+const DB_CONNECT_PROFILES = 'autosocial_connect_profiles'; // New
+const DB_CAMPAIGNS = 'autosocial_campaigns'; // New
 
 // Helper to get raw DB object
 const getDb = (key: string) => {
@@ -14,6 +16,14 @@ const getDb = (key: string) => {
         return {};
     }
 };
+
+const getList = <T>(key: string): T[] => {
+    try {
+        return JSON.parse(localStorage.getItem(key) || '[]');
+    } catch (e) {
+        return [];
+    }
+}
 
 const saveDb = (key: string, data: any) => localStorage.setItem(key, JSON.stringify(data));
 
@@ -43,9 +53,31 @@ export const MockStore = {
 
     // Logs
     saveLog: (log: UsageLog) => {
-       // Ideally utilize array, but for KV store simplified
        const logs = JSON.parse(localStorage.getItem(DB_LOGS) || '[]');
        logs.push(log);
        localStorage.setItem(DB_LOGS, JSON.stringify(logs));
+    },
+
+    // Connect Profiles (Social Cards)
+    getConnectProfile: (userId: string): SocialCard | null => getDb(DB_CONNECT_PROFILES)[userId] || null,
+    saveConnectProfile: (card: SocialCard) => {
+        const profiles = getDb(DB_CONNECT_PROFILES);
+        profiles[card.userId] = card;
+        saveDb(DB_CONNECT_PROFILES, profiles);
+    },
+    getAllConnectProfiles: (): SocialCard[] => Object.values(getDb(DB_CONNECT_PROFILES)),
+
+    // Campaigns
+    getAllCampaigns: (): Campaign[] => getList(DB_CAMPAIGNS),
+    saveCampaign: (campaign: Campaign) => {
+        const list = getList<Campaign>(DB_CAMPAIGNS);
+        const idx = list.findIndex(c => c.id === campaign.id);
+        if (idx >= 0) list[idx] = campaign;
+        else list.unshift(campaign);
+        saveDb(DB_CAMPAIGNS, list);
+    },
+    deleteCampaign: (id: string) => {
+        const list = getList<Campaign>(DB_CAMPAIGNS).filter(c => c.id !== id);
+        saveDb(DB_CAMPAIGNS, list);
     }
 };

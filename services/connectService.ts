@@ -1,6 +1,7 @@
 
 import { SocialCard, Campaign, UserRole, UserProfile } from '../types';
 import { db, isMock, firebase } from './firebase';
+import { MockStore } from './mockStore';
 
 // --- SHARED CONSTANTS ---
 export const CONNECT_CATEGORIES = [
@@ -40,90 +41,6 @@ export const CONNECT_PLATFORMS = [
     "Blog/Website"
 ];
 
-// --- MOCK DATA (Legacy & Fallback) ---
-const NAMES = ['Alice', 'Bob', 'Charlie', 'David', 'Eva', 'Frank', 'Grace', 'Hannah', 'Ivy', 'Jack'];
-const TAGS = ['#吃貨', '#探店', '#開箱', '#穿搭', '#日常', '#貓奴', '#新手爸媽', '#健身日記', '#科技新知'];
-
-const getRandomInt = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
-const getRandomItem = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
-const getRandomSubset = <T>(arr: T[], max: number): T[] => {
-    const shuffled = [...arr].sort(() => 0.5 - Math.random());
-    return shuffled.slice(0, getRandomInt(1, max));
-};
-
-export const generateMockTalents = (count: number): SocialCard[] => {
-    return Array.from({ length: count }).map((_, i) => {
-        const isBoosted = Math.random() > 0.8;
-        const role = isBoosted ? 'business' : (Math.random() > 0.5 ? 'pro' : 'starter');
-        const category = getRandomItem(CONNECT_CATEGORIES);
-        const tags = [category, getRandomItem(TAGS), getRandomItem(TAGS)];
-        const platforms = getRandomSubset(CONNECT_PLATFORMS, 3);
-        const specialties = getRandomSubset(CONNECT_SPECIALTIES, 3);
-        
-        return {
-            id: `talent_${i}`,
-            userId: `u_${i}`,
-            displayName: `${getRandomItem(NAMES)} ${isBoosted ? '👑' : ''}`,
-            role: role as UserRole,
-            tags,
-            categories: [category],
-            specialties,
-            platforms,
-            followersCount: getRandomInt(500, 50000),
-            engagementRate: parseFloat((Math.random() * 5 + 1).toFixed(2)),
-            
-            // New Mock Data
-            ytAvgViews: platforms.includes('YouTube') ? getRandomInt(1000, 50000) : undefined,
-            tiktokAvgViews: platforms.includes('TikTok') ? getRandomInt(5000, 100000) : undefined,
-            websiteAvgViews: platforms.includes('Blog/Website') ? getRandomInt(500, 20000) : undefined,
-
-            priceRange: `${getRandomInt(5, 20) * 100} - ${getRandomInt(30, 80) * 100}`,
-            bio: `嗨！我是${category.split(' ')[0]}愛好者，喜歡分享真實的體驗。歡迎廠商邀約合作！`,
-            isBoosted,
-            isVisible: true,
-            contactInfo: {
-                email: `user${i}@example.com`,
-                lineId: `line_${i}`,
-                phone: `0912-345-${100+i}`
-            },
-            avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${i}&backgroundColor=b6e3f4`
-        };
-    });
-};
-
-export const generateMockCampaigns = (count: number): Campaign[] => {
-    return Array.from({ length: count }).map((_, i) => {
-        const cat = getRandomItem(CONNECT_CATEGORIES);
-        const platforms = getRandomSubset(CONNECT_PLATFORMS, 2);
-        const acceptedSpecialties = getRandomSubset(CONNECT_SPECIALTIES, 2);
-        
-        return {
-            id: `camp_${i}`,
-            ownerId: `brand_${i}`,
-            brandName: `Brand ${String.fromCharCode(65 + i)}`,
-            title: `【${cat.split(' ')[0]}】新品推廣體驗大使募集中`,
-            description: `我們是知名${cat.split(' ')[0]}品牌，正在尋找熱愛分享的你！只要拍攝 3 張照片 + 200 字心得，即可獲得正貨一組及稿費。`,
-            budget: `$${getRandomInt(1, 5) * 1000} / 篇`,
-            requirements: ['IG 追蹤 > 1000', '需公開帳號', '不刪文'],
-            acceptedSpecialties,
-            targetPlatforms: platforms,
-            contactInfo: {
-                email: `brand_${i}@brand.com`,
-                lineId: `brand_line_${i}`,
-                phone: `02-2345-${1000+i}`
-            },
-            category: cat,
-            deadline: Date.now() + getRandomInt(3, 30) * 24 * 60 * 60 * 1000,
-            quotaRequired: 0,
-            applicantsCount: getRandomInt(0, 50),
-            createdAt: Date.now(),
-            isActive: true
-        };
-    });
-};
-
-let mockTalents = generateMockTalents(12);
-let mockCampaigns = generateMockCampaigns(5);
 // Map: talentId -> timestamp (for local mock testing of 3-day rule)
 const localUnlockHistory: Map<string, number> = new Map();
 
@@ -133,9 +50,10 @@ export const ConnectService = {
     // 1. TALENTS / SOCIAL CARDS
     getTalents: async (filterCategory?: string, filterPlatform?: string): Promise<SocialCard[]> => {
         if (isMock) {
-            await new Promise(r => setTimeout(r, 500)); 
-            let data = [...mockTalents];
-            // Filter out invisible if mock
+            // Read from persistent MockStore instead of random generation
+            let data = MockStore.getAllConnectProfiles();
+            
+            // Filter out invisible
             data = data.filter(t => t.isVisible);
             if (filterCategory && filterCategory !== '全部') {
                 data = data.filter(t => t.categories.includes(filterCategory));
@@ -164,7 +82,6 @@ export const ConnectService = {
 
             const profiles = snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as SocialCard));
             
-            // Client-side sort for Boosted (Firestore sort limit)
             return profiles.sort((a: SocialCard, b: SocialCard) => {
                 if (a.isBoosted && !b.isBoosted) return -1;
                 if (!a.isBoosted && b.isBoosted) return 1;
@@ -172,16 +89,13 @@ export const ConnectService = {
             });
         } catch (e: any) {
             console.error("Fetch Talents Failed:", e);
-            if (e.code === 'permission-denied') {
-                console.warn("⚠️ Firestore Permission Error: Please update security rules in Firebase Console.");
-            }
             return [];
         }
     },
 
     getMyProfile: async (userId: string): Promise<SocialCard | null> => {
         if (isMock) {
-            return mockTalents.find(t => t.userId === userId) || null;
+            return MockStore.getConnectProfile(userId);
         }
         try {
             const doc = await db.collection('connect_profiles').doc(userId).get();
@@ -194,9 +108,10 @@ export const ConnectService = {
 
     saveMyProfile: async (card: SocialCard) => {
         if (isMock) {
-            const idx = mockTalents.findIndex(t => t.userId === card.userId);
-            if (idx >= 0) mockTalents[idx] = card;
-            else mockTalents.unshift(card);
+            MockStore.saveConnectProfile({
+                ...card,
+                updatedAt: Date.now()
+            });
             return;
         }
         await db.collection('connect_profiles').doc(card.userId).set({
@@ -208,9 +123,9 @@ export const ConnectService = {
     // 2. CAMPAIGNS / JOBS
     getCampaigns: async (ownerId?: string): Promise<Campaign[]> => {
         if (isMock) {
-            await new Promise(r => setTimeout(r, 500));
-            if (ownerId) return mockCampaigns.filter(c => c.ownerId === ownerId);
-            return [...mockCampaigns];
+            let data = MockStore.getAllCampaigns();
+            if (ownerId) return data.filter(c => c.ownerId === ownerId);
+            return data;
         }
 
         try {
@@ -225,17 +140,14 @@ export const ConnectService = {
             return snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Campaign));
         } catch (e: any) {
             console.error("Fetch Campaigns Failed", e);
-            if (e.code === 'permission-denied') {
-                console.warn("⚠️ Firestore Permission Error: Please update security rules.");
-            }
             return [];
         }
     },
 
     createCampaign: async (campaign: Omit<Campaign, 'id'>) => {
         if (isMock) {
-            const newCamp = { ...campaign, id: `camp_new_${Date.now()}` };
-            mockCampaigns.unshift(newCamp);
+            const newCamp = { ...campaign, id: `camp_${Date.now()}` };
+            MockStore.saveCampaign(newCamp as Campaign);
             return;
         }
         await db.collection('campaigns').add(campaign);
@@ -243,7 +155,7 @@ export const ConnectService = {
 
     deleteCampaign: async (id: string) => {
         if(isMock) {
-            mockCampaigns = mockCampaigns.filter(c => c.id !== id);
+            MockStore.deleteCampaign(id);
             return;
         }
         await db.collection('campaigns').doc(id).delete();
@@ -278,8 +190,6 @@ export const ConnectService = {
         }
 
         try {
-            // Firestore Query: SIMPLIFIED to avoid "Requires Index" error
-            // We just fetch by userId and filter the rest in memory (client-side)
             const snap = await db.collection('connect_unlocks')
                 .where('userId', '==', userId)
                 .get();
@@ -327,17 +237,18 @@ export const ConnectService = {
     boostProfile: async (userId: string): Promise<boolean> => {
         // Boost for 10 days
         const DURATION = 10 * 24 * 60 * 60 * 1000;
-        
+        const expiresAt = Date.now() + DURATION;
+
         if (isMock) {
-            const t = mockTalents.find(t => t.userId === userId);
+            const t = MockStore.getConnectProfile(userId);
             if(t) {
                 t.isBoosted = true;
-                t.boostExpiresAt = Date.now() + DURATION;
+                t.boostExpiresAt = expiresAt;
+                MockStore.saveConnectProfile(t);
             }
             return true;
         }
         
-        const expiresAt = Date.now() + DURATION;
         await db.collection('connect_profiles').doc(userId).update({
             isBoosted: true,
             boostExpiresAt: expiresAt
