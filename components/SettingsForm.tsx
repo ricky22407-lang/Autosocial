@@ -23,8 +23,8 @@ const INDUSTRIES = [
     "房地產", 
     "金融理財", 
     "醫療保健", 
-    "寵物用品",
-    "居家生活",
+    "寵物用品", 
+    "居家生活", 
     "運動健身"
 ];
 
@@ -54,6 +54,14 @@ const SettingsForm: React.FC<Props> = ({ initialSettings, onSave }) => {
   // File Upload State
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Helper to get Env safely (Duplicated for consistency)
+  const getFbAppId = () => {
+        const env = (import.meta as any).env || {};
+        if (env.VITE_FB_APP_ID) return env.VITE_FB_APP_ID;
+        if (env.REACT_APP_FB_APP_ID) return env.REACT_APP_FB_APP_ID;
+        return '';
+  };
+
   useEffect(() => {
     setFormData(initialSettings);
     
@@ -72,13 +80,9 @@ const SettingsForm: React.FC<Props> = ({ initialSettings, onSave }) => {
     }
 
     // Initialize FB SDK
-    // Fix: Safely access env and DO NOT use a fallback ID.
-    // If VITE_FB_APP_ID is missing, we simply log a warning but do not init with a fake ID.
-    const env = (import.meta as any)?.env || {};
-    const FB_APP_ID = env.VITE_FB_APP_ID || env.REACT_APP_FB_APP_ID;
-    
-    if (FB_APP_ID) {
-        initFacebookSdk(FB_APP_ID).then(() => setIsFbSdkReady(true));
+    const appId = getFbAppId();
+    if (appId) {
+        initFacebookSdk(appId).then(() => setIsFbSdkReady(true)).catch(console.error);
     } else {
         console.error("❌ Critical: Facebook App ID not found in environment variables (VITE_FB_APP_ID).");
     }
@@ -153,12 +157,11 @@ const SettingsForm: React.FC<Props> = ({ initialSettings, onSave }) => {
       console.log("[SettingsForm] Connect FB button clicked. SDK Ready:", isFbSdkReady);
 
       if (!isFbSdkReady) {
-          const env = (import.meta as any)?.env || {};
-          const appId = env.VITE_FB_APP_ID || env.REACT_APP_FB_APP_ID;
+          const appId = getFbAppId();
           
           let msg = "⚠️ 無法啟動 Facebook 登入\n\n";
           if (!appId) {
-              msg += "原因 1：尚未設定 Facebook App ID。\n請檢查 Vercel 環境變數 'VITE_FB_APP_ID'。";
+              msg += "原因 1：尚未設定 Facebook App ID。\n請檢查 Vercel 環境變數 'VITE_FB_APP_ID' (需有 VITE_ 前綴)。";
           } else {
               msg += "原因 2：Facebook SDK 被瀏覽器或插件阻擋。\n\n常見原因：\n• 您的瀏覽器安裝了 AdBlock (擋廣告外掛)\n• 您使用了 Brave 瀏覽器或無痕模式\n• 網路防火牆阻擋了 Facebook 網域\n\n解決方案：\n請暫時關閉此網站的擋廣告功能，並重新整理網頁。";
           }

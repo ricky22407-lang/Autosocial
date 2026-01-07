@@ -59,14 +59,26 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
     // Permission Check
     const canCreate = ['starter', 'pro', 'business', 'admin'].includes(user.role);
 
+    // Helper to get Env safely
+    const getFbAppId = () => {
+        const env = (import.meta as any).env || {};
+        // Priority 1: Standard Vite Env
+        if (env.VITE_FB_APP_ID) return env.VITE_FB_APP_ID;
+        // Priority 2: Legacy Create-React-App Env
+        if (env.REACT_APP_FB_APP_ID) return env.REACT_APP_FB_APP_ID;
+        return '';
+    };
+
     useEffect(() => {
         loadProfile();
         
-        // Try to pre-load SDK silently
-        const env = (import.meta as any)?.env || {};
-        const FB_APP_ID = env.VITE_FB_APP_ID || env.REACT_APP_FB_APP_ID;
-        if (FB_APP_ID) {
-            initFacebookSdk(FB_APP_ID).catch(console.warn);
+        const appId = getFbAppId();
+        console.log(`[MyCardEditor] Checking FB App ID: ${appId ? 'Found (Ends with ' + appId.slice(-4) + ')' : 'MISSING'}`);
+
+        if (appId) {
+            initFacebookSdk(appId).catch(err => {
+                console.error("[MyCardEditor] SDK Init Warning:", err);
+            });
         }
     }, [user.user_id]);
 
@@ -94,25 +106,19 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
         setLoading(false);
     };
 
-    // --- Facebook Sync Logic (Multi-page) ---
+    // --- Facebook Sync Logic (Strict Mode) ---
     const handleSyncFB = async () => {
         setSyncingFB(true);
         try {
-            // 1. Ensure SDK is ready (Force Init if needed)
+            const appId = getFbAppId();
+            if (!appId) {
+                throw new Error("環境變數未設定 VITE_FB_APP_ID。請檢查 .env 檔案並確認變數名稱正確 (需有 VITE_ 前綴)。");
+            }
+
+            // 1. Ensure SDK is ready
             if (!window.FB) {
-                const env = (import.meta as any)?.env || {};
-                let appId = env.VITE_FB_APP_ID || env.REACT_APP_FB_APP_ID;
-                
-                if (!appId) {
-                    // Trigger custom error flow to ask user
-                    throw new Error("MISSING_ENV");
-                }
-                
-                // Wait for init to complete
                 await initFacebookSdk(appId);
-                
-                // Double check
-                if (!window.FB) throw new Error("Facebook SDK 載入失敗 (可能被 AdBlock 阻擋)，請重新整理頁面。");
+                if (!window.FB) throw new Error("Facebook SDK 載入失敗。請檢查您的廣告阻擋器 (AdBlock) 是否攔截了 Facebook 腳本。");
             }
 
             // 2. Get all pages
@@ -126,39 +132,9 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
             setAvailablePages(pages);
             setSelectedPageIds(pages.map(p => p.id)); // Default select all
             setShowPageSelector(true);
+
         } catch (e: any) {
             console.error("FB Sync Error:", e);
-            
-            // --- RECOVERY LOGIC (Mock Mode Fallback) ---
-            if (e.message === "MISSING_ENV" || e.message.includes("Facebook SDK") || e.message.includes("環境變數")) {
-                const manualId = prompt("⚠️ 系統偵測到未設定 Facebook App ID (VITE_FB_APP_ID)，或 SDK 載入失敗。\n\n若您有 App ID，請在此輸入以手動啟動：\n(若無，請直接按「取消」進入模擬模式)");
-                
-                if (manualId && manualId.trim().length > 5) {
-                    try {
-                        await initFacebookSdk(manualId.trim());
-                        // Retry login immediately
-                        const pages = await loginAndGetPages();
-                        setAvailablePages(pages);
-                        setSelectedPageIds(pages.map(p => p.id));
-                        setShowPageSelector(true);
-                        return;
-                    } catch (retryErr) {
-                        alert("手動啟動失敗，將自動切換至模擬模式。");
-                    }
-                }
-
-                // Fallback to Mock Mode
-                const mockPages: FacebookPage[] = [
-                    { id: 'mock_p1', name: '模擬-美食探險家 (Mock)', access_token: 'mock_token', category: 'Food' },
-                    { id: 'mock_p2', name: '模擬-科技開箱 (Mock)', access_token: 'mock_token', category: 'Tech' },
-                    { id: 'mock_p3', name: '模擬-日常廢文 (Mock)', access_token: 'mock_token', category: 'Personal' },
-                ];
-                setAvailablePages(mockPages);
-                setSelectedPageIds(mockPages.map(p => p.id));
-                setShowPageSelector(true);
-                return;
-            }
-            
             alert(`Facebook 連線失敗: ${e.message}`);
         } finally {
             setSyncingFB(false);
@@ -180,18 +156,6 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
 
             for (const page of targets) {
                 try {
-                    // Check for Mock Token
-                    if (page.access_token === 'mock_token') {
-                        newAccounts.push({
-                            platform: 'Facebook',
-                            id: page.id,
-                            name: page.name,
-                            followers: Math.floor(Math.random() * 5000) + 500,
-                            engagement: parseFloat((Math.random() * 5).toFixed(2))
-                        });
-                        continue;
-                    }
-
                     const stats = await fetchPageAnalytics(page.id, page.access_token);
                     if (stats) {
                         newAccounts.push({
