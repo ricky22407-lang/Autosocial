@@ -1,6 +1,6 @@
 
 import { SocialCard, Campaign, UserRole, UserProfile } from '../types';
-import { db, isMock } from './firebase';
+import { db, isMock, firebase } from './firebase';
 
 // --- SHARED CONSTANTS ---
 export const CONNECT_CATEGORIES = [
@@ -314,7 +314,7 @@ export const ConnectService = {
             });
             
             await db.collection('campaigns').doc(campaignId).update({
-                applicantsCount: (require('firebase/firestore').FieldValue || db.app.firebase_.firestore.FieldValue).increment(1)
+                applicantsCount: firebase.firestore.FieldValue.increment(1)
             });
         }
         

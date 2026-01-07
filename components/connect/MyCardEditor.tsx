@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { UserProfile, SocialCard, BrandSettings, ConnectedAccountData } from '../../types';
 import { ConnectService, CONNECT_CATEGORIES, CONNECT_SPECIALTIES, CONNECT_PLATFORMS } from '../../services/connectService';
 import { fetchPageAnalytics, fetchInstagramAnalytics } from '../../services/facebookService';
-import { loginAndGetPages, FacebookPage } from '../../services/facebookAuth';
+import { loginAndGetPages, FacebookPage, initFacebookSdk } from '../../services/facebookAuth';
 import { fetchUserThreads } from '../../services/threadsService';
 import { YouTubeService } from '../../services/youtubeService';
 import { checkAndUseQuota } from '../../services/authService';
@@ -61,6 +61,13 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
 
     useEffect(() => {
         loadProfile();
+        
+        // Initialize FB SDK
+        const env = (import.meta as any)?.env || {};
+        const FB_APP_ID = env.VITE_FB_APP_ID || env.REACT_APP_FB_APP_ID;
+        if (FB_APP_ID) {
+            initFacebookSdk(FB_APP_ID).catch(console.error);
+        }
     }, [user.user_id]);
 
     const loadProfile = async () => {
