@@ -62,11 +62,11 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
     useEffect(() => {
         loadProfile();
         
-        // Initialize FB SDK
+        // Try to pre-load SDK silently
         const env = (import.meta as any)?.env || {};
         const FB_APP_ID = env.VITE_FB_APP_ID || env.REACT_APP_FB_APP_ID;
         if (FB_APP_ID) {
-            initFacebookSdk(FB_APP_ID).catch(console.error);
+            initFacebookSdk(FB_APP_ID).catch(console.warn);
         }
     }, [user.user_id]);
 
@@ -98,19 +98,33 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
     const handleSyncFB = async () => {
         setSyncingFB(true);
         try {
-            // 1. Get all pages
+            // 1. Ensure SDK is ready (Force Init if needed)
+            if (!window.FB) {
+                const env = (import.meta as any)?.env || {};
+                const FB_APP_ID = env.VITE_FB_APP_ID || env.REACT_APP_FB_APP_ID;
+                if (!FB_APP_ID) throw new Error("環境變數未設定 Facebook App ID (VITE_FB_APP_ID)，無法啟動 SDK。");
+                
+                // Wait for init to complete
+                await initFacebookSdk(FB_APP_ID);
+                
+                // Double check
+                if (!window.FB) throw new Error("Facebook SDK 載入失敗 (可能被 AdBlock 阻擋)，請重新整理頁面。");
+            }
+
+            // 2. Get all pages
             const pages = await loginAndGetPages();
             if (pages.length === 0) {
                 alert("找不到您管理的粉絲專頁，請確認已授予權限。");
                 return;
             }
             
-            // 2. Open Selection Modal
+            // 3. Open Selection Modal
             setAvailablePages(pages);
             setSelectedPageIds(pages.map(p => p.id)); // Default select all
             setShowPageSelector(true);
         } catch (e: any) {
-            alert(`Facebook 登入失敗: ${e.message}`);
+            console.error("FB Sync Error:", e);
+            alert(`Facebook 連線失敗: ${e.message}`);
         } finally {
             setSyncingFB(false);
         }

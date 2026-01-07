@@ -278,17 +278,20 @@ export const ConnectService = {
         }
 
         try {
-            // Firestore Query: unlocked by me AND timestamp > threshold
+            // Firestore Query: SIMPLIFIED to avoid "Requires Index" error
+            // We just fetch by userId and filter the rest in memory (client-side)
             const snap = await db.collection('connect_unlocks')
                 .where('userId', '==', userId)
-                .where('timestamp', '>', validThreshold)
-                .orderBy('timestamp', 'desc')
                 .get();
                 
-            return snap.docs.map((d: any) => {
-                const data = d.data();
-                return { talentId: data.talentId, unlockedAt: data.timestamp };
-            });
+            return snap.docs
+                .map((d: any) => {
+                    const data = d.data();
+                    return { talentId: data.talentId, unlockedAt: data.timestamp };
+                })
+                .filter((item: any) => item.unlockedAt > validThreshold)
+                .sort((a: any, b: any) => b.unlockedAt - a.unlockedAt);
+
         } catch (e: any) {
             console.error("Get Active Unlocks Failed", e);
             return [];
