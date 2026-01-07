@@ -92,6 +92,14 @@ export interface ContactDetails {
     phone?: string;
 }
 
+export interface ConnectedAccountData {
+    platform: 'Facebook' | 'Instagram' | 'Threads' | 'YouTube' | 'TikTok';
+    id: string;
+    name: string;
+    followers: number;
+    engagement: number;
+}
+
 export interface SocialCard {
     id: string; // usually same as userId
     userId: string;
@@ -102,6 +110,10 @@ export interface SocialCard {
     categories: string[]; // e.g. "美食", "旅遊"
     specialties?: string[]; // New: 擅長形式 (Short Video, Blog, etc.)
     platforms?: string[]; // New: Operating Platforms
+    
+    // Detailed breakdown of connected pages/accounts
+    connectedAccounts?: ConnectedAccountData[];
+
     followersCount: number;
     engagementRate: number;
     

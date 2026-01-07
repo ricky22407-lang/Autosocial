@@ -125,7 +125,11 @@ const TalentScout: React.FC<Props> = ({ user, onQuotaUpdate }) => {
                         <div>
                             <h3 className={`font-bold text-white text-lg ${!isUnlocked ? 'blur-[2px] select-none' : ''}`}>{!isUnlocked ? 'User_Hidden' : talent.displayName}</h3>
                             <div className="flex gap-1 mt-1 flex-wrap">
-                                {(talent.platforms || []).slice(0,3).map(p => <span key={p} className="text-[9px] bg-gray-800 text-gray-400 px-1.5 py-0.5 rounded">{p}</span>)}
+                                {/* If we have detailed accounts, determine platforms from there, otherwise use string list */}
+                                {(talent.connectedAccounts?.length 
+                                    ? [...new Set(talent.connectedAccounts.map(a => a.platform))] 
+                                    : (talent.platforms || [])
+                                ).slice(0,3).map(p => <span key={p} className="text-[9px] bg-gray-800 text-gray-400 px-1.5 py-0.5 rounded">{p}</span>)}
                             </div>
                         </div>
                     </div>
@@ -137,9 +141,25 @@ const TalentScout: React.FC<Props> = ({ user, onQuotaUpdate }) => {
                     )}
 
                     <div className="grid grid-cols-2 gap-2 mb-3 bg-black/20 p-3 rounded-xl">
-                        <div className="text-center"><p className="text-[10px] text-gray-500 uppercase">粉絲數</p><p className="font-mono text-white font-bold">{talent.followersCount.toLocaleString()}</p></div>
+                        <div className="text-center"><p className="text-[10px] text-gray-500 uppercase">總粉絲數</p><p className="font-mono text-white font-bold">{talent.followersCount.toLocaleString()}</p></div>
                         <div className="text-center border-l border-gray-700"><p className="text-[10px] text-gray-500 uppercase">互動率</p><p className="font-mono text-green-400 font-bold">{talent.engagementRate}%</p></div>
                     </div>
+
+                    {/* Breakdown of Connected Accounts */}
+                    {talent.connectedAccounts && talent.connectedAccounts.length > 0 && (
+                        <div className="mb-4 bg-gray-800/30 rounded-lg p-2 space-y-1">
+                            {talent.connectedAccounts.slice(0, 2).map(acc => (
+                                <div key={acc.id} className="flex justify-between items-center text-[10px]">
+                                    <div className="flex items-center gap-1 max-w-[60%]">
+                                        <span className={`w-1 h-3 rounded-full ${acc.platform === 'Facebook' ? 'bg-blue-600' : acc.platform === 'Instagram' ? 'bg-pink-600' : 'bg-gray-500'}`}></span>
+                                        <span className="text-gray-300 truncate" title={acc.name}>{acc.name}</span>
+                                    </div>
+                                    <span className="text-gray-400">{formatNumber(acc.followers)} 粉絲</span>
+                                </div>
+                            ))}
+                            {talent.connectedAccounts.length > 2 && <div className="text-[9px] text-center text-gray-600">...以及其他 {talent.connectedAccounts.length - 2} 個帳號</div>}
+                        </div>
+                    )}
 
                     {/* Additional Platform Metrics */}
                     {(talent.ytAvgViews || talent.tiktokAvgViews || talent.websiteAvgViews) && (

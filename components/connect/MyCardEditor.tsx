@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { UserProfile, SocialCard, BrandSettings } from '../../types';
+import { UserProfile, SocialCard, BrandSettings, ConnectedAccountData } from '../../types';
 import { ConnectService, CONNECT_CATEGORIES, CONNECT_SPECIALTIES, CONNECT_PLATFORMS } from '../../services/connectService';
 import { fetchPageAnalytics, fetchInstagramAnalytics } from '../../services/facebookService';
+import { loginAndGetPages, FacebookPage } from '../../services/facebookAuth';
 import { fetchUserThreads } from '../../services/threadsService';
 import { YouTubeService } from '../../services/youtubeService';
 import { checkAndUseQuota } from '../../services/authService';
@@ -22,6 +23,7 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
         categories: [],
         specialties: [],
         platforms: [],
+        connectedAccounts: [],
         followersCount: 0,
         engagementRate: 0,
         ytAvgViews: undefined,
@@ -38,13 +40,10 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
     const [priceMin, setPriceMin] = useState<string>('500');
     const [priceMax, setPriceMax] = useState<string>('1500');
 
-    // Stats Accumulator State
-    const [platformStats, setPlatformStats] = useState<{
-        fb?: { followers: number, engagement: number };
-        threads?: { followers: number, engagement: number }; // Threads API limitations apply
-        ig?: { followers: number, engagement: number };
-        yt?: { followers: number, engagement: number };
-    }>({});
+    // Page Selection State
+    const [showPageSelector, setShowPageSelector] = useState(false);
+    const [availablePages, setAvailablePages] = useState<FacebookPage[]>([]);
+    const [selectedPageIds, setSelectedPageIds] = useState<string[]>([]);
 
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -64,30 +63,11 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
         loadProfile();
     }, [user.user_id]);
 
-    // Recalculate Totals whenever platformStats changes
-    useEffect(() => {
-        const stats = Object.values(platformStats);
-        if (stats.length > 0) {
-            const totalFollowers = stats.reduce((sum, s) => sum + (s.followers || 0), 0);
-            const validEngagements = stats.filter(s => s.engagement > 0);
-            const avgEngagement = validEngagements.length > 0 
-                ? validEngagements.reduce((sum, s) => sum + s.engagement, 0) / validEngagements.length 
-                : 0;
-            
-            setCard(prev => ({
-                ...prev,
-                followersCount: totalFollowers,
-                engagementRate: parseFloat(avgEngagement.toFixed(2))
-            }));
-        }
-    }, [platformStats]);
-
     const loadProfile = async () => {
         setLoading(true);
         const profile = await ConnectService.getMyProfile(user.user_id);
         if (profile) {
             setCard(profile);
-            // Parse existing price range
             if (profile.priceRange) {
                 const parts = profile.priceRange.replace(/[^0-9-]/g, '').split('-');
                 if (parts.length === 2) {
@@ -96,7 +76,6 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
                 }
             }
         } else {
-            // Default init
             setCard(prev => ({
                 ...prev,
                 displayName: user.email.split('@')[0],
@@ -108,22 +87,82 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
         setLoading(false);
     };
 
+    // --- Facebook Sync Logic (Multi-page) ---
     const handleSyncFB = async () => {
-        if (!settings.facebookPageId || !settings.facebookToken) return alert("請先至「品牌設定」連結 Facebook 粉專");
         setSyncingFB(true);
         try {
-            const analytics = await fetchPageAnalytics(settings.facebookPageId, settings.facebookToken);
-            if (analytics) {
-                setPlatformStats(prev => ({ ...prev, fb: { followers: analytics.followers, engagement: analytics.engagementRate } }));
-                alert(`✅ FB 數據同步成功！\n粉絲: ${analytics.followers}, 互動: ${analytics.engagementRate}%`);
-                
-                // Auto-check platform
-                if (!card.platforms?.includes('Facebook')) togglePlatform('Facebook');
-            } else {
-                alert("無法讀取粉專數據");
+            // 1. Get all pages
+            const pages = await loginAndGetPages();
+            if (pages.length === 0) {
+                alert("找不到您管理的粉絲專頁，請確認已授予權限。");
+                return;
             }
-        } catch (e: any) { alert(`同步失敗: ${e.message}`); }
-        finally { setSyncingFB(false); }
+            
+            // 2. Open Selection Modal
+            setAvailablePages(pages);
+            setSelectedPageIds(pages.map(p => p.id)); // Default select all
+            setShowPageSelector(true);
+        } catch (e: any) {
+            alert(`Facebook 登入失敗: ${e.message}`);
+        } finally {
+            setSyncingFB(false);
+        }
+    };
+
+    const handleConfirmPageSelection = async () => {
+        if (selectedPageIds.length === 0) return alert("請至少選擇一個粉絲專頁");
+        
+        setShowPageSelector(false);
+        setSyncingFB(true);
+        
+        try {
+            const targets = availablePages.filter(p => selectedPageIds.includes(p.id));
+            const newAccounts: ConnectedAccountData[] = [];
+            
+            // Remove old FB accounts to replace with new selection
+            const otherAccounts = (card.connectedAccounts || []).filter(a => a.platform !== 'Facebook');
+
+            for (const page of targets) {
+                try {
+                    const stats = await fetchPageAnalytics(page.id, page.access_token);
+                    if (stats) {
+                        newAccounts.push({
+                            platform: 'Facebook',
+                            id: page.id,
+                            name: page.name,
+                            followers: stats.followers,
+                            engagement: stats.engagementRate
+                        });
+                    }
+                } catch (e) {
+                    console.error(`Fetch stats failed for ${page.name}`, e);
+                }
+            }
+
+            const updatedConnected = [...otherAccounts, ...newAccounts];
+            
+            // Recalculate Totals
+            const totalFollowers = updatedConnected.reduce((sum, a) => sum + a.followers, 0);
+            const validEng = updatedConnected.filter(a => a.engagement > 0);
+            const avgEng = validEng.length > 0 
+                ? validEng.reduce((sum, a) => sum + a.engagement, 0) / validEng.length 
+                : 0;
+
+            setCard(prev => ({
+                ...prev,
+                connectedAccounts: updatedConnected,
+                followersCount: totalFollowers,
+                engagementRate: parseFloat(avgEng.toFixed(2)),
+                platforms: Array.from(new Set([...(prev.platforms || []), 'Facebook']))
+            }));
+
+            alert(`✅ 同步完成！已更新 ${newAccounts.length} 個粉專數據。`);
+
+        } catch (e: any) {
+            alert(`同步過程發生錯誤: ${e.message}`);
+        } finally {
+            setSyncingFB(false);
+        }
     };
 
     const handleSyncIG = async () => {
@@ -132,9 +171,31 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
         try {
             const analytics = await fetchInstagramAnalytics(settings.facebookPageId, settings.facebookToken);
             if (analytics) {
-                setPlatformStats(prev => ({ ...prev, ig: { followers: analytics.followers, engagement: analytics.engagementRate } }));
-                alert(`✅ IG 數據同步成功！\n粉絲: ${analytics.followers}, 互動: ${analytics.engagementRate}%`);
-                if (!card.platforms?.includes('Instagram')) togglePlatform('Instagram');
+                const newAcc: ConnectedAccountData = {
+                    platform: 'Instagram',
+                    id: `ig_${settings.facebookPageId}`,
+                    name: 'Instagram Business',
+                    followers: analytics.followers,
+                    engagement: analytics.engagementRate
+                };
+                
+                const otherAccounts = (card.connectedAccounts || []).filter(a => a.platform !== 'Instagram');
+                const updatedConnected = [...otherAccounts, newAcc];
+                
+                // Recalculate
+                const totalFollowers = updatedConnected.reduce((sum, a) => sum + a.followers, 0);
+                const validEng = updatedConnected.filter(a => a.engagement > 0);
+                const avgEng = validEng.length > 0 ? validEng.reduce((sum, a) => sum + a.engagement, 0) / validEng.length : 0;
+
+                setCard(prev => ({
+                    ...prev,
+                    connectedAccounts: updatedConnected,
+                    followersCount: totalFollowers,
+                    engagementRate: parseFloat(avgEng.toFixed(2)),
+                    platforms: Array.from(new Set([...(prev.platforms || []), 'Instagram']))
+                }));
+
+                alert(`✅ IG 數據同步成功！`);
             } else {
                 alert("找不到連結的 Instagram 商業帳號");
             }
@@ -149,10 +210,33 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
         try {
             const posts = await fetchUserThreads(activeAccount, 5);
             if (posts.length > 0) {
+                // Threads API doesn't give follower count easily without advanced scope, mocking follower part or using stored if available
                 const mockRate = parseFloat((Math.random() * 3 + 1).toFixed(1));
-                setPlatformStats(prev => ({ ...prev, threads: { followers: 0, engagement: mockRate } }));
-                alert(`✅ Threads 狀態同步成功！(近期有 ${posts.length} 篇貼文)`);
-                if (!card.platforms?.includes('Threads')) togglePlatform('Threads');
+                const newAcc: ConnectedAccountData = {
+                    platform: 'Threads',
+                    id: activeAccount.id,
+                    name: activeAccount.username,
+                    followers: 0, // Placeholder
+                    engagement: mockRate
+                };
+
+                const otherAccounts = (card.connectedAccounts || []).filter(a => a.platform !== 'Threads');
+                const updatedConnected = [...otherAccounts, newAcc];
+                
+                // Recalculate
+                const totalFollowers = updatedConnected.reduce((sum, a) => sum + a.followers, 0);
+                const validEng = updatedConnected.filter(a => a.engagement > 0);
+                const avgEng = validEng.length > 0 ? validEng.reduce((sum, a) => sum + a.engagement, 0) / validEng.length : 0;
+
+                setCard(prev => ({
+                    ...prev,
+                    connectedAccounts: updatedConnected,
+                    followersCount: totalFollowers,
+                    engagementRate: parseFloat(avgEng.toFixed(2)),
+                    platforms: Array.from(new Set([...(prev.platforms || []), 'Threads']))
+                }));
+
+                alert(`✅ Threads 狀態同步成功！`);
             } else {
                 alert("找不到近期貼文");
             }
@@ -163,23 +247,34 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
     const handleSyncYouTube = async () => {
         setSyncingYT(true);
         try {
-            // 1. Auth Flow (Simulated or Real)
             const token = await YouTubeService.authenticate();
-            // 2. Fetch Data
             const stats = await YouTubeService.fetchChannelStats(token);
             
-            setPlatformStats(prev => ({ 
+            const newAcc: ConnectedAccountData = {
+                platform: 'YouTube',
+                id: `yt_${Date.now()}`,
+                name: stats.title,
+                followers: stats.subscriberCount,
+                engagement: stats.avgEngagement
+            };
+
+            const otherAccounts = (card.connectedAccounts || []).filter(a => a.platform !== 'YouTube');
+            const updatedConnected = [...otherAccounts, newAcc];
+            
+            const totalFollowers = updatedConnected.reduce((sum, a) => sum + a.followers, 0);
+            const validEng = updatedConnected.filter(a => a.engagement > 0);
+            const avgEng = validEng.length > 0 ? validEng.reduce((sum, a) => sum + a.engagement, 0) / validEng.length : 0;
+
+            setCard(prev => ({ 
                 ...prev, 
-                yt: { followers: stats.subscriberCount, engagement: stats.avgEngagement } 
+                ytAvgViews: stats.avgViews || prev.ytAvgViews,
+                connectedAccounts: updatedConnected,
+                followersCount: totalFollowers,
+                engagementRate: parseFloat(avgEng.toFixed(2)),
+                platforms: Array.from(new Set([...(prev.platforms || []), 'YouTube']))
             }));
             
-            // Sync Average Views
-            if (stats.avgViews > 0) {
-                setCard(prev => ({ ...prev, ytAvgViews: stats.avgViews }));
-            }
-            
-            alert(`✅ YouTube 同步成功！\n頻道: ${stats.title}\n訂閱: ${stats.subscriberCount}\n平均觀看: ${stats.avgViews || 0}`);
-            if (!card.platforms?.includes('YouTube')) togglePlatform('YouTube');
+            alert(`✅ YouTube 同步成功！`);
 
         } catch (e: any) {
             alert(`YouTube 同步失敗: ${e.message}`);
@@ -289,38 +384,38 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
                 <div className="bg-card p-6 rounded-xl border border-gray-700 space-y-4">
                     <div className="flex justify-between items-center border-b border-gray-700 pb-2">
                         <h3 className="text-lg font-bold text-white">編輯資料</h3>
-                        <span className="text-[10px] text-gray-400">數據來源: {Object.keys(platformStats).length} 個平台已同步</span>
+                        <span className="text-[10px] text-gray-400">數據來源: {card.connectedAccounts?.length || 0} 個平台已同步</span>
                     </div>
                     
                     {/* Sync Buttons Grid */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                         <button 
                             onClick={handleSyncFB} disabled={syncingFB}
-                            className={`text-xs px-2 py-2 rounded-lg border transition-colors flex flex-col items-center justify-center gap-1 ${platformStats.fb ? 'bg-blue-900/40 text-blue-300 border-blue-600' : 'bg-dark text-gray-400 border-gray-700 hover:border-blue-500'}`}
+                            className={`text-xs px-2 py-2 rounded-lg border transition-colors flex flex-col items-center justify-center gap-1 ${card.connectedAccounts?.some(a => a.platform === 'Facebook') ? 'bg-blue-900/40 text-blue-300 border-blue-600' : 'bg-dark text-gray-400 border-gray-700 hover:border-blue-500'}`}
                         >
                             {syncingFB ? <div className="loader w-3 h-3 border-t-white"></div> : '📘'}
-                            {platformStats.fb ? '已更新 FB' : '同步 FB'}
+                            {card.connectedAccounts?.some(a => a.platform === 'Facebook') ? '更新 FB' : '同步 FB'}
                         </button>
                         <button 
                             onClick={handleSyncIG} disabled={syncingIG}
-                            className={`text-xs px-2 py-2 rounded-lg border transition-colors flex flex-col items-center justify-center gap-1 ${platformStats.ig ? 'bg-pink-900/40 text-pink-300 border-pink-600' : 'bg-dark text-gray-400 border-gray-700 hover:border-pink-500'}`}
+                            className={`text-xs px-2 py-2 rounded-lg border transition-colors flex flex-col items-center justify-center gap-1 ${card.connectedAccounts?.some(a => a.platform === 'Instagram') ? 'bg-pink-900/40 text-pink-300 border-pink-600' : 'bg-dark text-gray-400 border-gray-700 hover:border-pink-500'}`}
                         >
                             {syncingIG ? <div className="loader w-3 h-3 border-t-white"></div> : '📸'}
-                            {platformStats.ig ? '已更新 IG' : '同步 IG'}
+                            {card.connectedAccounts?.some(a => a.platform === 'Instagram') ? '更新 IG' : '同步 IG'}
                         </button>
                         <button 
                             onClick={handleSyncThreads} disabled={syncingThreads}
-                            className={`text-xs px-2 py-2 rounded-lg border transition-colors flex flex-col items-center justify-center gap-1 ${platformStats.threads ? 'bg-gray-700 text-white border-white' : 'bg-dark text-gray-400 border-gray-700 hover:border-gray-400'}`}
+                            className={`text-xs px-2 py-2 rounded-lg border transition-colors flex flex-col items-center justify-center gap-1 ${card.connectedAccounts?.some(a => a.platform === 'Threads') ? 'bg-gray-700 text-white border-white' : 'bg-dark text-gray-400 border-gray-700 hover:border-gray-400'}`}
                         >
                             {syncingThreads ? <div className="loader w-3 h-3 border-t-white"></div> : '🧵'}
-                            {platformStats.threads ? '已更新 Threads' : '同步 Threads'}
+                            {card.connectedAccounts?.some(a => a.platform === 'Threads') ? '更新 Threads' : '同步 Threads'}
                         </button>
                         <button 
                             onClick={handleSyncYouTube} disabled={syncingYT}
-                            className={`text-xs px-2 py-2 rounded-lg border transition-colors flex flex-col items-center justify-center gap-1 ${platformStats.yt ? 'bg-red-900/40 text-red-300 border-red-600' : 'bg-dark text-gray-400 border-gray-700 hover:border-red-500'}`}
+                            className={`text-xs px-2 py-2 rounded-lg border transition-colors flex flex-col items-center justify-center gap-1 ${card.connectedAccounts?.some(a => a.platform === 'YouTube') ? 'bg-red-900/40 text-red-300 border-red-600' : 'bg-dark text-gray-400 border-gray-700 hover:border-red-500'}`}
                         >
                             {syncingYT ? <div className="loader w-3 h-3 border-t-white"></div> : '▶️'}
-                            {platformStats.yt ? '已更新 YT' : '同步 YT'}
+                            {card.connectedAccounts?.some(a => a.platform === 'YouTube') ? '更新 YT' : '同步 YT'}
                         </button>
                     </div>
                     
@@ -359,14 +454,14 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
                         <label className="block text-xs text-gray-400 mb-2 font-bold">自填/同步數據</label>
                         <div className="grid grid-cols-2 gap-3">
                             <div>
-                                <label className="block text-[10px] text-gray-500 mb-1">YT 平均觀看 (月) {platformStats.yt ? '(已同步)' : ''}</label>
+                                <label className="block text-[10px] text-gray-500 mb-1">YT 平均觀看 (月) {card.connectedAccounts?.some(a => a.platform === 'YouTube') ? '(已同步)' : ''}</label>
                                 <input 
                                     type="number" 
                                     value={card.ytAvgViews || ''} 
                                     onChange={e => setCard({...card, ytAvgViews: parseInt(e.target.value) || undefined})}
                                     placeholder="0"
-                                    className={`w-full bg-dark border rounded p-1.5 text-xs text-white ${platformStats.yt ? 'border-green-500/50' : 'border-gray-600'}`}
-                                    disabled={!!platformStats.yt} // Disable manual edit if synced
+                                    className={`w-full bg-dark border rounded p-1.5 text-xs text-white ${card.connectedAccounts?.some(a => a.platform === 'YouTube') ? 'border-green-500/50' : 'border-gray-600'}`}
+                                    disabled={card.connectedAccounts?.some(a => a.platform === 'YouTube')} 
                                 />
                             </div>
                             <div>
@@ -433,9 +528,6 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
                     <div>
                         <label className="block text-xs text-gray-400 mb-1">自我介紹</label>
                         <textarea value={card.bio} onChange={e => setCard({...card, bio: e.target.value})} className="w-full bg-dark border border-gray-600 rounded p-2 text-white h-24 resize-none text-sm" />
-                        <p className="text-[10px] text-gray-500 mt-1">
-                            💡 小撇步：若您有經營 TikTok, YouTube, Blog 等尚未串接的平台，建議在此處貼上連結，方便廠商查閱。
-                        </p>
                     </div>
 
                     <div className="border-t border-gray-700 pt-4">
@@ -462,11 +554,28 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
                             <img src={card.avatarUrl} className="w-16 h-16 rounded-full border-2 border-gray-600" alt="Avatar"/>
                             <div>
                                 <h3 className="font-bold text-white text-lg">{card.displayName || '您的暱稱'}</h3>
+                                {/* Show platform badges based on actual connectedAccounts if available, else fallback to manual tags */}
                                 <div className="flex gap-1 mt-1 flex-wrap">
-                                    {(card.platforms || []).map(p => <span key={p} className="text-[9px] border border-gray-600 text-gray-400 px-1.5 py-0.5 rounded">{p}</span>)}
+                                    {(card.connectedAccounts?.length ? [...new Set(card.connectedAccounts.map(a => a.platform))] : (card.platforms || [])).map(p => <span key={p} className="text-[9px] border border-gray-600 text-gray-400 px-1.5 py-0.5 rounded">{p}</span>)}
                                 </div>
                             </div>
                         </div>
+
+                        {/* Breakdown Display */}
+                        {card.connectedAccounts && card.connectedAccounts.length > 0 && (
+                            <div className="bg-gray-800/30 rounded-lg p-2 mb-4 space-y-1">
+                                <p className="text-[9px] text-gray-500 font-bold uppercase mb-1">已連結帳號</p>
+                                {card.connectedAccounts.map(acc => (
+                                    <div key={acc.id} className="flex justify-between items-center text-[10px]">
+                                        <span className="text-gray-300 truncate max-w-[120px]">{acc.name}</span>
+                                        <div className="flex gap-2">
+                                            <span className="text-gray-400">{acc.followers.toLocaleString()} 粉絲</span>
+                                            {/* <span className="text-green-400">{acc.engagement}%</span> */}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
 
                         {card.specialties && card.specialties.length > 0 && (
                             <div className="flex flex-wrap gap-1 mb-4">
@@ -477,13 +586,6 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
                         <div className="grid grid-cols-2 gap-2 mb-4 bg-black/20 p-3 rounded-xl">
                             <div className="text-center"><p className="text-[10px] text-gray-500 uppercase">總粉絲數</p><p className="font-mono text-white font-bold">{card.followersCount?.toLocaleString() || 0}</p></div>
                             <div className="text-center border-l border-gray-700"><p className="text-[10px] text-gray-500 uppercase">平均互動率</p><p className="font-mono text-green-400 font-bold">{card.engagementRate || 0}%</p></div>
-                        </div>
-
-                        {/* Extra Metrics Preview */}
-                        <div className="grid grid-cols-3 gap-1 mb-4">
-                            {card.ytAvgViews ? <div className="text-center bg-red-900/10 rounded p-1 border border-red-900/30"><p className="text-[9px] text-red-300">YT 觀看</p><p className="text-[10px] font-bold text-white">{card.ytAvgViews.toLocaleString()}</p></div> : null}
-                            {card.tiktokAvgViews ? <div className="text-center bg-gray-800 rounded p-1 border border-gray-700"><p className="text-[9px] text-gray-400">TikTok</p><p className="text-[10px] font-bold text-white">{card.tiktokAvgViews.toLocaleString()}</p></div> : null}
-                            {card.websiteAvgViews ? <div className="text-center bg-blue-900/10 rounded p-1 border border-blue-900/30"><p className="text-[9px] text-blue-300">Web</p><p className="text-[10px] font-bold text-white">{card.websiteAvgViews.toLocaleString()}</p></div> : null}
                         </div>
 
                         <div className="space-y-2 mb-6">
@@ -513,6 +615,47 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
                     )}
                 </div>
             </div>
+
+            {/* Page Selector Modal */}
+            {showPageSelector && (
+                <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[200] p-4 backdrop-blur-sm animate-fade-in">
+                    <div className="bg-card border border-gray-600 rounded-xl w-full max-w-md p-6 shadow-2xl relative">
+                        <button onClick={() => setShowPageSelector(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white">✕</button>
+                        <h3 className="text-xl font-bold text-white mb-4">選擇要同步的粉絲專頁</h3>
+                        <p className="text-xs text-gray-400 mb-4">
+                            請勾選您希望顯示在接案名片上的粉專。系統將自動加總這些粉專的粉絲數與互動率。
+                        </p>
+                        
+                        <div className="max-h-60 overflow-y-auto custom-scrollbar space-y-2 mb-6">
+                            {availablePages.map(page => (
+                                <label key={page.id} className="flex items-center gap-3 p-3 bg-dark rounded-lg border border-gray-700 hover:border-gray-500 cursor-pointer transition-colors">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={selectedPageIds.includes(page.id)}
+                                        onChange={() => {
+                                            if (selectedPageIds.includes(page.id)) {
+                                                setSelectedPageIds(selectedPageIds.filter(id => id !== page.id));
+                                            } else {
+                                                setSelectedPageIds([...selectedPageIds, page.id]);
+                                            }
+                                        }}
+                                        className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500"
+                                    />
+                                    <div className="flex-1">
+                                        <div className="font-bold text-white text-sm">{page.name}</div>
+                                        <div className="text-[10px] text-gray-500">ID: {page.id}</div>
+                                    </div>
+                                </label>
+                            ))}
+                        </div>
+
+                        <div className="flex justify-end gap-2">
+                            <button onClick={() => setShowPageSelector(false)} className="px-4 py-2 rounded bg-gray-700 text-white text-sm hover:bg-gray-600">取消</button>
+                            <button onClick={handleConfirmPageSelection} className="px-6 py-2 rounded bg-blue-600 text-white font-bold text-sm hover:bg-blue-500">確認同步 ({selectedPageIds.length})</button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Consent Modal */}
             {showConsent && (
