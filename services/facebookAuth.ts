@@ -67,12 +67,11 @@ export const loginAndGetPages = async (): Promise<FacebookPage[]> => {
         reject(new Error("User cancelled login or did not fully authorize."));
       }
     }, { 
-        // 3. Permissions Scope (Required for SaaS)
-        // public_profile: Basic info
-        // pages_show_list: To list pages in the dropdown
-        // pages_read_engagement: To analyze brand tone
-        // pages_manage_posts: To publish content
-        scope: 'public_profile,pages_show_list,pages_read_engagement,pages_manage_posts' 
+        // 3. Permissions Scope (Updated)
+        // read_insights: Required for page_impressions, page_fans_gender_age
+        // pages_read_engagement: Required for comments/likes
+        // pages_manage_posts: Required for publishing
+        scope: 'public_profile,pages_show_list,pages_read_engagement,pages_manage_posts,read_insights' 
     });
   });
 };

@@ -88,7 +88,8 @@ export const validateFacebookToken = async (token: string): Promise<{
         const permRes = await graphApi('me/permissions', cleanToken);
         const perms = permRes.data || [];
         
-        const required = ['pages_manage_posts', 'pages_read_engagement'];
+        // Updated required permissions
+        const required = ['pages_manage_posts', 'pages_read_engagement', 'read_insights'];
         const granted = perms
             .filter((p: any) => p.status === 'granted')
             .map((p: any) => p.permission);
@@ -217,65 +218,75 @@ export const deleteFbPost = async (
 export const fetchPageAnalytics = async (pageId: string, token?: string): Promise<AnalyticsData | null> => {
   if (!pageId || !token) return null; 
   const cleanToken = token.trim();
+  
   try {
-    // 1. Basic Info
+    // 1. Basic Info (Followers) - Safe call
     const pageInfo = await graphApi(`${pageId}?fields=followers_count,fan_count`, cleanToken);
     
-    // 2. Metrics (Insights) - SPLIT REQUESTS
-    // Request A: Periodic metrics (days_28)
-    const periodicMetrics = 'page_impressions_unique,page_impressions,page_negative_feedback';
-    const periodicInsights = await graphApi(`${pageId}/insights?metric=${periodicMetrics}&period=days_28`, cleanToken);
-    
-    // Request B: Demographic metrics (lifetime)
-    // Note: Demographics often return empty if < 100 fans, so we handle it softly
-    let demographicInsights: any = { data: [] };
-    try {
-        demographicInsights = await graphApi(`${pageId}/insights?metric=page_fans_gender_age&period=lifetime`, cleanToken);
-    } catch (e) {
-        console.warn("Demographics fetch skipped/failed (likely insufficient data)", e);
-    }
-    
-    const dataMap: any = {};
-    
-    // Process Periodic Data
-    periodicInsights.data?.forEach((item: any) => {
-        dataMap[item.name] = item.values?.[item.values.length - 1]?.value || 0;
-    });
-
-    // Process Demographic Data
-    demographicInsights.data?.forEach((item: any) => {
-        // Demographics value is usually a Map/Object, not a number
-        dataMap[item.name] = item.values?.[item.values.length - 1]?.value || {};
-    });
-
-    const reach = dataMap['page_impressions_unique'] || 0;
-    const impressions = dataMap['page_impressions'] || 0;
-    const negative = dataMap['page_negative_feedback'] || 0;
-    const rawDemo = dataMap['page_fans_gender_age'] || {};
-
-    // 3. Process Demographics
-    // Format: { "F.18-24": 10, "M.25-34": 5 }
-    const demographics: DemographicData[] = [];
-    Object.keys(rawDemo).forEach(key => {
-        const parts = key.split('.'); // [Gender, AgeRange]
-        if (parts.length === 2) {
-            demographics.push({
-                gender: parts[0] as any,
-                ageGroup: parts[1],
-                value: rawDemo[key]
-            });
-        }
-    });
-    // Sort by value desc
-    demographics.sort((a, b) => b.value - a.value);
-
-    // 4. Calculate Engagement (Approximate from top posts, can also query page_post_engagements)
+    // Default values
+    let reach = 0;
+    let impressions = 0;
+    let negative = 0;
+    let demographics: DemographicData[] = [];
     let engagementRate = 0;
+
+    // 2. Metrics (Insights) - Wrapped in separate try-catch to allow partial success
+    // This allows the dashboard to load even if 'read_insights' permission is missing
     try {
-        const engMetric = await graphApi(`${pageId}/insights?metric=page_post_engagements&period=days_28`, cleanToken);
-        const engagements = engMetric.data?.[0]?.values?.[0]?.value || 0;
-        if (reach > 0) engagementRate = parseFloat(((engagements / reach) * 100).toFixed(2));
-    } catch (e) {}
+        // Request A: Periodic metrics (days_28)
+        const periodicMetrics = 'page_impressions_unique,page_impressions,page_negative_feedback';
+        const periodicInsights = await graphApi(`${pageId}/insights?metric=${periodicMetrics}&period=days_28`, cleanToken);
+        
+        // Request B: Demographic metrics (lifetime)
+        // Demographics often return empty if < 100 fans, handled softly
+        let demographicInsights: any = { data: [] };
+        try {
+            demographicInsights = await graphApi(`${pageId}/insights?metric=page_fans_gender_age&period=lifetime`, cleanToken);
+        } catch (e) {
+            console.warn("Demographics fetch skipped/failed (insufficient data or permission)", e);
+        }
+        
+        const dataMap: any = {};
+        
+        // Process Periodic Data
+        periodicInsights.data?.forEach((item: any) => {
+            dataMap[item.name] = item.values?.[item.values.length - 1]?.value || 0;
+        });
+
+        // Process Demographic Data
+        demographicInsights.data?.forEach((item: any) => {
+            dataMap[item.name] = item.values?.[item.values.length - 1]?.value || {};
+        });
+
+        reach = dataMap['page_impressions_unique'] || 0;
+        impressions = dataMap['page_impressions'] || 0;
+        negative = dataMap['page_negative_feedback'] || 0;
+        const rawDemo = dataMap['page_fans_gender_age'] || {};
+
+        // Process Demographics
+        Object.keys(rawDemo).forEach(key => {
+            const parts = key.split('.'); // [Gender, AgeRange]
+            if (parts.length === 2) {
+                demographics.push({
+                    gender: parts[0] as any,
+                    ageGroup: parts[1],
+                    value: rawDemo[key]
+                });
+            }
+        });
+        demographics.sort((a, b) => b.value - a.value);
+
+        // Calculate Engagement
+        try {
+            const engMetric = await graphApi(`${pageId}/insights?metric=page_post_engagements&period=days_28`, cleanToken);
+            const engagements = engMetric.data?.[0]?.values?.[0]?.value || 0;
+            if (reach > 0) engagementRate = parseFloat(((engagements / reach) * 100).toFixed(2));
+        } catch (e) {}
+
+    } catch (insightError: any) {
+        console.warn("Insights API Failed (Permission `read_insights` likely missing):", insightError.message);
+        // We continue, returning 0 for insights but valid follower counts
+    }
 
     return {
       followers: pageInfo.followers_count || pageInfo.fan_count || 0,
@@ -287,7 +298,10 @@ export const fetchPageAnalytics = async (pageId: string, token?: string): Promis
       demographics: demographics,
       period: '28天'
     };
-  } catch (e) { throw e; }
+  } catch (e: any) { 
+      // If basic info fails, then the token is truly invalid
+      throw e; 
+  }
 };
 
 export const fetchInstagramAnalytics = async (pageId: string, token: string): Promise<AnalyticsData | null> => {
