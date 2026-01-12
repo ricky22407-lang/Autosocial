@@ -168,7 +168,7 @@ const AnalyticsDashboard: React.FC<Props> = ({ settings }) => {
                                     ))}
                                 </div>
                             ) : (
-                                <div className="text-center text-gray-500 text-xs py-10">資料不足 (需 >100 粉絲才能顯示人口統計)</div>
+                                <div className="text-center text-gray-500 text-xs py-10">資料不足 (需 &gt;100 粉絲才能顯示人口統計)</div>
                             )}
                         </div>
 
