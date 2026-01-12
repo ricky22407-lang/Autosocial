@@ -221,18 +221,31 @@ export const fetchPageAnalytics = async (pageId: string, token?: string): Promis
     // 1. Basic Info
     const pageInfo = await graphApi(`${pageId}?fields=followers_count,fan_count`, cleanToken);
     
-    // 2. Metrics (Insights)
-    // - page_impressions_unique: 28 Days Reach
-    // - page_impressions: Total Views
-    // - page_negative_feedback: Hides/Spam
-    // - page_fans_gender_age: Demographics
-    const metrics = 'page_impressions_unique,page_impressions,page_negative_feedback,page_fans_gender_age';
-    const insights = await graphApi(`${pageId}/insights?metric=${metrics}&period=days_28`, cleanToken);
+    // 2. Metrics (Insights) - SPLIT REQUESTS
+    // Request A: Periodic metrics (days_28)
+    const periodicMetrics = 'page_impressions_unique,page_impressions,page_negative_feedback';
+    const periodicInsights = await graphApi(`${pageId}/insights?metric=${periodicMetrics}&period=days_28`, cleanToken);
+    
+    // Request B: Demographic metrics (lifetime)
+    // Note: Demographics often return empty if < 100 fans, so we handle it softly
+    let demographicInsights: any = { data: [] };
+    try {
+        demographicInsights = await graphApi(`${pageId}/insights?metric=page_fans_gender_age&period=lifetime`, cleanToken);
+    } catch (e) {
+        console.warn("Demographics fetch skipped/failed (likely insufficient data)", e);
+    }
     
     const dataMap: any = {};
-    insights.data?.forEach((item: any) => {
-        // Get the most recent value (last in array usually)
+    
+    // Process Periodic Data
+    periodicInsights.data?.forEach((item: any) => {
         dataMap[item.name] = item.values?.[item.values.length - 1]?.value || 0;
+    });
+
+    // Process Demographic Data
+    demographicInsights.data?.forEach((item: any) => {
+        // Demographics value is usually a Map/Object, not a number
+        dataMap[item.name] = item.values?.[item.values.length - 1]?.value || {};
     });
 
     const reach = dataMap['page_impressions_unique'] || 0;
@@ -257,7 +270,6 @@ export const fetchPageAnalytics = async (pageId: string, token?: string): Promis
     demographics.sort((a, b) => b.value - a.value);
 
     // 4. Calculate Engagement (Approximate from top posts, can also query page_post_engagements)
-    // Note: Engagement Rate = (Engaged Users / Reach) * 100 or similar
     let engagementRate = 0;
     try {
         const engMetric = await graphApi(`${pageId}/insights?metric=page_post_engagements&period=days_28`, cleanToken);
