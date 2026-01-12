@@ -1,7 +1,7 @@
 
 // REFACTOR ONLY: no functional changes
 
-import { AnalyticsData, TopPostData } from "../types";
+import { AnalyticsData, TopPostData, DemographicData } from "../types";
 
 const FB_API_VERSION = 'v19.0'; 
 
@@ -218,18 +218,61 @@ export const fetchPageAnalytics = async (pageId: string, token?: string): Promis
   if (!pageId || !token) return null; 
   const cleanToken = token.trim();
   try {
-    const pageInfo = await graphApi(`${pageId}?fields=followers_count`, cleanToken);
-    let reach = 0;
+    // 1. Basic Info
+    const pageInfo = await graphApi(`${pageId}?fields=followers_count,fan_count`, cleanToken);
+    
+    // 2. Metrics (Insights)
+    // - page_impressions_unique: 28 Days Reach
+    // - page_impressions: Total Views
+    // - page_negative_feedback: Hides/Spam
+    // - page_fans_gender_age: Demographics
+    const metrics = 'page_impressions_unique,page_impressions,page_negative_feedback,page_fans_gender_age';
+    const insights = await graphApi(`${pageId}/insights?metric=${metrics}&period=days_28`, cleanToken);
+    
+    const dataMap: any = {};
+    insights.data?.forEach((item: any) => {
+        // Get the most recent value (last in array usually)
+        dataMap[item.name] = item.values?.[item.values.length - 1]?.value || 0;
+    });
+
+    const reach = dataMap['page_impressions_unique'] || 0;
+    const impressions = dataMap['page_impressions'] || 0;
+    const negative = dataMap['page_negative_feedback'] || 0;
+    const rawDemo = dataMap['page_fans_gender_age'] || {};
+
+    // 3. Process Demographics
+    // Format: { "F.18-24": 10, "M.25-34": 5 }
+    const demographics: DemographicData[] = [];
+    Object.keys(rawDemo).forEach(key => {
+        const parts = key.split('.'); // [Gender, AgeRange]
+        if (parts.length === 2) {
+            demographics.push({
+                gender: parts[0] as any,
+                ageGroup: parts[1],
+                value: rawDemo[key]
+            });
+        }
+    });
+    // Sort by value desc
+    demographics.sort((a, b) => b.value - a.value);
+
+    // 4. Calculate Engagement (Approximate from top posts, can also query page_post_engagements)
+    // Note: Engagement Rate = (Engaged Users / Reach) * 100 or similar
+    let engagementRate = 0;
     try {
-        const reachData = await graphApi(`${pageId}/insights?metric=page_impressions_unique&period=days_28`, cleanToken);
-        reach = reachData.data?.[0]?.values?.[0]?.value || 0;
-    } catch (e) { console.warn("Analytics reach fetch failed", e); }
+        const engMetric = await graphApi(`${pageId}/insights?metric=page_post_engagements&period=days_28`, cleanToken);
+        const engagements = engMetric.data?.[0]?.values?.[0]?.value || 0;
+        if (reach > 0) engagementRate = parseFloat(((engagements / reach) * 100).toFixed(2));
+    } catch (e) {}
 
     return {
-      followers: pageInfo.followers_count || 0,
+      followers: pageInfo.followers_count || pageInfo.fan_count || 0,
       followersGrowth: 0,
       reach: reach,
-      engagementRate: 0,
+      impressions: impressions,
+      engagementRate: engagementRate,
+      negativeFeedback: negative,
+      demographics: demographics,
       period: '28天'
     };
   } catch (e) { throw e; }
@@ -263,7 +306,9 @@ export const fetchInstagramAnalytics = async (pageId: string, token: string): Pr
         return {
             followers: igRes.followers_count || 0,
             followersGrowth: 0,
-            reach: 0, // IG Reach needs insights permission, optional
+            reach: 0, 
+            impressions: 0,
+            negativeFeedback: 0,
             engagementRate: engagementRate,
             period: 'Instagram'
         };
@@ -278,19 +323,41 @@ export const fetchPageTopPosts = async (pageId: string, token: string): Promise<
     const cleanToken = token.trim();
     try {
         const fields = 'id,message,created_time,full_picture,permalink_url';
-        const res = await graphApi(`${pageId}/feed?limit=15&fields=${fields}`, cleanToken);
+        // Get posts
+        const res = await graphApi(`${pageId}/feed?limit=20&fields=${fields}`, cleanToken);
         const posts = res.data || [];
         if (posts.length === 0) return {};
-        const processed = posts.map((p: any) => ({
-            id: p.id,
-            message: p.message || '',
-            imageUrl: p.full_picture,
-            created_time: p.created_time,
-            permalink_url: p.permalink_url,
-            reach: 0,
-            engagedUsers: 0
+
+        // For each post, get insights
+        // Note: Batch request would be better but keeping simple for now
+        const processed: TopPostData[] = [];
+        
+        await Promise.all(posts.map(async (p: any) => {
+            try {
+                // post_impressions_unique, post_engaged_users
+                const insightRes = await graphApi(`${p.id}/insights?metric=post_impressions_unique,post_engaged_users`, cleanToken);
+                const reach = insightRes.data?.find((m: any) => m.name === 'post_impressions_unique')?.values[0]?.value || 0;
+                const engaged = insightRes.data?.find((m: any) => m.name === 'post_engaged_users')?.values[0]?.value || 0;
+                
+                processed.push({
+                    id: p.id,
+                    message: p.message || '',
+                    imageUrl: p.full_picture,
+                    created_time: p.created_time,
+                    permalink_url: p.permalink_url,
+                    reach,
+                    engagedUsers: engaged
+                });
+            } catch(e) {}
         }));
-        return { topReach: processed[0] };
+
+        const sortedByReach = [...processed].sort((a,b) => b.reach - a.reach);
+        const sortedByEng = [...processed].sort((a,b) => b.engagedUsers - a.engagedUsers);
+
+        return { 
+            topReach: sortedByReach[0],
+            topEngagement: sortedByEng[0] 
+        };
     } catch (e) { return {}; }
 };
 

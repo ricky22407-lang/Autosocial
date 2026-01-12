@@ -258,12 +258,21 @@ export interface CtaItem {
 export type ImageIntent = 'product_showcase' | 'promotion' | 'lifestyle' | 'educational' | 'festival';
 
 // Analytics
+export interface DemographicData {
+    ageGroup: string;
+    gender: 'M' | 'F' | 'U';
+    value: number;
+}
+
 export interface AnalyticsData {
   followers: number;
   followersGrowth: number;
-  reach: number;
+  reach: number; // Unique Users
+  impressions: number; // Total Views
   engagementRate: number;
+  negativeFeedback: number;
   period: string;
+  demographics?: DemographicData[];
 }
 
 export interface TopPostData {
