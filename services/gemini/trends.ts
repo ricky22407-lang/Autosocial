@@ -138,6 +138,11 @@ export const getMarketData = async (category: StockCategory = "general"): Promis
                 console.log("♻️ Detected legacy News data in Social category. Forcing refresh...");
                 needsUpdate = true;
             }
+            // 3. Check Quantity: If social category has too few items (old logic), refresh
+            else if (category === 'social' && snap.size < 8) {
+                console.log("♻️ Detected low quantity in Social category. Forcing refresh...");
+                needsUpdate = true;
+            }
             else {
                 stocks = snap.docs.map((d: any) => d.data() as StockTrend);
                 // Sort by price desc in memory
@@ -155,14 +160,19 @@ export const getMarketData = async (category: StockCategory = "general"): Promis
             
             if (category === 'social') {
                 // [UPGRADE] Use Gemini + Google Search for Dcard/PTT
+                // Increased count request to 15
+                // Strictly requested exact titles
                 try {
                     const prompt = `
-                    Task: Find the top 8 trending user discussions/posts RIGHT NOW on Dcard (Trending/Mood/YouTuber boards) and PTT (Gossiping).
-                    Requirements:
-                    1. Must be current topics (last 24 hours).
-                    2. Return actual user discussion topics, NOT news articles reporting on them.
-                    3. Return ONLY a JSON array.
-                    4. Schema: [{ "title": "Topic Title", "source": "Dcard" | "PTT", "url": "Link if found or empty" }]
+                    Task: List the top 15 hottest post titles from Dcard (Trending/Mood/YouTuber) and PTT (Gossiping/Stock) RIGHT NOW.
+                    
+                    [Requirements]
+                    1. Exact Titles: Return the **exact** post title (e.g. "[問卦] 為什麼..." or "#分享 今天的穿搭"). Do NOT summarize (e.g. do NOT write "Political issue").
+                    2. Count: Return exactly 15 distinct items.
+                    3. Source: Must be specific (Dcard or PTT).
+                    4. Url: If you find the direct link, use it. If not, leave empty.
+                    
+                    Output JSON: [{ "title": "Exact Post Title", "source": "Dcard" | "PTT", "url": "..." }]
                     `;
                     
                     const response = await callBackend('generateContent', {
@@ -178,18 +188,22 @@ export const getMarketData = async (category: StockCategory = "general"): Promis
                     const trends = JSON.parse(jsonStr);
                     
                     if (Array.isArray(trends)) {
-                        rawItems = trends.map((t: any) => ({
-                            id: generateTopicId(t.title),
-                            title: t.title,
-                            price: 0,
-                            change: 0,
-                            volume: '0',
-                            // Use Google Search URL if exact link is missing
-                            newsUrl: t.url || `https://www.google.com/search?q=${encodeURIComponent(t.title + ' ' + t.source)}`,
-                            source: (t.source || 'Dcard').toLowerCase().includes('ptt') ? 'ptt' : 'dcard',
-                            category: 'social',
-                            updatedAt: Date.now()
-                        }));
+                        rawItems = trends.map((t: any) => {
+                            // Construct a smart search URL if direct URL is missing
+                            const searchUrl = `https://www.google.com/search?q=${encodeURIComponent('site:' + (t.source === 'PTT' ? 'ptt.cc' : 'dcard.tw') + ' ' + t.title)}`;
+                            
+                            return {
+                                id: generateTopicId(t.title),
+                                title: t.title,
+                                price: 0,
+                                change: 0,
+                                volume: '0',
+                                newsUrl: (t.url && t.url.startsWith('http')) ? t.url : searchUrl,
+                                source: (t.source || 'Dcard').toLowerCase().includes('ptt') ? 'ptt' : 'dcard',
+                                category: 'social',
+                                updatedAt: Date.now()
+                            };
+                        });
                     }
                 } catch (e) {
                     console.error("Social Trend Gen Failed", e);
@@ -198,7 +212,6 @@ export const getMarketData = async (category: StockCategory = "general"): Promis
                 }
             } else {
                 // Google News with Keywords & Date Filter
-                // Added "when:2d" to force recent results
                 let query = '台灣熱門時事 when:2d';
                 if (category === 'entertainment') query = '(演唱會 OR 韓星 OR 藝人 OR 網紅 OR 電影 OR Netflix) when:2d';
                 if (category === 'life') query = '(優惠 OR 星巴克 OR 必勝客 OR 超商 OR 手搖飲 OR 旅遊) when:2d';
@@ -214,7 +227,6 @@ export const getMarketData = async (category: StockCategory = "general"): Promis
             const existingMap = new Map<string, any>();
             
             // Delete old docs first to ensure clean state for this category
-            // (Especially important when switching from 'news' source to 'social' source)
             snap.docs.forEach((d: any) => {
                 existingMap.set(d.data().title, d.data());
                 batch.delete(d.ref); // Wipe old cache for this category
@@ -266,25 +278,59 @@ export const getMarketData = async (category: StockCategory = "general"): Promis
 };
 
 const getMockData = (category: StockCategory): StockTrend[] => {
-    const prefixes: Record<string, string[]> = {
-        'general': ['政治', '天氣', '交通', '國際'],
-        'entertainment': ['Super Junior', 'BLACKPINK', '周杰倫', 'Netflix', '金曲獎'],
-        'life': ['星巴克買一送一', '全家霜淇淋', '好市多新品', '機票促銷'],
-        'social': ['[閒聊] 公司新人', '[問卦] 雞排漲價', '[心情] 分手了', '[請益] 買房']
-    };
+    // Enhanced Mock Data with more realistic, clickable titles
+    const general = [
+        '颱風假停班停課最新快訊', '台積電股價創新高分析', '立法院最新法案爭議懶人包', '美國總統大選即時民調',
+        '最新地震快訊', '台北大巨蛋演唱會檔期', '國旅住宿補助申請教學', 'iPhone 16 上市規格預測'
+    ];
     
-    const terms = prefixes[category] || prefixes['general'];
-    return terms.map((t, i) => ({
-        id: `mock_${category}_${i}`,
-        title: `${t} - 相關熱門話題測試`,
-        price: 80 + Math.random() * 20,
-        change: 5.2,
-        volume: '12,500',
-        newsUrl: '#',
-        source: category === 'social' ? (Math.random() > 0.5 ? 'dcard' : 'ptt') : 'news',
-        category: category,
-        updatedAt: Date.now()
-    }));
+    const social = [
+        '[問卦] 有沒有這週天氣突然變冷的八卦?', 
+        '#分享 好市多必買新品清單', 
+        '[爆卦] 某知名網紅翻車了', 
+        '#請益 第一份工作薪水這樣算低嗎?',
+        '[心情] 另一半好像出軌了怎麼辦', 
+        '[閒聊] 大家早餐都吃什麼?', 
+        '[新聞] 交通新制上路首日亂象', 
+        '#討論 Threads 演算法是不是變了?',
+        '[問卦] 雞排一片100元真的有人買?',
+        '#分享 推薦台北適合讀書的咖啡廳',
+        '[協尋] 遺失 Airpods Pro (信義區)',
+        '[討論] 該為了高薪去不喜歡的公司嗎?'
+    ];
+
+    let terms = general;
+    let source: 'news' | 'dcard' | 'ptt' = 'news';
+
+    if (category === 'social') {
+        terms = social;
+        source = 'dcard'; // Default, will randomize below
+    } else if (category === 'entertainment') {
+        terms = ['周杰倫演唱會搶票攻略', 'Netflix 黑白大廚 冠軍是誰', '韓星來台見面會資訊', '金曲獎入圍名單預測'];
+    } else if (category === 'life') {
+        terms = ['全家霜淇淋買一送一', '星巴克數位體驗抽獎', '麥當勞新品試吃心得', '日本旅遊必買藥妝'];
+    }
+    
+    return terms.map((t, i) => {
+        // Randomize source for social mock
+        let currentSource: StockTrend['source'] = source;
+        if (category === 'social') {
+            currentSource = t.includes('[') ? 'ptt' : 'dcard';
+        }
+
+        return {
+            id: `mock_${category}_${i}`,
+            title: t,
+            price: 80 + Math.random() * 20,
+            change: 5.2,
+            volume: '12,500',
+            // Create a valid search URL instead of #
+            newsUrl: `https://www.google.com/search?q=${encodeURIComponent(t)}`,
+            source: currentSource,
+            category: category,
+            updatedAt: Date.now()
+        };
+    });
 };
 
 /**
@@ -342,7 +388,9 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
     return stocks.slice(0, requestedCount).map(s => ({
         title: s.title,
         description: `熱度: ${s.price}`,
-        url: s.newsUrl
+        url: s.newsUrl,
+        // Optional: Pass an image if available from news logic
+        imageUrl: undefined 
     }));
 };
 
