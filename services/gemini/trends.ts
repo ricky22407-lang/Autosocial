@@ -12,6 +12,15 @@ const isValidNewsImage = (url: string): boolean => {
     return true;
 };
 
+// Helper: Strict Date Filter (48 Hours)
+const isRecentPost = (dateStr: string): boolean => {
+    if (!dateStr) return false;
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
+    return diffHours <= 48; // Only allow posts within 48 hours
+};
+
 const extractImageUrlFromItem = (item: Element): string => {
     let imageUrl = '';
     const mediaContent = item.getElementsByTagName('media:content')[0];
@@ -45,8 +54,13 @@ const parseGoogleNewsRss = (xmlString: string): StockTrend[] => {
     const items = xml.querySelectorAll("item");
     const results: StockTrend[] = [];
     
-    for (let i = 0; i < Math.min(items.length, 25); i++) {
+    for (let i = 0; i < Math.min(items.length, 30); i++) {
         const item = items[i];
+        
+        // 1. Date Check
+        const pubDate = item.querySelector("pubDate")?.textContent || "";
+        if (!isRecentPost(pubDate)) continue;
+
         const rawTitle = item.querySelector("title")?.textContent || "";
         const cleanTitle = rawTitle.split(' - ')[0]; 
         const link = item.querySelector("link")?.textContent || "";
@@ -61,35 +75,6 @@ const parseGoogleNewsRss = (xmlString: string): StockTrend[] => {
                 newsUrl: link,
                 source: 'news',
                 category: 'general', // Default, overridden later
-                updatedAt: Date.now()
-            });
-        }
-    }
-    return results;
-};
-
-const parseRssHubFeed = (xmlString: string, source: 'dcard' | 'ptt'): StockTrend[] => {
-    const parser = new DOMParser();
-    const xml = parser.parseFromString(xmlString, "text/xml");
-    const items = xml.querySelectorAll("item");
-    const results: StockTrend[] = [];
-
-    for (let i = 0; i < Math.min(items.length, 20); i++) {
-        const item = items[i];
-        const title = item.querySelector("title")?.textContent || "";
-        const link = item.querySelector("link")?.textContent || "";
-        
-        if (title && link) {
-            // Dcard/PTT titles might contain "[Board]" prefix, optional cleaning
-            results.push({
-                id: generateTopicId(title),
-                title: title,
-                price: 0,
-                change: 0,
-                volume: '0',
-                newsUrl: link,
-                source: source,
-                category: 'social',
                 updatedAt: Date.now()
             });
         }
@@ -131,11 +116,6 @@ export const getMarketData = async (category: StockCategory = "general"): Promis
     }
 
     try {
-        // We filter by category in Firestore
-        // Note: Requires composite index if we sort by price.
-        // For simplicity in this demo without indexes: fetch all simple query, filter in memory.
-        // Or better: store them with category field.
-        
         const colRef = db.collection('trending_stocks');
         let query = colRef.where('category', '==', category);
         
@@ -165,27 +145,52 @@ export const getMarketData = async (category: StockCategory = "general"): Promis
             let rawItems: StockTrend[] = [];
             
             if (category === 'social') {
-                // Fetch Dcard & PTT in parallel
+                // [UPGRADE] Use Gemini + Google Search for Dcard/PTT
+                // This replaces the unreliable RSSHub fetch
                 try {
-                    const [dcardXml, pttXml] = await Promise.all([
-                        fetchRssContent('https://rsshub.app/dcard/posts/popular'),
-                        fetchRssContent('https://rsshub.app/ptt/hot')
-                    ]);
-                    rawItems = [
-                        ...parseRssHubFeed(dcardXml, 'dcard'),
-                        ...parseRssHubFeed(pttXml, 'ptt')
-                    ];
-                    // Shuffle to mix Dcard/PTT
-                    rawItems = shuffleArray(rawItems);
-                } catch(e) {
-                    console.error("RSSHub Fetch Error", e);
-                    // Fallback to General News if RSSHub fails
-                    const xml = await fetchRssContent(`https://news.google.com/rss/search?q=熱門&hl=zh-TW&gl=TW&ceid=TW:zh-Hant`);
-                    rawItems = parseGoogleNewsRss(xml);
+                    const prompt = `
+                    Task: Find the top 8 trending discussions RIGHT NOW on Dcard (Trending/Mood/YouTuber boards) and PTT (Gossiping).
+                    Requirements:
+                    1. Must be current topics (last 24 hours).
+                    2. Return ONLY a JSON array.
+                    3. Schema: [{ "title": "Topic Title", "source": "Dcard" | "PTT", "url": "Link if found or empty" }]
+                    `;
+                    
+                    const response = await callBackend('generateContent', {
+                        model: 'gemini-2.5-flash',
+                        contents: prompt,
+                        config: { 
+                            tools: [{ googleSearch: {} }],
+                            responseMimeType: "application/json"
+                        }
+                    });
+                    
+                    const jsonStr = cleanJsonText(response.text || '[]');
+                    const trends = JSON.parse(jsonStr);
+                    
+                    if (Array.isArray(trends)) {
+                        rawItems = trends.map((t: any) => ({
+                            id: generateTopicId(t.title),
+                            title: t.title,
+                            price: 0,
+                            change: 0,
+                            volume: '0',
+                            // Use Google Search URL if exact link is missing
+                            newsUrl: t.url || `https://www.google.com/search?q=${encodeURIComponent(t.title + ' ' + t.source)}`,
+                            source: (t.source || 'Dcard').toLowerCase().includes('ptt') ? 'ptt' : 'dcard',
+                            category: 'social',
+                            updatedAt: Date.now()
+                        }));
+                    }
+                } catch (e) {
+                    console.error("Social Trend Gen Failed", e);
+                    // Fallback to mock if API fails to avoid empty screen
+                    rawItems = getMockData('social');
                 }
             } else {
-                // Google News with Keywords
-                let query = '台灣熱門時事';
+                // Google News with Keywords & Date Filter
+                // Added "when:2d" to force recent results
+                let query = '台灣熱門時事 when:2d';
                 if (category === 'entertainment') query = '(演唱會 OR 韓星 OR 藝人 OR 網紅 OR 電影 OR Netflix) when:2d';
                 if (category === 'life') query = '(優惠 OR 星巴克 OR 必勝客 OR 超商 OR 手搖飲 OR 旅遊) when:2d';
                 
@@ -326,8 +331,53 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
     }));
 };
 
-// --- Other Helpers (Unchanged) ---
+// --- Opportunity Scout Implementation ---
 export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
-    // Placeholder - real implementation uses Google Search grounding
-    return []; 
+    const prompt = `
+    Role: Commercial Intent Scout.
+    Task: Search for public social media posts (Threads, Dcard, PTT) related to "${keyword}" where users are expressing explicit **Commercial Intent**.
+    
+    [Definition of Commercial Intent]
+    - Asking for product recommendations ("求推薦", "好用嗎").
+    - Comparing options ("A vs B", "怎麼選").
+    - Complaining about current solution (Pain points).
+    - Expressing a wish/need ("好想要", "找好久").
+
+    [Constraints]
+    - Region: Taiwan (Traditional Chinese).
+    - Source: Prioritize site:threads.net.
+    - Exclude: News, Official Brand Accounts, Ads.
+
+    [Output Schema]
+    Return a JSON Array (OpportunityPost[]):
+    [{
+      "content": "Snippet of the user's post (max 80 chars)",
+      "url": "URL to the post",
+      "username": "Author ID (if available, else 'Unknown')",
+      "reasoning": "Brief analysis of why this is a lead",
+      "intentScore": Integer 1-10 (10 = Ready to buy),
+      "replyCount": "Estimate (e.g. '12')",
+      "likeCount": "Estimate (e.g. '50')"
+    }]
+    `;
+
+    try {
+        const response = await callBackend('generateContent', {
+            model: "gemini-2.5-flash",
+            contents: prompt,
+            config: { 
+                tools: [{ googleSearch: {} }],
+                responseMimeType: "application/json"
+            }
+        });
+
+        const jsonStr = cleanJsonText(response.text || '[]');
+        const data = JSON.parse(jsonStr);
+        
+        if (Array.isArray(data)) return data;
+        return [];
+    } catch (e) {
+        console.error("Opportunity Scout Error:", e);
+        return [];
+    }
 };

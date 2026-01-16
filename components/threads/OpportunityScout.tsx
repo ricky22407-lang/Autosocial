@@ -14,6 +14,7 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
     const [keyword, setKeyword] = useState('');
     const [results, setResults] = useState<OpportunityPost[]>([]);
     const [isSearching, setIsSearching] = useState(false);
+    const [hasSearched, setHasSearched] = useState(false);
     
     // IME Composition State
     const [isComposing, setIsComposing] = useState(false);
@@ -34,12 +35,13 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
         onQuotaUpdate();
 
         setIsSearching(true);
+        setHasSearched(true);
         setResults([]);
         
         try {
             const leads = await findThreadsOpportunities(keyword);
             if (leads.length === 0) {
-                alert("AI 搜尋完畢，但未發現合適的商機。\n\n可能原因：\n1. 該關鍵字最近 (1個月內) 沒有人提問。\n2. 搜尋結果多為廣告文，已被系統自動過濾。\n\n建議：嘗試更生活化的關鍵字，例如「好用嗎」、「求推薦」。");
+                // No alert needed, UI shows "No results" state
             }
             setResults(leads);
         } catch (e: any) {
@@ -80,7 +82,12 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
                         disabled={isSearching}
                         className="bg-yellow-600 hover:bg-yellow-500 text-black px-8 py-4 rounded-xl font-black shadow-lg transition-all w-full md:w-auto disabled:opacity-50 flex items-center justify-center gap-2 whitespace-nowrap"
                     >
-                        {isSearching ? <div className="loader border-t-black"></div> : '商機開發 (Pro限定)'}
+                        {isSearching ? (
+                            <>
+                                <div className="loader border-t-black w-4 h-4"></div>
+                                <span>AI 偵測中...</span>
+                            </>
+                        ) : '商機開發 (Pro限定)'}
                     </button>
                 </div>
                 <p className="text-xs text-gray-500 mt-3 ml-1">
@@ -100,6 +107,7 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
                         {/* Content */}
                         <div className="mb-4 pr-16 flex-1">
                             <p className="text-gray-300 text-sm leading-relaxed line-clamp-4 font-medium">"{post.content}"</p>
+                            {post.reasoning && <p className="text-[10px] text-gray-500 mt-2 italic">💡 AI 分析: {post.reasoning}</p>}
                         </div>
 
                         {/* Metrics Bar (Hidden if data is invalid/null) */}
@@ -129,7 +137,25 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
                 ))}
             </div>
             
-            {!isSearching && results.length === 0 && keyword && (
+            {!isSearching && results.length === 0 && hasSearched && (
+                <div className="text-center py-16 bg-dark/20 rounded-xl border border-dashed border-gray-700">
+                    <div className="text-4xl mb-4 opacity-50">🕵️</div>
+                    <h3 className="text-lg font-bold text-gray-400 mb-2">未發現高意圖商機</h3>
+                    <p className="text-sm text-gray-500 max-w-md mx-auto mb-4">
+                        AI 掃描了最近的公開貼文，但沒有發現關於「{keyword}」的明確購買需求或提問。
+                    </p>
+                    <div className="inline-block text-left text-xs text-gray-500 bg-black/30 p-4 rounded-lg">
+                        <p className="font-bold mb-1 text-gray-400">💡 建議嘗試：</p>
+                        <ul className="list-disc pl-4 space-y-1">
+                            <li>更換關鍵字 (例如將「洗髮精」改為「好用洗髮精」)</li>
+                            <li>使用更生活化的詞彙 (如「求推薦」、「哪裡買」)</li>
+                            <li>擴大搜尋範圍 (嘗試相關品類名稱)</li>
+                        </ul>
+                    </div>
+                </div>
+            )}
+
+            {!hasSearched && !isSearching && (
                 <div className="text-center py-20 text-gray-500">
                     輸入關鍵字並點擊「商機開發」開始搜尋。
                 </div>
