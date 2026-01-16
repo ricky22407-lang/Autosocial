@@ -18,7 +18,8 @@ export const generateImage = async (
     prompt: string, 
     userRole: string = 'user', 
     settings?: BrandSettings, 
-    intent: ImageIntent = 'lifestyle'
+    intent: ImageIntent = 'lifestyle',
+    textOverlay?: string
 ): Promise<string> => {
     const noLimitTrigger = /no limit/i.test(prompt);
     let basePrompt = prompt.replace(/no limit/ig, '').trim();
@@ -27,7 +28,8 @@ export const generateImage = async (
     let finalPrompt = "";
     if (settings) {
         const englishSubject = await ensureEnglishPrompt(basePrompt);
-        finalPrompt = buildCommercialImagePrompt(englishSubject, settings, intent, userRole);
+        // Pass textOverlay to builder
+        finalPrompt = buildCommercialImagePrompt(englishSubject, settings, intent, userRole, textOverlay);
     } else {
         finalPrompt = await ensureEnglishPrompt(basePrompt);
         finalPrompt += ", photorealistic, cinematic lighting, photography style";

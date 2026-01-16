@@ -34,6 +34,10 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   const [draft, setDraft] = useState({ caption: '', firstComment: '', imagePrompt: '' });
   const [imageIntent, setImageIntent] = useState<ImageIntent>('lifestyle'); 
   
+  // Text Overlay State
+  const [wantsImageText, setWantsImageText] = useState(false);
+  const [customImageText, setCustomImageText] = useState('');
+
   const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
   const [mediaUrl, setMediaUrl] = useState<string | undefined>(undefined);
   const [isGeneratingMedia, setIsGeneratingMedia] = useState(false);
@@ -98,11 +102,10 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                 includeEngagement: false 
             }, undefined, user.role);
             
-            // Logic Change: Do NOT auto-fill image prompt here. Let user choose intent first.
             setDraft({ 
                 caption: res.caption || '', 
                 firstComment: res.ctaText || '', 
-                imagePrompt: '' // Intentionally empty to force generation on intent selection
+                imagePrompt: '' 
             });
         } else {
             const res = await generateViralContent(topic, {
@@ -114,7 +117,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
             setDraft({
                 caption: res.versions?.[0] || '生成內容為空，請重試',
                 firstComment: '',
-                imagePrompt: '' // Intentionally empty
+                imagePrompt: ''
             });
         }
     } catch (e: any) { 
@@ -128,6 +131,11 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   const handleGenMedia = async () => {
     if (!user || isGeneratingMedia) return;
     
+    // Text safety check
+    if (wantsImageText && !customImageText) {
+        return alert("請輸入您想顯示在圖片上的文字，或關閉「嘗試嵌入文字」功能。");
+    }
+
     // [BILLING] FB Image: Regen 5 Points, First Time 8 Points
     const cost = mediaUrl ? 5 : 8; 
     const allowed = await checkAndUseQuota(user.user_id, cost, 'GENERATE_IMAGE_AI');
@@ -140,8 +148,6 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     try {
         let finalPrompt = draft.imagePrompt;
 
-        // Logic Change: If prompt is empty (first run) or user changed intent without editing prompt manually
-        // We generate the prompt NOW based on Caption + Intent
         if (!finalPrompt.trim()) {
              const aiPrompt = await generateImagePromptString(draft.caption, imageIntent, settings);
              finalPrompt = aiPrompt;
@@ -150,8 +156,15 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
 
         setGeneratingPhase('AI 設計師繪圖中 (標準畫質)...');
         
-        // Use new generateImage with Settings & Intent
-        let url = await generateImage(finalPrompt, user.role, settings, imageIntent);
+        // Use new generateImage with Settings, Intent, AND optional textOverlay
+        let url = await generateImage(
+            finalPrompt, 
+            user.role, 
+            settings, 
+            imageIntent,
+            wantsImageText ? customImageText : undefined
+        );
+
         if (settings.logoUrl) {
             setGeneratingPhase('正在壓上品牌浮水印...');
             url = await applyWatermark(url, settings.logoUrl);
@@ -165,22 +178,8 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
     }
   };
 
-  // Helper to clear prompt when intent changes, forcing re-generation of prompt next click
   const handleIntentChange = (newIntent: ImageIntent) => {
       setImageIntent(newIntent);
-      // Optional: If user hasn't manually heavily edited, clear it so we generate a new one for new intent
-      // For safety, we only clear if no media generated yet, or if user confirms? 
-      // Let's just keep the old prompt but the user can clear it if they want. 
-      // User request: "If user unhappy, can re-select intent... click generate again -> new image"
-      // So we should probably clear the prompt IF it was auto-generated, to allow new generation logic to kick in.
-      // For simplicity, we won't auto-clear, but rely on the user to edit or clear if they want a fresh start from AI.
-      // Actually, per user request: "First click -> generate prompt + image". 
-      // If they change intent, they likely want a NEW prompt.
-      // Let's clear the prompt ONLY IF no image exists yet, or if they explicitly want to reset.
-      // Implementation: We'll leave it. The `handleGenMedia` uses `draft.imagePrompt` if present.
-      // If user wants new prompt based on new intent, they should clear the text box or we add a "Auto-Generate Prompt" button.
-      // Better UX based on request: If they click "Generate" and box is empty, it auto-gens. 
-      // So if they switch intent, they can clear the box manually to force new prompt.
   };
 
   const handleFinalize = async (schedule: boolean) => {
@@ -303,7 +302,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                 </div>
                 
                 <label className="text-[10px] text-gray-500 font-bold mb-2 block uppercase tracking-wider">貼文文案 (Caption)</label>
-                <textarea value={draft.caption} onChange={e => setDraft({...draft, caption: e.target.value})} className="w-full h-[300px] p-6 text-white mb-6 resize-none outline-none custom-scrollbar leading-relaxed text-[15px] rounded-2xl" />
+                <textarea value={draft.caption} onChange={e => setDraft({...draft, caption: e.target.value})} className="w-full h-[200px] p-6 text-white mb-6 resize-none outline-none custom-scrollbar leading-relaxed text-[15px] rounded-2xl" />
 
                 {/* New Image Settings Logic */}
                 <div className="mb-6 p-4 bg-black/30 rounded-xl border border-gray-700">
@@ -320,6 +319,39 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                         ))}
                     </div>
                     
+                    {/* TEXT OVERLAY SECTION */}
+                    <div className="mb-4 pt-3 border-t border-gray-700">
+                        <label className="flex items-center gap-2 cursor-pointer mb-2">
+                            <input 
+                                type="checkbox" 
+                                checked={wantsImageText} 
+                                onChange={e => setWantsImageText(e.target.checked)} 
+                                className="w-4 h-4 rounded text-red-500 focus:ring-red-500"
+                            />
+                            <span className="text-sm font-bold text-white">嘗試在圖片中加入文字 (實驗性)</span>
+                        </label>
+
+                        {wantsImageText && (
+                            <div className="bg-red-900/10 border border-red-500/50 p-4 rounded-xl animate-fade-in">
+                                <p className="text-xs text-red-300 font-bold mb-2 flex items-center gap-2">
+                                    <span>⚠️</span> 警告：免責聲明
+                                </p>
+                                <p className="text-[10px] text-red-200/80 mb-3 leading-relaxed">
+                                    AI 模型 (即使是 DALL-E 3) 在生成指定文字時，仍有高機率出現拼字錯誤、亂碼或模糊不清的情況。
+                                    <br/><br/>
+                                    <strong>若您堅持使用此功能，即使生成結果文字有誤，系統亦無法退還已扣除的點數。</strong>
+                                    建議您生成「留白」的圖片，再使用修圖軟體自行加字，效果最佳。
+                                </p>
+                                <input 
+                                    value={customImageText}
+                                    onChange={e => setCustomImageText(e.target.value)}
+                                    placeholder="請輸入欲顯示的文字 (例如: NT$18,900)"
+                                    className="w-full bg-black/40 border border-red-500/30 rounded-lg p-3 text-white text-sm focus:border-red-500 outline-none placeholder-gray-500"
+                                />
+                            </div>
+                        )}
+                    </div>
+
                     <label className="flex justify-between items-center text-[10px] text-gray-500 font-bold mb-2 uppercase tracking-wider">
                         <span>視覺提示詞 (AI Prompt)</span>
                         <button onClick={() => setDraft(prev => ({...prev, imagePrompt: ''}))} className="text-red-400 hover:text-white transition-colors text-[9px] border border-red-500/30 px-1 rounded">清空以重新生成</button>
@@ -327,7 +359,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                     <textarea 
                         value={draft.imagePrompt} 
                         onChange={e => setDraft({...draft, imagePrompt: e.target.value})} 
-                        className="w-full h-24 p-4 text-gray-300 text-xs outline-none resize-none leading-relaxed rounded-xl border border-gray-700 bg-black/20 focus:border-primary/50 transition-colors" 
+                        className="w-full h-16 p-3 text-gray-300 text-xs outline-none resize-none leading-relaxed rounded-xl border border-gray-700 bg-black/20 focus:border-primary/50 transition-colors" 
                         placeholder={mediaUrl ? "您可手動修改 Prompt 並點擊重新繪製..." : "點擊「生成圖片」後，AI 將自動根據文案與風格填寫此處..."} 
                     />
                 </div>

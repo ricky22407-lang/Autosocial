@@ -44,7 +44,8 @@ export const buildCommercialImagePrompt = (
     subject: string,
     settings: BrandSettings,
     intent: ImageIntent,
-    userRole: string
+    userRole: string,
+    textOverlay?: string
 ): string => {
     const styleKeywords = getStyleKeywords(settings.visualStyle);
     const industryKeywords = getIndustryLogic(settings.industry);
@@ -56,10 +57,21 @@ export const buildCommercialImagePrompt = (
         colorInstruction = `Dominant Color Palette: ${settings.brandColors.join(', ')}. Use these colors for background or accents.`;
     }
 
-    // Brand Name Injection (For Ideogram mainly)
+    // Brand Name Injection (Legacy)
+    let brandInstruction = '';
+    if (settings.brandName && !textOverlay && (intent === 'product_showcase' || intent === 'promotion')) {
+        brandInstruction = `Visible Text: "${settings.brandName}" integrated naturally on the product or background sign.`;
+    }
+
+    // Text Overlay Logic (High Priority)
     let textInstruction = '';
-    if (settings.brandName && (intent === 'product_showcase' || intent === 'promotion')) {
-        textInstruction = `Visible Text: "${settings.brandName}" integrated naturally on the product or background sign. Typography should match the ${settings.visualStyle} style.`;
+    if (textOverlay) {
+        textInstruction = `
+        [🚨 TYPOGRAPHY REQUIREMENT]: 
+        The image MUST feature the text "${textOverlay}" clearly and legibly. 
+        Render the text in a professional font that matches the ${settings.visualStyle} style.
+        Ensure correct spelling. Place the text in a clear area (negative space) or on a signboard/banner within the image.
+        `;
     }
 
     // Assembly - STRICTLY STANDARD QUALITY
@@ -69,6 +81,7 @@ export const buildCommercialImagePrompt = (
     [Design Style]: ${styleKeywords}
     [Layout/Intent]: ${intentKeywords}
     [Brand Colors]: ${colorInstruction}
+    ${brandInstruction}
     ${textInstruction}
     
     [Technical Specs]: Standard web quality, realistic social media photo, natural lighting, clear focus. 

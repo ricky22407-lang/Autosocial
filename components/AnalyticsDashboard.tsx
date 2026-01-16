@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { BrandSettings, AnalyticsData, TopPostData } from '../types';
 import { fetchPageAnalytics, fetchPageTopPosts } from '../services/facebookService';
 import { callBackend } from '../services/gemini/core'; // Direct call for flexibility
@@ -52,10 +53,10 @@ const AnalyticsDashboard: React.FC<Props> = ({ settings }) => {
       setIsAnalyzing(true);
       
       const context = `
-        Industry: ${settings.industry}
-        Followers: ${analytics.followers}
-        Reach(28d): ${analytics.reach}
-        Impressions(28d): ${analytics.impressions}
+        Brand Industry: ${settings.industry}
+        Total Followers: ${analytics.followers}
+        Reach (28 Days): ${analytics.reach}
+        Total Impressions: ${analytics.impressions}
         Engagement Rate: ${analytics.engagementRate}%
         Negative Feedback: ${analytics.negativeFeedback}
         Demographics Top 3: ${analytics.demographics?.slice(0,3).map(d => `${d.gender}${d.ageGroup}`).join(', ')}
@@ -64,7 +65,30 @@ const AnalyticsDashboard: React.FC<Props> = ({ settings }) => {
       try {
           const res = await callBackend('generateContent', {
               model: 'gemini-2.5-flash',
-              contents: `Role: Senior Social Media Strategist. Analyze this Facebook page data for a ${settings.industry} brand in Taiwan.\n${context}\n\nProvide 3 specific, actionable growth strategies in Traditional Chinese. Focus on fixing weaknesses and leveraging top demographics.`
+              contents: `
+                Role: Senior Social Media Growth Hacker & Data Analyst.
+                Task: Analyze the Facebook page data for a "${settings.industry}" brand in Taiwan.
+                
+                [Data Context]
+                ${context}
+
+                [Output Format]
+                Please output the report in strict **Markdown** format with the following structure (Use Traditional Chinese):
+
+                ### 🩺 營運健康度診斷 (Executive Summary)
+                (Give a score out of 100 and a 2-sentence summary of the page's current health.)
+
+                ### 👥 受眾與流量洞察 (Audience & Reach)
+                (Analyze the reach vs. followers ratio and demographics. What does this mean for content direction?)
+
+                ### 🔥 互動優化策略 (Engagement Strategy)
+                (Based on the ${analytics.engagementRate}% engagement rate, suggest specific content types to improve stickiness.)
+
+                ### 🚀 本週行動清單 (Action Plan)
+                (Provide 3 bullet points of specific, actionable tasks to do this week.)
+
+                *Style: Professional, encouraging, data-driven. Use bolding for key metrics.*
+              `
           });
           setAiInsight(res.text || '無法生成建議');
       } catch (e) {
@@ -82,16 +106,23 @@ const AnalyticsDashboard: React.FC<Props> = ({ settings }) => {
           const res = await callBackend('generateContent', {
               model: 'gemini-3-flash-preview', // Use smarter model
               contents: `
-                Role: Business Consultant. 
+                Role: Business Strategy Consultant. 
                 Task: Analyze the social media strategy of competitor "${competitorName}" in the ${settings.industry} industry (Taiwan market).
                 
-                Search for their recent public activities or general brand reputation.
+                Search for their recent public activities, tone of voice, or general brand reputation.
                 Compare it with my brand (${settings.brandName || 'My Brand'}).
                 
-                Output structure:
-                1. **對手優勢 (Strengths)**: What are they doing well?
-                2. **內容策略 (Content)**: What type of posts do they use?
-                3. **破局建議 (How to Win)**: How can I differentiate?
+                [Output Format]
+                Please output in **Markdown**:
+
+                ### ⚔️ 對手戰力分析 (Competitor Profile)
+                (Brief summary of their brand positioning and recent moves.)
+
+                ### 💎 核心優勢 (Their Strengths)
+                (What are they doing better? Content types? visuals?)
+
+                ### 💡 我方破局策略 (Winning Strategy)
+                (3 specific ways to differentiate and win market share.)
               `,
               config: { tools: [{ googleSearch: {} }] }
           });
@@ -104,6 +135,23 @@ const AnalyticsDashboard: React.FC<Props> = ({ settings }) => {
   };
 
   if (!settings.facebookPageId) return <div className="p-10 text-center text-gray-500">請先至「品牌設定」連結 Facebook 粉絲專頁。</div>;
+
+  // Custom Markdown Components for Styling
+  const MarkdownRender = ({ content }: { content: string }) => (
+      <ReactMarkdown
+          components={{
+              h3: ({node, ...props}) => <h3 className="text-lg font-bold text-purple-300 mt-6 mb-3 border-l-4 border-purple-500 pl-3 uppercase tracking-wider" {...props} />,
+              h4: ({node, ...props}) => <h4 className="text-base font-bold text-white mt-4 mb-2" {...props} />,
+              p: ({node, ...props}) => <p className="text-sm text-gray-300 leading-relaxed mb-3" {...props} />,
+              ul: ({node, ...props}) => <ul className="list-disc list-inside space-y-2 mb-4 text-sm text-gray-300 bg-black/20 p-4 rounded-xl border border-gray-700" {...props} />,
+              li: ({node, ...props}) => <li className="marker:text-purple-500" {...props} />,
+              strong: ({node, ...props}) => <strong className="text-yellow-400 font-bold bg-yellow-900/20 px-1 rounded" {...props} />,
+              blockquote: ({node, ...props}) => <blockquote className="border-l-4 border-gray-600 pl-4 italic text-gray-500 my-4" {...props} />,
+          }}
+      >
+          {content}
+      </ReactMarkdown>
+  );
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 animate-fade-in pb-20">
@@ -196,26 +244,31 @@ const AnalyticsDashboard: React.FC<Props> = ({ settings }) => {
             {activeTab === 'strategy' && (
                 <div className="bg-card p-8 rounded-2xl border border-gray-700 min-h-[400px]">
                     <div className="flex justify-between items-center mb-6 border-b border-gray-700 pb-4">
-                        <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                            🤖 AI 戰略顧問 <span className="text-xs bg-purple-900 text-purple-200 px-2 py-1 rounded">Beta</span>
-                        </h3>
+                        <div>
+                            <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                                🤖 AI 營運診斷報告
+                            </h3>
+                            <p className="text-xs text-gray-400 mt-1">基於您的粉專數據 (過去 28 天) 進行深度分析</p>
+                        </div>
                         <button 
                             onClick={generateAiInsight}
                             disabled={isAnalyzing}
-                            className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-2 rounded-lg font-bold text-sm shadow-lg disabled:opacity-50"
+                            className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-2 rounded-lg font-bold text-sm shadow-lg disabled:opacity-50 flex items-center gap-2"
                         >
-                            {isAnalyzing ? 'AI 思考中...' : '生成診斷報告'}
+                            {isAnalyzing ? <div className="loader w-4 h-4 border-t-white"></div> : '⚡'} 
+                            {isAnalyzing ? 'AI 撰寫報告中...' : '生成最新報告'}
                         </button>
                     </div>
                     
                     {aiInsight ? (
-                        <div className="prose prose-invert max-w-none text-sm leading-relaxed text-gray-300 whitespace-pre-wrap animate-fade-in">
-                            {aiInsight}
+                        <div className="animate-fade-in bg-gray-900/50 p-6 rounded-xl border border-gray-800">
+                            <MarkdownRender content={aiInsight} />
                         </div>
                     ) : (
-                        <div className="text-center py-20 text-gray-500">
-                            <p>點擊按鈕，讓 AI 分析您的粉專數據並提供具體建議。</p>
-                            <p className="text-xs mt-2">將分析：互動率瓶頸、受眾偏好、內容優化方向。</p>
+                        <div className="text-center py-20 text-gray-500 border-2 border-dashed border-gray-700 rounded-xl">
+                            <div className="text-4xl mb-4 opacity-50">📋</div>
+                            <p>點擊上方按鈕，讓 AI 分析您的粉專數據並產出策略報告。</p>
+                            <p className="text-xs mt-2 text-gray-600">報告包含：營運健康度評分、受眾洞察、具體行動建議。</p>
                         </div>
                     )}
                 </div>
@@ -241,14 +294,14 @@ const AnalyticsDashboard: React.FC<Props> = ({ settings }) => {
                                 <button 
                                     onClick={analyzeCompetitor}
                                     disabled={isCompAnalyzing || !competitorName}
-                                    className="w-full bg-yellow-600 hover:bg-yellow-500 text-black font-black py-3 rounded-lg shadow-lg disabled:opacity-50"
+                                    className="w-full bg-yellow-600 hover:bg-yellow-500 text-black font-black py-3 rounded-lg shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
                                 >
-                                    {isCompAnalyzing ? 'AI 偵查中...' : '開始分析 (Search)'}
+                                    {isCompAnalyzing ? <div className="loader w-4 h-4 border-t-black"></div> : '🔍'}
+                                    {isCompAnalyzing ? 'AI 偵查中...' : '開始分析'}
                                 </button>
                             </div>
-                            <p className="text-[10px] text-gray-500 mt-4 leading-relaxed">
-                                * 由於隱私權政策，我們無法直接抓取對手的後台數據。
-                                <br/>* 此功能使用 Google Search 搜尋公開資訊，並由 AI 進行戰略拆解。
+                            <p className="text-[10px] text-gray-500 mt-4 leading-relaxed bg-black/20 p-3 rounded">
+                                ℹ️ 說明：AI 將透過 Google 搜尋公開資訊，分析對手的社群策略、近期活動與網友評價，並提供我方應對建議。
                             </p>
                         </div>
                     </div>
@@ -259,8 +312,8 @@ const AnalyticsDashboard: React.FC<Props> = ({ settings }) => {
                             ⚔️ 競品戰情分析
                         </h3>
                         {compAnalysis ? (
-                            <div className="prose prose-invert max-w-none text-sm text-gray-300 whitespace-pre-wrap animate-fade-in leading-loose">
-                                {compAnalysis}
+                            <div className="animate-fade-in">
+                                <MarkdownRender content={compAnalysis} />
                             </div>
                         ) : (
                             <div className="text-center py-20 text-gray-600">
