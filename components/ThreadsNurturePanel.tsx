@@ -48,10 +48,11 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
 
       <div className="flex border-b border-gray-700 mb-6 overflow-x-auto custom-scrollbar">
         <button onClick={() => setActiveTab('accounts')} className={`px-6 py-3 font-bold whitespace-nowrap transition-colors ${activeTab === 'accounts' ? 'text-white border-b-2' : 'text-gray-500 hover:text-gray-300'}`}>帳號管理</button>
-        <button onClick={() => setActiveTab('scout')} className={`px-6 py-3 font-bold whitespace-nowrap transition-colors ${activeTab === 'scout' ? 'text-yellow-400 border-b-2 border-yellow-400' : 'text-gray-500 hover:text-gray-300'}`}>💎 商機開發</button>
+        <button onClick={() => setActiveTab('scout')} className={`px-6 py-3 font-bold whitespace-nowrap transition-colors ${activeTab === 'scout' ? 'text-yellow-400 border-b-2 border-yellow-400' : 'text-gray-500 hover:text-gray-300'}`}>商機開發</button>
         <button onClick={() => setActiveTab('interaction')} className={`px-6 py-3 font-bold whitespace-nowrap transition-colors ${activeTab === 'interaction' ? 'text-pink-400 border-b-2 border-pink-400' : 'text-gray-500 hover:text-gray-300'}`}>留言互動</button>
         <button onClick={() => setActiveTab('generator')} className={`px-6 py-3 font-bold whitespace-nowrap transition-colors ${activeTab === 'generator' ? 'text-white border-b-2' : 'text-gray-500 hover:text-gray-300'}`}>內容生成</button>
-        <button onClick={() => setActiveTab('dna_lab')} className={`px-6 py-3 font-bold whitespace-nowrap transition-colors ${activeTab === 'dna_lab' ? 'text-purple-400 border-b-2 border-purple-400' : 'text-gray-500 hover:text-gray-300'}`}>🧪 基因實驗室</button>
+        {/* 基因實驗室 (暫時隱藏/開發中) */}
+        {/* <button onClick={() => setActiveTab('dna_lab')} className={`px-6 py-3 font-bold whitespace-nowrap transition-colors ${activeTab === 'dna_lab' ? 'text-purple-400 border-b-2 border-purple-400' : 'text-gray-500 hover:text-gray-300'}`}>基因實驗室</button> */}
       </div>
 
       {activeTab === 'accounts' && (
@@ -91,13 +92,15 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
           />
       )}
 
+      {/* 
       {activeTab === 'dna_lab' && (
           <DigitalDNALab 
               accounts={accounts}
               user={user}
               onQuotaUpdate={onQuotaUpdate}
           />
-      )}
+      )} 
+      */}
     </div>
   );
 };

@@ -425,28 +425,28 @@ const MyCardEditor: React.FC<Props> = ({ user, settings, onSave }) => {
                             onClick={handleSyncFB} disabled={syncingFB}
                             className={`text-xs px-2 py-2 rounded-lg border transition-colors flex flex-col items-center justify-center gap-1 ${card.connectedAccounts?.some(a => a.platform === 'Facebook') ? 'bg-blue-900/40 text-blue-300 border-blue-600' : 'bg-dark text-gray-400 border-gray-700 hover:border-blue-500'}`}
                         >
-                            {syncingFB ? <div className="loader w-3 h-3 border-t-white"></div> : '📘'}
+                            {syncingFB && <div className="loader w-3 h-3 border-t-white"></div>}
                             {card.connectedAccounts?.some(a => a.platform === 'Facebook') ? '更新 FB' : '同步 FB'}
                         </button>
                         <button 
                             onClick={handleSyncIG} disabled={syncingIG}
                             className={`text-xs px-2 py-2 rounded-lg border transition-colors flex flex-col items-center justify-center gap-1 ${card.connectedAccounts?.some(a => a.platform === 'Instagram') ? 'bg-pink-900/40 text-pink-300 border-pink-600' : 'bg-dark text-gray-400 border-gray-700 hover:border-pink-500'}`}
                         >
-                            {syncingIG ? <div className="loader w-3 h-3 border-t-white"></div> : '📸'}
+                            {syncingIG && <div className="loader w-3 h-3 border-t-white"></div>}
                             {card.connectedAccounts?.some(a => a.platform === 'Instagram') ? '更新 IG' : '同步 IG'}
                         </button>
                         <button 
                             onClick={handleSyncThreads} disabled={syncingThreads}
                             className={`text-xs px-2 py-2 rounded-lg border transition-colors flex flex-col items-center justify-center gap-1 ${card.connectedAccounts?.some(a => a.platform === 'Threads') ? 'bg-gray-700 text-white border-white' : 'bg-dark text-gray-400 border-gray-700 hover:border-gray-400'}`}
                         >
-                            {syncingThreads ? <div className="loader w-3 h-3 border-t-white"></div> : '🧵'}
+                            {syncingThreads && <div className="loader w-3 h-3 border-t-white"></div>}
                             {card.connectedAccounts?.some(a => a.platform === 'Threads') ? '更新 Threads' : '同步 Threads'}
                         </button>
                         <button 
                             onClick={handleSyncYouTube} disabled={syncingYT}
                             className={`text-xs px-2 py-2 rounded-lg border transition-colors flex flex-col items-center justify-center gap-1 ${card.connectedAccounts?.some(a => a.platform === 'YouTube') ? 'bg-red-900/40 text-red-300 border-red-600' : 'bg-dark text-gray-400 border-gray-700 hover:border-red-500'}`}
                         >
-                            {syncingYT ? <div className="loader w-3 h-3 border-t-white"></div> : '▶️'}
+                            {syncingYT && <div className="loader w-3 h-3 border-t-white"></div>}
                             {card.connectedAccounts?.some(a => a.platform === 'YouTube') ? '更新 YT' : '同步 YT'}
                         </button>
                     </div>
