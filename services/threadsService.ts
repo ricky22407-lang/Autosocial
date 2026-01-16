@@ -87,7 +87,7 @@ export const publishThreadsPost = async (
 /**
  * Fetch User's Recent Threads
  */
-export const fetchUserThreads = async (account: ThreadsAccount, limit = 5) => {
+export const fetchUserThreads = async (account: ThreadsAccount, limit = 10) => {
     try {
         const fields = 'id,text,permalink,timestamp,media_type,media_url';
         const url = `${THREADS_API_BASE}/${account.userId}/threads?fields=${fields}&limit=${limit}&access_token=${account.token}`;
@@ -98,7 +98,7 @@ export const fetchUserThreads = async (account: ThreadsAccount, limit = 5) => {
     } catch (e: any) {
         console.error("Fetch threads failed", e);
         // Throw error to UI instead of silent fail, so user knows if token is invalid
-        throw new Error(e.message || "讀取貼文失敗");
+        throw new Error(e.message || "讀取貼文失敗，請確認 Token 是否過期。");
     }
 };
 

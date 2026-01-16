@@ -209,22 +209,27 @@ const AccountManager: React.FC<Props> = ({ accounts, setAccounts, settings, onSa
         if (!user) return;
         if (!account.token) return alert("無 Token，無法讀取貼文");
         
-        const COST = 5; 
+        // [BILLING] 8 Points for Style Analysis
+        const COST = 8; 
         const allowed = await checkAndUseQuota(user.user_id, COST, 'THREADS_STYLE_ANALYSIS');
         if (!allowed) return; 
         onQuotaUpdate();
 
         setIsAnalyzingStyle(account.id);
         try {
-            const posts = await fetchUserThreads(account, 10);
+            // Fetch more posts for better accuracy
+            const posts = await fetchUserThreads(account, 15);
             if (!posts || posts.length < 3) {
-                const useTemplate = confirm("⚠️ 此帳號貼文數量不足 (少於 3 篇)，無法進行分析。\n\n是否直接使用「預設風格模板」來填寫設定？");
-                if (useTemplate) throw new Error("貼文數量不足 (新帳號請直接使用下方的『風格模板』)");
+                const useTemplate = confirm("⚠️ 此帳號貼文數量不足 (少於 3 篇)，無法進行精準分析。\n\n是否直接使用「預設風格模板」來填寫設定？");
+                if (useTemplate) throw new Error("貼文數量不足 (建議直接使用下方模板)");
+                else throw new Error("分析取消 (貼文不足)");
             }
+            
             const postTexts = posts.map((p: any) => p.text).filter(Boolean);
             const styleDNA = await analyzeThreadsStyle(postTexts);
+            
             handleUpdateAccount(account.id, 'styleGuide', styleDNA);
-            alert(`風格分析完成！已更新 Style DNA。(扣除 ${COST} 點)`);
+            alert(`✅ 風格分析完成！\n已扣除 ${COST} 點。\n\nAI 已學習您的：\n- 常用語助詞\n- 斷句習慣\n- 發文情緒`);
         } catch (e: any) {
             alert(`分析失敗: ${e.message}`);
         } finally {
@@ -327,7 +332,7 @@ const AccountManager: React.FC<Props> = ({ accounts, setAccounts, settings, onSa
             <h3 className="font-bold text-white mt-8 mb-4 border-l-4 border-pink-500 pl-3">已連結的帳號 ({accounts.length})</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {accounts.map((acc) => (
-                    <div key={acc.id} className="bg-dark p-4 rounded border border-gray-600 relative group">
+                    <div key={acc.id} className="bg-dark p-4 rounded-xl border border-gray-600 relative group shadow-lg hover:border-pink-500/50 transition-all">
                         <div className="flex items-center gap-3 mb-2">
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg font-bold text-white ${acc.accountType === 'brand' ? 'bg-blue-700' : 'bg-pink-700'}`}>
                                 {acc.accountType === 'brand' ? 'B' : 'P'}
@@ -337,16 +342,26 @@ const AccountManager: React.FC<Props> = ({ accounts, setAccounts, settings, onSa
                                 <div className="text-xs text-gray-500 truncate">Type: {acc.accountType === 'brand' ? 'Brand' : 'Personal'}</div>
                             </div>
                         </div>
-                        <div className="mt-3 text-xs space-y-2">
-                            <div>
-                                <div className="flex justify-between items-center mb-1">
-                                    <label className="text-gray-400">Style DNA:</label>
-                                    <button onClick={() => handleAnalyzeStyle(acc)} disabled={!!isAnalyzingStyle} className="text-primary hover:underline flex items-center gap-1">
-                                        {isAnalyzingStyle === acc.id ? '分析中...' : '讀取過往貼文'}
+                        
+                        <div className="mt-4 text-xs space-y-3">
+                            <div className="bg-black/30 p-3 rounded-lg border border-gray-700">
+                                <div className="flex justify-between items-center mb-2">
+                                    <label className="text-gray-400 font-bold uppercase tracking-wide">Style DNA 設定</label>
+                                    <button 
+                                        onClick={() => handleAnalyzeStyle(acc)} 
+                                        disabled={!!isAnalyzingStyle} 
+                                        className="text-white bg-gradient-to-r from-pink-600 to-purple-600 hover:brightness-110 px-2 py-1 rounded text-[10px] font-bold shadow-md transition-all flex items-center gap-1 disabled:opacity-50"
+                                        title="扣 8 點"
+                                    >
+                                        {isAnalyzingStyle === acc.id ? (
+                                            <><div className="loader w-2 h-2 border-t-white"></div> 分析中...</>
+                                        ) : (
+                                            '✨ 分析過往貼文 (8點)'
+                                        )}
                                     </button>
                                 </div>
                                 <select 
-                                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 mb-2 text-white text-[10px] outline-none"
+                                    className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 mb-2 text-white text-[10px] outline-none"
                                     onChange={(e) => { if (e.target.value) handleUpdateAccount(acc.id, 'styleGuide', e.target.value); }}
                                     value=""
                                 >
@@ -356,20 +371,20 @@ const AccountManager: React.FC<Props> = ({ accounts, setAccounts, settings, onSa
                                     ))}
                                 </select>
                                 <textarea 
-                                    className="w-full bg-gray-900 border-none rounded px-2 py-1 mt-1 text-gray-300 focus:ring-1 focus:ring-primary h-20 text-[10px] resize-none" 
+                                    className="w-full bg-gray-900 border border-gray-800 rounded px-2 py-2 text-gray-300 focus:ring-1 focus:ring-pink-500 h-20 text-[10px] resize-none leading-relaxed" 
                                     value={acc.styleGuide || ''} 
                                     onChange={e => handleUpdateAccount(acc.id, 'styleGuide', e.target.value)} 
-                                    placeholder="AI 分析出的風格指令將顯示於此。" 
+                                    placeholder="點擊「分析過往貼文」，AI 將自動填寫此處 (語氣、用詞習慣)。" 
                                 />
                             </div>
                             {acc.accountType === 'brand' && (
-                                <label className="flex items-center gap-2 cursor-pointer bg-black/20 p-1 rounded">
-                                    <input type="checkbox" checked={acc.safetyFilter} onChange={e => handleUpdateAccount(acc.id, 'safetyFilter', e.target.checked)} />
-                                    <span className="text-gray-400">安全護欄</span>
+                                <label className="flex items-center gap-2 cursor-pointer bg-black/20 p-2 rounded hover:bg-black/40">
+                                    <input type="checkbox" checked={acc.safetyFilter} onChange={e => handleUpdateAccount(acc.id, 'safetyFilter', e.target.checked)} className="w-3 h-3 text-pink-500 rounded" />
+                                    <span className="text-gray-400 font-bold">🛡️ 啟用品牌安全護欄</span>
                                 </label>
                             )}
                         </div>
-                        <button onClick={() => handleRemoveAccount(acc.id)} className="text-red-400 text-xs absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">移除</button>
+                        <button onClick={() => handleRemoveAccount(acc.id)} className="text-red-400 text-xs absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity bg-black/50 px-2 py-1 rounded hover:bg-red-900/50">移除</button>
                     </div>
                 ))}
             </div>

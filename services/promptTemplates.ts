@@ -268,10 +268,22 @@ export const buildAnalysisPrompt = (posts: string) => `
 `;
 
 export const buildThreadsAnalysisPrompt = (posts: string) => `
-      Analyze these Threads posts to create a "Persona Instruction".
-      Focus on: Chaos level, Emotion (cranky/happy), Formatting (no periods?).
-      Input: ${posts.substring(0, 8000)}
-      Output: A single English instruction paragraph starting with "You are a Threads user who..."
+    Role: Linguistics Expert (Taiwanese Mandarin).
+    Task: Analyze these Threads posts to create a **"Persona Instruction" (Style DNA)** for an AI writer.
+    
+    [Input Posts]:
+    "${posts.substring(0, 10000)}"
+
+    [Analysis Goals]:
+    1. **Particles (語助詞)**: Detect frequency of '啦', '吧', '嗎', '喔', '欸'. Is it heavy or light?
+    2. **Sentence Structure**: Is it broken/fragmented? Do they use newlines instead of punctuation?
+    3. **Energy Level**: High (Excited/Manic) vs Low (Chill/Tired/Cynical).
+    4. **Formatting**: Do they use spaces for pauses?
+    
+    [Output Requirement]:
+    Write a concise instruction paragraph (in English) that tells the AI exactly how to mimic this user.
+    Start with: "You are a Threads user who..."
+    Include specific instructions like: "Use '...' frequently", "Never use greetings", "End sentences with '笑死'".
 `;
 
 export const buildSeoArticlePrompt = (topic: string, length: string, keywords: string, options: { agenda: boolean, meta: boolean, faq: boolean, refLinks: boolean }) => `
