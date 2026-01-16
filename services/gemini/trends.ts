@@ -126,10 +126,19 @@ export const getMarketData = async (category: StockCategory = "general"): Promis
 
         if (!snap.empty) {
             const firstDoc = snap.docs[0].data();
-            // Refresh if data > 1 hour old
+            
+            // CACHE INVALIDATION LOGIC:
+            // 1. Check Time: Refresh if data > 1 hour old
             if (Date.now() - firstDoc.updatedAt > ONE_HOUR) {
                 needsUpdate = true;
-            } else {
+            } 
+            // 2. Check Data Integrity: If we are in 'social' category but data source is 'news'
+            // This means we have legacy/fallback data in cache -> Force Refresh!
+            else if (category === 'social' && firstDoc.source === 'news') {
+                console.log("♻️ Detected legacy News data in Social category. Forcing refresh...");
+                needsUpdate = true;
+            }
+            else {
                 stocks = snap.docs.map((d: any) => d.data() as StockTrend);
                 // Sort by price desc in memory
                 stocks.sort((a,b) => b.price - a.price);
@@ -146,14 +155,14 @@ export const getMarketData = async (category: StockCategory = "general"): Promis
             
             if (category === 'social') {
                 // [UPGRADE] Use Gemini + Google Search for Dcard/PTT
-                // This replaces the unreliable RSSHub fetch
                 try {
                     const prompt = `
-                    Task: Find the top 8 trending discussions RIGHT NOW on Dcard (Trending/Mood/YouTuber boards) and PTT (Gossiping).
+                    Task: Find the top 8 trending user discussions/posts RIGHT NOW on Dcard (Trending/Mood/YouTuber boards) and PTT (Gossiping).
                     Requirements:
                     1. Must be current topics (last 24 hours).
-                    2. Return ONLY a JSON array.
-                    3. Schema: [{ "title": "Topic Title", "source": "Dcard" | "PTT", "url": "Link if found or empty" }]
+                    2. Return actual user discussion topics, NOT news articles reporting on them.
+                    3. Return ONLY a JSON array.
+                    4. Schema: [{ "title": "Topic Title", "source": "Dcard" | "PTT", "url": "Link if found or empty" }]
                     `;
                     
                     const response = await callBackend('generateContent', {
@@ -203,7 +212,13 @@ export const getMarketData = async (category: StockCategory = "general"): Promis
             const batch = db.batch();
             const newStocks: StockTrend[] = [];
             const existingMap = new Map<string, any>();
-            snap.docs.forEach((d: any) => existingMap.set(d.data().title, d.data()));
+            
+            // Delete old docs first to ensure clean state for this category
+            // (Especially important when switching from 'news' source to 'social' source)
+            snap.docs.forEach((d: any) => {
+                existingMap.set(d.data().title, d.data());
+                batch.delete(d.ref); // Wipe old cache for this category
+            });
 
             // Limit to top 20
             for (const item of rawItems.slice(0, 20)) {
