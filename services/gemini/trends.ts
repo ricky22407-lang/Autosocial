@@ -151,21 +151,28 @@ export const getMarketData = async (industry: string = "台灣熱門時事"): Pr
                 let change = existing ? ((price - existing.price) / existing.price) * 100 : (Math.random() * 20);
                 change = parseFloat(change.toFixed(2));
 
-                const stock: StockTrend = {
+                // FIX: Use 'any' or explicitly conditional logic to avoid 'undefined' values in Firestore
+                const stockData: any = {
                     id: tid,
                     title: cleanTitle,
                     price: parseFloat(price.toFixed(1)),
                     change: change,
                     volume: Math.floor(Math.random() * 9000 + 1000).toLocaleString(),
                     newsUrl: item.url,
-                    aiSummary: existing?.aiSummary || undefined, // Preserve cache!
-                    summaryUpdatedAt: existing?.summaryUpdatedAt || undefined,
                     updatedAt: Date.now()
                 };
 
+                // Only add optional fields if they are DEFINED
+                if (existing?.aiSummary) {
+                    stockData.aiSummary = existing.aiSummary;
+                }
+                if (existing?.summaryUpdatedAt) {
+                    stockData.summaryUpdatedAt = existing.summaryUpdatedAt;
+                }
+
                 const docRef = colRef.doc(tid);
-                batch.set(docRef, stock);
-                newStocks.push(stock);
+                batch.set(docRef, stockData);
+                newStocks.push(stockData as StockTrend);
             }
 
             await batch.commit();
