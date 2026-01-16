@@ -1,6 +1,6 @@
 
 import { BrandSettings, CtaItem, TrendingTopic, ViralType, ViralPlatform, TitleScore, ViralPostDraft, ImageIntent, DNALabAnalysis, UserRole } from "../../types";
-import { callBackend, cleanJsonText, Type } from './core';
+import { callBackend, cleanJsonText, cleanSocialMediaText, Type } from './core';
 import * as Prompts from "../promptTemplates";
 
 // #region Analysis Tools
@@ -88,7 +88,15 @@ export const generatePostDraft = async (topic: string, settings: BrandSettings, 
         }
     }
   });
-  return JSON.parse(cleanJsonText(response.text || '{}'));
+  
+  const result = JSON.parse(cleanJsonText(response.text || '{}'));
+  
+  // Post-process: Clean Markdown (Force remove ** and fix newlines)
+  if (result.caption) {
+      result.caption = cleanSocialMediaText(result.caption);
+  }
+  
+  return result;
 };
 
 // NEW: Dedicated Image Prompt Generator
@@ -156,9 +164,12 @@ export const generateViralContent = async (topic: string, options: { audience: s
         console.error("JSON Parse Error in Viral Content", e);
         return { versions: ["生成失敗，請重試。"], imagePrompt: "" };
     }
+    
+    // Clean Caption
+    const caption = cleanSocialMediaText(data.caption || '內容生成異常。');
 
     return {
-        versions: [data.caption || '內容生成異常。'],
+        versions: [caption],
         imagePrompt: '' // Viral mode now also defers image gen
     };
 };
@@ -216,7 +227,14 @@ export const generateThreadsBatch = async (topic: string, count: number, setting
             }
         }
     });
-    return JSON.parse(cleanJsonText(response.text || '[]'));
+    
+    const rawResult = JSON.parse(cleanJsonText(response.text || '[]'));
+    
+    // Post-process each post to fix \n and remove markdown
+    return rawResult.map((post: any) => ({
+        ...post,
+        caption: cleanSocialMediaText(post.caption)
+    }));
 };
 
 export const generateCommentReply = async (commentText: string, personaPrompt: string): Promise<string[]> => {
@@ -226,7 +244,9 @@ export const generateCommentReply = async (commentText: string, personaPrompt: s
         contents: prompt,
         config: { responseMimeType: "application/json", responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } } }
     });
-    return JSON.parse(cleanJsonText(response.text || '[]'));
+    
+    const raw = JSON.parse(cleanJsonText(response.text || '[]'));
+    return raw.map(cleanSocialMediaText);
 };
 
 export const getAiAssistantReply = async (userMessage: string, context: { currentView: string, industry: string }) => {

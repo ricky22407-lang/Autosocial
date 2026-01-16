@@ -9,7 +9,8 @@ import ScheduleList from './components/ScheduleList';
 import AnalyticsDashboard from './components/AnalyticsDashboard';
 import AutomationPanel from './components/AutomationPanel';
 import ThreadsNurturePanel from './components/ThreadsNurturePanel';
-import ConnectPanel from './components/ConnectPanel'; // New Import
+import ConnectPanel from './components/ConnectPanel';
+import SocialStockMarket from './components/SocialStockMarket'; // New
 import Login from './components/Login';
 import AdminPanel from './components/AdminPanel';
 import SeoArticleGenerator from './components/SeoArticleGenerator';
@@ -29,6 +30,7 @@ import { isFirebaseReady, isMock } from './services/firebase';
 
 // #region Icons
 const Icons = {
+  Market: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>,
   Create: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>,
   Schedule: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>,
   Settings: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
@@ -84,22 +86,22 @@ const App: React.FC = () => {
   const [settings, setSettings] = useState<BrandSettings>(defaultSettings);
   const [posts, setPosts] = useState<Post[]>([]);
   const [editingPost, setEditingPost] = useState<Post | null>(null);
+  
+  // Navigation State for Stock Market
+  const [prefilledTopic, setPrefilledTopic] = useState('');
+
   const [showReportModal, setShowReportModal] = useState(false);
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isProcessingThreads, setIsProcessingThreads] = useState(false);
 
   // ... (Existing OAuth and Auth Logic) ...
-  // POPUP FLOW DETECTION: Check if we are running inside a popup for OAuth
   useEffect(() => {
       const params = new URLSearchParams(window.location.search);
       const code = params.get('code');
-      // If we have a code AND we have an opener (parent window), we are the popup!
       if (code && window.opener && window.opener !== window) {
           console.log("🔐 [threads] Popup detected, sending code to parent...");
-          // Send code back to main app
           window.opener.postMessage({ type: 'THREADS_OAUTH_CODE', code }, window.location.origin);
-          // Close self
           window.close();
       }
   }, []);
@@ -110,7 +112,8 @@ const App: React.FC = () => {
       if (currentUser) {
         const profile = await getUserProfile(currentUser.uid);
         setUserProfile(profile);
-        setView(AppView.CREATE);
+        // Default to Market view on login
+        setView(AppView.MARKET);
         loadLocalSettings();
         const cloudPosts = await fetchUserPostsFromCloud(currentUser.uid);
         setPosts(cloudPosts);
@@ -123,26 +126,17 @@ const App: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
-  // Handle Threads OAuth Redirect (Legacy/Fallback for Full Page Redirect)
   useEffect(() => {
       const handleThreadsCallback = async () => {
-          if (loadingAuth || !user) return; // Wait for auth
-          
+          if (loadingAuth || !user) return; 
           const params = new URLSearchParams(window.location.search);
           const code = params.get('code');
-          
-          // Only process if NOT in popup mode (i.e. no opener)
           if (code && !window.opener) {
               if (isProcessingThreads) return;
               setIsProcessingThreads(true);
-
               try {
-                  if (!localStorage.getItem('autosocial_pending_oauth')) {
-                      return; 
-                  }
-
+                  if (!localStorage.getItem('autosocial_pending_oauth')) return; 
                   const result = await exchangeThreadsAuth(code, window.location.origin);
-
                   const newAccount: ThreadsAccount = {
                       id: Date.now().toString(),
                       userId: result.userId,
@@ -152,21 +146,16 @@ const App: React.FC = () => {
                       accountType: 'personal',
                       styleGuide: ''
                   };
-
                   const updatedSettings = {
                       ...settings,
                       threadsAccounts: [...(settings.threadsAccounts || []), newAccount]
                   };
-
                   setSettings(updatedSettings);
                   localStorage.setItem('autosocial_settings', JSON.stringify(updatedSettings));
                   localStorage.removeItem('autosocial_pending_oauth'); 
-
                   alert(`Threads 帳號 ${newAccount.username} 連接成功！`);
-                  
                   window.history.replaceState({}, document.title, window.location.pathname);
                   setView(AppView.THREADS_NURTURE);
-
               } catch (e: any) {
                   alert(`Threads 串接失敗: ${e.message}`);
               } finally {
@@ -174,7 +163,6 @@ const App: React.FC = () => {
               }
           }
       };
-
       handleThreadsCallback();
   }, [loadingAuth, user, settings]); 
 
@@ -207,7 +195,6 @@ const App: React.FC = () => {
 
   const handlePostCreated = async (newPost: Post) => {
     if (!user || !userProfile) return;
-    
     if (newPost.status === 'scheduled') {
         const scheduledCount = posts.filter(p => p.status === 'scheduled' && p.id !== newPost.id).length;
         const role = userProfile.role;
@@ -215,20 +202,17 @@ const App: React.FC = () => {
         if (role === 'pro') limit = 5;
         else if (role === 'business') limit = 10;
         else if (role === 'admin') limit = 100;
-
         if (scheduledCount >= limit) {
             alert(`⚠️ 排程空間不足！您的方案最多儲存 ${limit} 篇排程貼文。`);
             return;
         }
     }
-    
     try {
         setPosts(prev => {
             const exists = prev.find(p => p.id === newPost.id);
             if (exists) return prev.map(p => p.id === newPost.id ? newPost : p);
             return [newPost, ...prev];
         });
-
         await syncPostToCloud(user.uid, newPost);
         const updatedPosts = await fetchUserPostsFromCloud(user.uid);
         setPosts(updatedPosts);
@@ -244,14 +228,33 @@ const App: React.FC = () => {
       try {
           await deletePostFromCloud(user.uid, postId);
           setPosts(prev => prev.filter(p => p.id !== postId));
-      } catch (e) {
-          alert("刪除失敗");
-      }
+      } catch (e) { alert("刪除失敗"); }
   };
 
   const handleEditPost = (post: Post) => {
       setEditingPost(post);
       setView(AppView.CREATE);
+  };
+
+  const handleStockNavigate = (topic: string, platform: 'fb' | 'threads') => {
+      setPrefilledTopic(topic);
+      if (platform === 'fb') {
+          // Pre-fill FB Draft logic is tricky as PostCreator manages internal state
+          // We will modify PostCreator to accept `initialTopic` prop later if needed,
+          // for now, we rely on editingPost hack or creating a new post with topic
+          const mockPost: Post = {
+              id: '', userId: '', topic: topic, caption: '', mediaPrompt: '', mediaType: 'image', status: 'draft', createdAt: 0
+          };
+          setEditingPost(mockPost); // Use edit mode to prefill
+          setView(AppView.CREATE);
+      } else {
+          // Threads logic needs passing state or context
+          // Since ThreadsNurturePanel doesn't take props for this, we might alert for now
+          // or use a global context/hack.
+          // For simplicity in this iteration:
+          alert("Threads 自動填入功能將在下個版本推出，請手動複製話題：" + topic);
+          setView(AppView.THREADS_NURTURE);
+      }
   };
 
   const role = userProfile?.role || 'user';
@@ -265,17 +268,11 @@ const App: React.FC = () => {
   const hasSeoAccess = isProPlus || userProfile?.unlockedFeatures?.includes('SEO');
   const hasThreadsAccess = isProPlus || userProfile?.unlockedFeatures?.includes('THREADS');
 
-  // Note: The blocking "Safe Mode Diagnostic Banner" has been removed to allow Preview Mode to work.
-  // The app will now fallback to Mock Mode (localStorage) if Firebase config is missing.
+  // Check params for OAuth Authorizing view
+  const searchParams = new URLSearchParams(window.location.search);
 
   if (loadingAuth) return <div className="h-screen flex items-center justify-center bg-bg text-primary text-xl animate-pulse font-mono tracking-widest">INITIALIZING SYSTEM...</div>;
-  
-  // Clean Loading for Popup Callback
-  const params = new URLSearchParams(window.location.search);
-  if (params.get('code') && window.opener) {
-      return <div className="h-screen flex items-center justify-center bg-black text-white text-sm font-mono">🔐 Authorizing Threads... (Closing soon)</div>;
-  }
-
+  if (searchParams.get('code') && window.opener) return <div className="h-screen flex items-center justify-center bg-black text-white text-sm font-mono">🔐 Authorizing Threads... (Closing soon)</div>;
   if (isProcessingThreads) return <div className="h-screen flex items-center justify-center bg-bg text-pink-500 text-xl font-bold animate-pulse">正在與 Threads 進行安全連線...</div>;
   if (view === AppView.LOGIN) return <Login onLoginSuccess={() => {}} />;
 
@@ -321,17 +318,10 @@ const App: React.FC = () => {
           ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
       `}>
         <div className="p-8 pb-4">
-          <h1 className="text-2xl font-black text-white tracking-tighter cursor-pointer flex items-center gap-2 select-none" onClick={() => setView(AppView.CREATE)}>
+          <h1 className="text-2xl font-black text-white tracking-tighter cursor-pointer flex items-center gap-2 select-none" onClick={() => setView(AppView.MARKET)}>
             AUTO<span className="text-neon-cyan drop-shadow-[0_0_8px_rgba(0,242,234,0.6)]">SOCIAL</span>
           </h1>
-          
-          {/* Mock Mode Indicator */}
-          {isMock && (
-              <div className="mt-2 text-[10px] bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded border border-yellow-500/50 text-center font-bold tracking-wider">
-                  ⚠️ Preview Mode (Mock Data)
-              </div>
-          )}
-
+          {isMock && <div className="mt-2 text-[10px] bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded border border-yellow-500/50 text-center font-bold tracking-wider">⚠️ Preview Mode (Mock Data)</div>}
           <div className="mt-6 p-4 glass-card rounded-xl border border-white/10 bg-black/20">
             {userProfile ? (
                 <>
@@ -339,11 +329,7 @@ const App: React.FC = () => {
                         <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-primary to-accent flex items-center justify-center text-black font-bold text-xs">
                             {userProfile.email[0].toUpperCase()}
                         </div>
-                        <div className={`text-[10px] px-2 py-0.5 rounded font-black uppercase tracking-wider ${
-                            userProfile.role === 'admin' ? 'bg-red-500/20 text-red-400 border border-red-500/50' : 
-                            userProfile.role === 'business' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/50' : 
-                            'bg-primary/20 text-primary border border-primary/50'
-                        }`}>
+                        <div className={`text-[10px] px-2 py-0.5 rounded font-black uppercase tracking-wider ${userProfile.role === 'admin' ? 'bg-red-500/20 text-red-400 border border-red-500/50' : userProfile.role === 'business' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/50' : 'bg-primary/20 text-primary border border-primary/50'}`}>
                             {userProfile.role}
                         </div>
                     </div>
@@ -351,28 +337,14 @@ const App: React.FC = () => {
                     <div className="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden mb-1">
                         <div className="h-full bg-primary shadow-[0_0_10px_#00f2ea]" style={{ width: `${Math.min(100, (userProfile.quota_used / userProfile.quota_total) * 100)}%` }}></div>
                     </div>
-                    <div className="flex justify-between text-[10px] text-gray-500 font-bold mb-2">
-                        <span>點數</span>
-                        <span>{userProfile.quota_used} / {userProfile.quota_total}</span>
-                    </div>
-                    
-                    {/* Renewal Date Display */}
-                    {(userProfile.subscription?.nextBillingDate || userProfile.quota_reset_date) && (
-                        <div className="pt-2 border-t border-white/10 flex justify-between text-[9px] font-medium tracking-wider">
-                            <span className="text-gray-500">
-                                {userProfile.subscription?.status === 'active' ? '續約日' : '重置日'}
-                            </span>
-                            <span className="text-gray-300 font-mono">
-                                {new Date(userProfile.subscription?.nextBillingDate || userProfile.quota_reset_date || 0).toLocaleDateString()}
-                            </span>
-                        </div>
-                    )}
+                    <div className="flex justify-between text-[10px] text-gray-500 font-bold mb-2"><span>點數</span><span>{userProfile.quota_used} / {userProfile.quota_total}</span></div>
                 </>
             ) : <p className="text-xs text-gray-500">GUEST MODE</p>}
           </div>
         </div>
         
         <nav className="flex-1 py-4 space-y-1 overflow-y-auto custom-scrollbar">
+          <NavItem viewId={AppView.MARKET} label="社群交易所" icon={Icons.Market} active={view === AppView.MARKET} onClick={setView} badge="HOT" />
           <NavItem viewId={AppView.CREATE} label="內容創作" icon={Icons.Create} active={view === AppView.CREATE} onClick={setView} />
           <NavItem viewId={AppView.SCHEDULE} label="排程與歷史" icon={Icons.Schedule} active={view === AppView.SCHEDULE} onClick={setView} />
           <NavItem viewId={AppView.SETTINGS} label="品牌設定" icon={Icons.Settings} active={view === AppView.SETTINGS} onClick={setView} />
@@ -380,12 +352,11 @@ const App: React.FC = () => {
           <div className="mt-6 mb-2 px-6">
               <p className="text-[10px] text-gray-500 font-black tracking-[0.2em] uppercase">智慧功能</p>
           </div>
-          
           <NavItem viewId={AppView.ANALYTICS} label="數據分析" icon={Icons.Analytics} active={view === AppView.ANALYTICS} onClick={() => hasAnalyticsAccess ? setView(AppView.ANALYTICS) : alert("需升級至 Starter 方案")} disabled={!hasAnalyticsAccess} badge={!hasAnalyticsAccess ? "LOCKED" : ""} />
           <NavItem viewId={AppView.AUTOMATION} label="全自動化" icon={Icons.Automation} active={view === AppView.AUTOMATION} onClick={() => hasAutomationAccess ? setView(AppView.AUTOMATION) : alert("需升級至 Pro 方案")} disabled={!hasAutomationAccess} badge={!hasAutomationAccess ? "LOCKED" : ""} />
           <NavItem viewId={AppView.SEO_ARTICLES} label="SEO 文章" icon={Icons.Seo} active={view === AppView.SEO_ARTICLES} onClick={() => hasSeoAccess ? setView(AppView.SEO_ARTICLES) : alert("需升級至 Pro 方案")} disabled={!hasSeoAccess} badge={!hasSeoAccess ? "LOCKED" : ""} />
-          <NavItem viewId={AppView.THREADS_NURTURE} label="Threads 進階功能" icon={Icons.Threads} active={view === AppView.THREADS_NURTURE} onClick={() => hasThreadsAccess ? setView(AppView.THREADS_NURTURE) : alert("需升級至 Pro 方案")} disabled={!hasThreadsAccess} badge={!hasThreadsAccess ? "LOCKED" : ""} />
-          <NavItem viewId={AppView.CONNECT} label="口碑媒合 (Beta)" icon={Icons.Connect} active={view === AppView.CONNECT} onClick={setView} badge="NEW" />
+          <NavItem viewId={AppView.THREADS_NURTURE} label="Threads 進階" icon={Icons.Threads} active={view === AppView.THREADS_NURTURE} onClick={() => hasThreadsAccess ? setView(AppView.THREADS_NURTURE) : alert("需升級至 Pro 方案")} disabled={!hasThreadsAccess} badge={!hasThreadsAccess ? "LOCKED" : ""} />
+          <NavItem viewId={AppView.CONNECT} label="口碑媒合" icon={Icons.Connect} active={view === AppView.CONNECT} onClick={setView} />
           
           <div className="mt-6 mb-2 px-6">
               <p className="text-[10px] text-gray-500 font-black tracking-[0.2em] uppercase">成長工具</p>
@@ -395,29 +366,22 @@ const App: React.FC = () => {
         </nav>
 
         <div className="p-4 bg-black/20 space-y-2 border-t border-white/5">
-          <button onClick={() => setShowKeyModal(true)} className="w-full text-left px-4 py-3 text-xs rounded-lg transition-all font-bold bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 border border-yellow-500/20 flex items-center gap-2 group">
-              <span className="opacity-80 group-hover:scale-110 transition-transform">{Icons.Key}</span> 兌換序號 (Redeem)
-          </button>
-          
-          {/* Contact Support Button */}
-          <button onClick={() => setView(AppView.CONTACT_SUPPORT)} className="w-full text-left px-4 py-3 text-xs rounded-lg transition-all font-bold bg-blue-900/20 text-blue-300 hover:bg-blue-900/40 border border-blue-800/30 flex items-center gap-2 group">
-              <span className="opacity-80 group-hover:scale-110 transition-transform">{Icons.Support}</span> 聯繫客服
-          </button>
-          
-          {isAdmin && (
-            <button onClick={() => setView(AppView.ADMIN)} className={`w-full text-left px-4 py-3 text-xs rounded-lg transition-all font-bold flex items-center gap-2 group ${view === AppView.ADMIN ? 'bg-red-600 text-white shadow-lg' : 'text-red-400 hover:bg-red-900/20 border border-red-900/30'}`}>
-              <span className="opacity-80 group-hover:scale-110 transition-transform">{Icons.Admin}</span> 管理員後台
-            </button>
-          )}
-          <button onClick={handleLogout} className="w-full text-left px-4 py-3 text-xs text-gray-500 hover:text-white transition-colors flex items-center gap-2 group hover:bg-white/5 rounded-lg">
-            <span className="opacity-80 group-hover:scale-110 transition-transform">{Icons.Logout}</span> 登出系統
-          </button>
+          <button onClick={() => setShowKeyModal(true)} className="w-full text-left px-4 py-3 text-xs rounded-lg transition-all font-bold bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 border border-yellow-500/20 flex items-center gap-2 group"><span className="opacity-80 group-hover:scale-110 transition-transform">{Icons.Key}</span> 兌換序號</button>
+          <button onClick={() => setView(AppView.CONTACT_SUPPORT)} className="w-full text-left px-4 py-3 text-xs rounded-lg transition-all font-bold bg-blue-900/20 text-blue-300 hover:bg-blue-900/40 border border-blue-800/30 flex items-center gap-2 group"><span className="opacity-80 group-hover:scale-110 transition-transform">{Icons.Support}</span> 聯繫客服</button>
+          {isAdmin && <button onClick={() => setView(AppView.ADMIN)} className={`w-full text-left px-4 py-3 text-xs rounded-lg transition-all font-bold flex items-center gap-2 group ${view === AppView.ADMIN ? 'bg-red-600 text-white shadow-lg' : 'text-red-400 hover:bg-red-900/20 border border-red-900/30'}`}><span className="opacity-80 group-hover:scale-110 transition-transform">{Icons.Admin}</span> 管理員後台</button>}
+          <button onClick={handleLogout} className="w-full text-left px-4 py-3 text-xs text-gray-500 hover:text-white transition-colors flex items-center gap-2 group hover:bg-white/5 rounded-lg"><span className="opacity-80 group-hover:scale-110 transition-transform">{Icons.Logout}</span> 登出系統</button>
         </div>
       </aside>
 
-      {/* Main Content Area */}
       <main className="flex-1 p-4 md:p-8 lg:p-12 overflow-y-auto h-screen custom-scrollbar relative">
-        <div className="max-w-7xl mx-auto">
+        <div className="max-w-7xl mx-auto h-full">
+            {view === AppView.MARKET && (
+                <SocialStockMarket 
+                    user={userProfile} 
+                    onNavigateToCreate={handleStockNavigate} 
+                    onQuotaUpdate={refreshProfile} 
+                />
+            )}
             {view === AppView.CREATE && (
               <PostCreator 
                 settings={settings} 
@@ -435,19 +399,16 @@ const App: React.FC = () => {
                   onUpdatePosts={async (updated) => {
                       const originalIds = posts.map(p => p.id);
                       const updatedIds = updated.map(p => p.id);
-                      
-                      // Identify deletion
                       const deletedId = originalIds.find(id => !updatedIds.includes(id));
                       if (deletedId) await handleDeletePost(deletedId);
                       else {
-                          // Identify update (e.g. status change from calendar view)
                           const changed = updated.find((p, i) => JSON.stringify(p) !== JSON.stringify(posts.find(op => op.id === p.id)));
                           if (changed && user) await syncPostToCloud(user.uid, changed);
                           setPosts(updated);
                       }
                   }} 
                   onEditPost={handleEditPost}
-                  settings={settings} // Pass settings for API token access
+                  settings={settings}
               />
             )}
             {view === AppView.SETTINGS && <SettingsForm onSave={handleSaveSettings} initialSettings={settings} />}
@@ -463,24 +424,9 @@ const App: React.FC = () => {
         </div>
       </main>
       
-      {/* AI Assistant Bubble */}
-      {userProfile && (
-          <AiAssistantBubble currentView={view} settings={settings} />
-      )}
-      
-      {/* Global Queue Overlay */}
+      {userProfile && <AiAssistantBubble currentView={view} settings={settings} />}
       <QueueOverlay />
-
-      {/* Report Floating Button (Moved slightly to avoid overlap with AI Bubble if needed, but flex column in Bubble helps) */}
-      <button 
-        onClick={() => setShowReportModal(true)} 
-        className="fixed bottom-6 right-6 bg-red-600 hover:bg-red-500 text-white w-12 h-12 rounded-full z-50 shadow-[0_0_20px_rgba(220,38,38,0.5)] transition-transform active:scale-90 flex items-center justify-center font-bold text-xl backdrop-blur-md border border-white/20"
-        title="回報問題"
-      >
-        !
-      </button>
-      
-      {/* Modals */}
+      <button onClick={() => setShowReportModal(true)} className="fixed bottom-6 right-6 bg-red-600 hover:bg-red-500 text-white w-12 h-12 rounded-full z-50 shadow-[0_0_20px_rgba(220,38,38,0.5)] transition-transform active:scale-90 flex items-center justify-center font-bold text-xl backdrop-blur-md border border-white/20" title="回報問題">!</button>
       {showReportModal && <ErrorReportModal user={userProfile} currentView={view} onClose={() => setShowReportModal(false)} />}
       {showKeyModal && userProfile && <KeyRedemptionModal user={userProfile} onClose={() => setShowKeyModal(false)} onSuccess={refreshProfile} />}
     </div>

@@ -12,6 +12,7 @@ export interface OpportunityPost {
 // Enums
 export enum AppView {
   LOGIN = 'LOGIN',
+  MARKET = 'MARKET', // New Homepage
   CREATE = 'CREATE',
   SCHEDULE = 'SCHEDULE',
   SETTINGS = 'SETTINGS',
@@ -19,7 +20,7 @@ export enum AppView {
   AUTOMATION = 'AUTOMATION',
   SEO_ARTICLES = 'SEO_ARTICLES',
   THREADS_NURTURE = 'THREADS_NURTURE',
-  CONNECT = 'CONNECT', // New View
+  CONNECT = 'CONNECT', 
   PRICING = 'PRICING',
   REFERRAL = 'REFERRAL',
   CONTACT_SUPPORT = 'CONTACT_SUPPORT',
@@ -35,6 +36,19 @@ export enum ErrorCode {
   TOKEN_EXPIRED = 'TOKEN_EXPIRED',
   FACEBOOK_API_ERROR = 'FACEBOOK_API_ERROR',
   AI_GENERATION_ERROR = 'AI_GENERATION_ERROR',
+}
+
+// Stock Market Types
+export interface StockTrend {
+    id: string; // Hash or Title
+    title: string;
+    price: number; // Heat Score 0-100
+    change: number; // Percentage change
+    volume: string; // Formatted number string
+    newsUrl: string; // Source link
+    aiSummary?: string; // Shared Cache
+    summaryUpdatedAt?: number;
+    updatedAt: number;
 }
 
 // User & Auth

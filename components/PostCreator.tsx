@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { BrandSettings, Post, TrendingTopic, UserProfile, ImageIntent } from '../types';
-import { getTrendingTopics, generatePostDraft, generateImage, applyWatermark, generateViralContent, generateImagePromptString } from '../services/geminiService';
+import { getTrendingTopics, generatePostDraft, generateImage, applyWatermark, generateViralContent, generateImagePromptString, compositeImageWithText } from '../services/geminiService';
 import { publishPostToFacebook } from '../services/facebookService';
 import { checkAndUseQuota } from '../services/authService';
 
@@ -34,14 +34,18 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   const [draft, setDraft] = useState({ caption: '', firstComment: '', imagePrompt: '' });
   const [imageIntent, setImageIntent] = useState<ImageIntent>('lifestyle'); 
   
-  // Text Overlay State
-  const [wantsImageText, setWantsImageText] = useState(false);
-  const [customImageText, setCustomImageText] = useState('');
+  // Image Rendering Modes
+  const [renderMode, setRenderMode] = useState<'plain' | 'ai_text' | 'smart_layout'>('plain');
+  const [customImageText, setCustomImageText] = useState(''); // Used for AI Text Mode
+  
+  // Smart Layout State
+  const [layoutTitle, setLayoutTitle] = useState('');
+  const [layoutSubtitle, setLayoutSubtitle] = useState('');
 
   const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
   const [mediaUrl, setMediaUrl] = useState<string | undefined>(undefined);
   const [isGeneratingMedia, setIsGeneratingMedia] = useState(false);
-  const [generatingPhase, setGeneratingPhase] = useState<string>(''); // For granular loading status
+  const [generatingPhase, setGeneratingPhase] = useState<string>(''); 
   
   const [scheduleDate, setScheduleDate] = useState('');
   const [syncInstagram, setSyncInstagram] = useState(false);
@@ -62,6 +66,16 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
         setSyncInstagram(!!editPost.syncInstagram);
     }
   }, [editPost]);
+
+  // Pre-fill smart layout text based on topic when draft is generated
+  useEffect(() => {
+      if (draft.caption && !layoutTitle) {
+          // Heuristic: Use topic as title, extract first price or short phrase as subtitle
+          setLayoutTitle(topic);
+          const priceMatch = draft.caption.match(/\$\d+(?:,\d+)?/);
+          if (priceMatch) setLayoutSubtitle(`${priceMatch[0]} 起`);
+      }
+  }, [draft.caption]);
 
   const loadTrends = async () => {
       if (!user) return alert("請先登入");
@@ -131,9 +145,12 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   const handleGenMedia = async () => {
     if (!user || isGeneratingMedia) return;
     
-    // Text safety check
-    if (wantsImageText && !customImageText) {
-        return alert("請輸入您想顯示在圖片上的文字，或關閉「嘗試嵌入文字」功能。");
+    // Validation
+    if (renderMode === 'ai_text' && !customImageText) {
+        return alert("請輸入您想顯示在圖片上的文字，或切換模式。");
+    }
+    if (renderMode === 'smart_layout' && !layoutTitle) {
+        return alert("智慧排版模式需要至少輸入「主標題」。");
     }
 
     // [BILLING] FB Image: Regen 5 Points, First Time 8 Points
@@ -156,15 +173,25 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
 
         setGeneratingPhase('AI 設計師繪圖中 (標準畫質)...');
         
-        // Use new generateImage with Settings, Intent, AND optional textOverlay
+        // Step 1: Generate Base Image
+        // If smart_layout, we pass true to ask AI for negative space.
+        // If ai_text, we pass the text string.
         let url = await generateImage(
             finalPrompt, 
             user.role, 
             settings, 
             imageIntent,
-            wantsImageText ? customImageText : undefined
+            renderMode === 'ai_text' ? customImageText : undefined,
+            renderMode === 'smart_layout' // useSmartLayout flag
         );
 
+        // Step 2: Apply Canvas Overlay (If Smart Layout)
+        if (renderMode === 'smart_layout') {
+            setGeneratingPhase('正在進行智慧排版合成...');
+            url = await compositeImageWithText(url, layoutTitle, layoutSubtitle, '#FFD700');
+        }
+
+        // Step 3: Apply Logo
         if (settings.logoUrl) {
             setGeneratingPhase('正在壓上品牌浮水印...');
             url = await applyWatermark(url, settings.logoUrl);
@@ -319,28 +346,65 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
                         ))}
                     </div>
                     
-                    {/* TEXT OVERLAY SECTION */}
+                    {/* TEXT MODE SELECTION */}
                     <div className="mb-4 pt-3 border-t border-gray-700">
-                        <label className="flex items-center gap-2 cursor-pointer mb-2">
-                            <input 
-                                type="checkbox" 
-                                checked={wantsImageText} 
-                                onChange={e => setWantsImageText(e.target.checked)} 
-                                className="w-4 h-4 rounded text-red-500 focus:ring-red-500"
-                            />
-                            <span className="text-sm font-bold text-white">嘗試在圖片中加入文字 (實驗性)</span>
-                        </label>
+                        <label className="text-[10px] text-gray-400 font-bold mb-2 block uppercase tracking-wider">文字渲染模式 (Text Mode)</label>
+                        <div className="flex bg-black/40 rounded-lg p-1 mb-4 border border-gray-600">
+                            <button 
+                                onClick={() => setRenderMode('plain')}
+                                className={`flex-1 py-2 rounded text-xs font-bold transition-all ${renderMode === 'plain' ? 'bg-gray-700 text-white shadow' : 'text-gray-500 hover:text-gray-300'}`}
+                            >
+                                純淨無字
+                            </button>
+                            <button 
+                                onClick={() => setRenderMode('smart_layout')}
+                                className={`flex-1 py-2 rounded text-xs font-bold transition-all ${renderMode === 'smart_layout' ? 'bg-yellow-600 text-white shadow' : 'text-gray-500 hover:text-gray-300'}`}
+                            >
+                                ⚡ 智慧排版 (推薦)
+                            </button>
+                            <button 
+                                onClick={() => setRenderMode('ai_text')}
+                                className={`flex-1 py-2 rounded text-xs font-bold transition-all ${renderMode === 'ai_text' ? 'bg-red-900/50 text-red-300 border border-red-800' : 'text-gray-500 hover:text-gray-300'}`}
+                            >
+                                AI 生成 (實驗性)
+                            </button>
+                        </div>
 
-                        {wantsImageText && (
+                        {renderMode === 'smart_layout' && (
+                            <div className="bg-yellow-900/10 border border-yellow-600/30 p-4 rounded-xl animate-fade-in space-y-3">
+                                <p className="text-[10px] text-yellow-200/80 mb-1 flex items-center gap-2">
+                                    <span className="text-lg">✨</span> 系統將自動在圖片底部合成電影感字幕。
+                                </p>
+                                <div>
+                                    <label className="text-[10px] text-gray-400 block mb-1">主標題</label>
+                                    <input 
+                                        value={layoutTitle}
+                                        onChange={e => setLayoutTitle(e.target.value)}
+                                        className="w-full bg-black/40 border border-yellow-600/30 rounded p-2 text-white text-sm focus:border-yellow-500 outline-none"
+                                        placeholder="例如：泰國曼谷五日遊"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-gray-400 block mb-1">副標題 / 價格</label>
+                                    <input 
+                                        value={layoutSubtitle}
+                                        onChange={e => setLayoutSubtitle(e.target.value)}
+                                        className="w-full bg-black/40 border border-yellow-600/30 rounded p-2 text-yellow-400 font-bold text-sm focus:border-yellow-500 outline-none"
+                                        placeholder="例如：$29,900 起"
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        {renderMode === 'ai_text' && (
                             <div className="bg-red-900/10 border border-red-500/50 p-4 rounded-xl animate-fade-in">
                                 <p className="text-xs text-red-300 font-bold mb-2 flex items-center gap-2">
-                                    <span>⚠️</span> 警告：免責聲明
+                                    <span>⚠️</span> 警告：AI 直接生成
                                 </p>
                                 <p className="text-[10px] text-red-200/80 mb-3 leading-relaxed">
-                                    AI 模型 (即使是 DALL-E 3) 在生成指定文字時，仍有高機率出現拼字錯誤、亂碼或模糊不清的情況。
-                                    <br/><br/>
-                                    <strong>若您堅持使用此功能，即使生成結果文字有誤，系統亦無法退還已扣除的點數。</strong>
-                                    建議您生成「留白」的圖片，再使用修圖軟體自行加字，效果最佳。
+                                    此模式由 DALL-E 3 直接嘗試在圖片中「畫」出文字。
+                                    <br/>
+                                    <strong>即便在最強模型下，中文字仍有極高機率變成亂碼。建議使用「智慧排版」模式。</strong>
                                 </p>
                                 <input 
                                     value={customImageText}

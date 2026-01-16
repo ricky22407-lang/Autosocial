@@ -21,6 +21,27 @@ export const cleanJsonText = (text: string): string => {
   return text.replace(/```json/g, '').replace(/```/g, '').trim();
 };
 
+/**
+ * Removes Markdown formatting that Facebook/Instagram/Threads don't support.
+ * e.g., "**Bold**" -> "Bold", "## Title" -> "Title"
+ */
+export const cleanSocialMediaText = (text: string): string => {
+    if (!text) return "";
+    let clean = text;
+    
+    // 1. Remove Bold/Italic asterisks (**text**, *text*)
+    clean = clean.replace(/\*\*(.*?)\*\*/g, '$1'); 
+    clean = clean.replace(/\*(.*?)\*/g, '$1');
+    
+    // 2. Remove Headers (## Title)
+    clean = clean.replace(/^#+\s+/gm, '');
+    
+    // 3. Fix Escaped Newlines (literal "\n" to real newline)
+    clean = clean.replace(/\\n/g, '\n');
+    
+    return clean.trim();
+};
+
 export const decodeHtml = (html: string): string => {
   const txt = document.createElement("textarea");
   txt.innerHTML = html;

@@ -19,7 +19,8 @@ export const generateImage = async (
     userRole: string = 'user', 
     settings?: BrandSettings, 
     intent: ImageIntent = 'lifestyle',
-    textOverlay?: string
+    textOverlay?: string, // Deprecated for Smart Layout, used for AI rendering
+    useSmartLayout: boolean = false // New Flag
 ): Promise<string> => {
     const noLimitTrigger = /no limit/i.test(prompt);
     let basePrompt = prompt.replace(/no limit/ig, '').trim();
@@ -28,46 +29,53 @@ export const generateImage = async (
     let finalPrompt = "";
     if (settings) {
         const englishSubject = await ensureEnglishPrompt(basePrompt);
-        // Pass textOverlay to builder
-        finalPrompt = buildCommercialImagePrompt(englishSubject, settings, intent, userRole, textOverlay);
+        
+        // If Smart Layout is ON, we DON'T ask AI to render text. We ask for Negative Space.
+        // If Smart Layout is OFF, we pass textOverlay to let AI try rendering it.
+        finalPrompt = buildCommercialImagePrompt(
+            englishSubject, 
+            settings, 
+            intent, 
+            userRole, 
+            useSmartLayout ? undefined : textOverlay, 
+            useSmartLayout
+        );
     } else {
         finalPrompt = await ensureEnglishPrompt(basePrompt);
-        finalPrompt += ", photorealistic, cinematic lighting, photography style";
+        finalPrompt += ", photorealistic, cinematic lighting";
     }
 
-    console.log("🎨 [Commercial Design Prompt]", finalPrompt);
+    console.log("🎨 [ImageGen Prompt]", finalPrompt);
 
     // 2. Select Engine
-    // 'pro', 'business', 'admin' -> Priority: Backend Waterfall (Ideogram -> Imagen -> Grok)
-    // 'user', 'starter' -> Frontend Economy Mode (Pollinations)
-    
     const isProTier = ['pro', 'business', 'admin'].includes(userRole);
+    let imageUrl = "";
 
     if (!isProTier) {
          console.log("🎨 [ImageGen] Economy Mode: Pollinations");
-         return `https://image.pollinations.ai/prompt/${encodeURIComponent(finalPrompt)}?n=${Math.floor(Math.random()*100000)}&model=flux&enhance=true`;
+         imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(finalPrompt)}?n=${Math.floor(Math.random()*100000)}&model=flux&enhance=true`;
+    } else {
+        try {
+            console.log(`🎨 [ImageGen] Pro Mode: calling Backend Waterfall`);
+            const safetySettings = noLimitTrigger ? [{ category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' }] : undefined;
+            
+            const response = await callBackend('generateImages', { 
+                prompt: finalPrompt, 
+                safetySettings 
+            });
+            
+            if (response.base64) {
+                imageUrl = `data:image/png;base64,${response.base64}`;
+            } else {
+                throw new Error("No image data");
+            }
+        } catch (e: any) {
+            console.error("❌ [ImageGen] Backend Failed. Fallback to Pollinations.", e.message);
+            imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(finalPrompt)}?n=${Math.floor(Math.random()*100000)}&model=flux&enhance=true`;
+        }
     }
 
-    try {
-        console.log(`🎨 [ImageGen] Pro Mode: calling Backend Waterfall`);
-        const safetySettings = noLimitTrigger ? [{ category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' }] : undefined;
-        
-        // We call 'generateImages'. The backend now handles the waterfall (Ideogram -> Imagen -> Grok).
-        // We don't specify model here to let backend decide based on keys.
-        const response = await callBackend('generateImages', { 
-            prompt: finalPrompt, 
-            safetySettings 
-        });
-        
-        if (response.base64) {
-            console.log(`✅ Image generated via provider: ${response.provider || 'unknown'}`);
-            return `data:image/png;base64,${response.base64}`;
-        }
-        throw new Error("No image data");
-    } catch (e: any) {
-        console.error("❌ [ImageGen] Backend Failed. Fallback to Pollinations.", e.message);
-        return `https://image.pollinations.ai/prompt/${encodeURIComponent(finalPrompt)}?n=${Math.floor(Math.random()*100000)}&model=flux&enhance=true`;
-    }
+    return imageUrl;
 };
 
 export const generateVideo = async (prompt: string): Promise<string> => {
@@ -83,19 +91,6 @@ export const generateVideo = async (prompt: string): Promise<string> => {
         console.warn("Veo failed, fallback to Image:", e);
         throw new Error(`影片生成失敗: ${e.message}`);
     }
-};
-
-export const analyzeVisualStyle = async (imageB64s: string[]): Promise<string> => {
-    const parts = [
-        { text: "Role: Art Director. Analyze these brand images and extract a consistent 'Visual Style Prompt' (Lighting, Color, Composition, Mood). Output concise English paragraph." },
-        ...imageB64s.map(b64 => ({ inlineData: { mimeType: "image/png", data: b64.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, '') } }))
-    ] as any;
-
-    const response = await callBackend('generateContent', {
-        model: "gemini-2.5-flash",
-        contents: { parts }
-    });
-    return response.text || "Minimalist, clean, high-key lighting.";
 };
 
 export const applyWatermark = async (mainImageUrl: string, logoUrl: string): Promise<string> => {
@@ -116,5 +111,105 @@ export const applyWatermark = async (mainImageUrl: string, logoUrl: string): Pro
             logoImg.onerror = () => resolve(mainImageUrl);
         };
         mainImg.onerror = (e) => reject(new Error("Main image load failed"));
+    });
+};
+
+/**
+ * Smart Layout Engine: Composites text onto the image using Canvas.
+ * Creates a cinematic "subtitle" style layout at the bottom.
+ */
+export const compositeImageWithText = async (
+    imageUrl: string, 
+    title: string, 
+    subtitle?: string,
+    colorTheme: string = '#FFD700' // Gold default
+): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.src = imageUrl;
+        
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            if (!ctx) { resolve(imageUrl); return; }
+
+            // Set canvas size to match image
+            canvas.width = img.width;
+            canvas.height = img.height;
+
+            // 1. Draw Base Image
+            ctx.drawImage(img, 0, 0);
+
+            // 2. Draw Cinematic Gradient (Bottom Up)
+            // This ensures text is readable even on white backgrounds
+            const gradientHeight = canvas.height * 0.4; // Bottom 40%
+            const gradient = ctx.createLinearGradient(0, canvas.height - gradientHeight, 0, canvas.height);
+            gradient.addColorStop(0, "rgba(0,0,0,0)");
+            gradient.addColorStop(0.6, "rgba(0,0,0,0.7)");
+            gradient.addColorStop(1, "rgba(0,0,0,0.9)");
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, canvas.height - gradientHeight, canvas.width, gradientHeight);
+
+            // 3. Text Configuration
+            const padding = canvas.width * 0.05;
+            const bottomMargin = canvas.height * 0.08;
+            
+            // Subtitle (Price/Tag) - Drawn at the very bottom
+            let currentBottom = canvas.height - bottomMargin;
+            
+            if (subtitle) {
+                const subFontSize = Math.floor(canvas.width * 0.05); // 5% of width
+                ctx.font = `bold ${subFontSize}px "Noto Sans TC", sans-serif`;
+                ctx.textAlign = "left";
+                ctx.fillStyle = colorTheme; // Accent Color
+                ctx.shadowColor = "rgba(0,0,0,0.8)";
+                ctx.shadowBlur = 4;
+                ctx.fillText(subtitle, padding, currentBottom);
+                currentBottom -= (subFontSize * 1.5);
+            }
+
+            // Title - Drawn above subtitle
+            if (title) {
+                const titleFontSize = Math.floor(canvas.width * 0.07); // 7% of width
+                ctx.font = `900 ${titleFontSize}px "Noto Sans TC", sans-serif`;
+                ctx.textAlign = "left";
+                ctx.fillStyle = "#FFFFFF";
+                ctx.shadowColor = "rgba(0,0,0,0.8)";
+                ctx.shadowBlur = 10;
+                
+                // Simple Word Wrap for Title
+                const words = title.split('');
+                let line = '';
+                const lines = [];
+                const maxWidth = canvas.width - (padding * 2);
+
+                for(let n = 0; n < words.length; n++) {
+                    const testLine = line + words[n];
+                    const metrics = ctx.measureText(testLine);
+                    if (metrics.width > maxWidth && n > 0) {
+                        lines.push(line);
+                        line = words[n];
+                    } else {
+                        line = testLine;
+                    }
+                }
+                lines.push(line);
+
+                // Draw lines bottom-up
+                for (let i = lines.length - 1; i >= 0; i--) {
+                    ctx.fillText(lines[i], padding, currentBottom);
+                    currentBottom -= (titleFontSize * 1.3);
+                }
+            }
+
+            resolve(canvas.toDataURL('image/png'));
+        };
+
+        img.onerror = (e) => {
+            console.error("Canvas Load Failed", e);
+            resolve(imageUrl); // Return original if fail
+        };
     });
 };

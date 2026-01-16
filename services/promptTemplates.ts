@@ -45,7 +45,8 @@ export const buildCommercialImagePrompt = (
     settings: BrandSettings,
     intent: ImageIntent,
     userRole: string,
-    textOverlay?: string
+    textOverlay?: string,
+    useSmartLayout: boolean = false
 ): string => {
     const styleKeywords = getStyleKeywords(settings.visualStyle);
     const industryKeywords = getIndustryLogic(settings.industry);
@@ -57,21 +58,31 @@ export const buildCommercialImagePrompt = (
         colorInstruction = `Dominant Color Palette: ${settings.brandColors.join(', ')}. Use these colors for background or accents.`;
     }
 
-    // Brand Name Injection (Legacy)
-    let brandInstruction = '';
-    if (settings.brandName && !textOverlay && (intent === 'product_showcase' || intent === 'promotion')) {
-        brandInstruction = `Visible Text: "${settings.brandName}" integrated naturally on the product or background sign.`;
-    }
-
-    // Text Overlay Logic (High Priority)
+    // --- MODE SWITCH ---
     let textInstruction = '';
-    if (textOverlay) {
-        textInstruction = `
-        [🚨 TYPOGRAPHY REQUIREMENT]: 
-        The image MUST feature the text "${textOverlay}" clearly and legibly. 
-        Render the text in a professional font that matches the ${settings.visualStyle} style.
-        Ensure correct spelling. Place the text in a clear area (negative space) or on a signboard/banner within the image.
+    let layoutInstruction = '';
+
+    if (useSmartLayout) {
+        // Mode B: Smart Layout (Code will overlay text, AI provides space)
+        layoutInstruction = `
+        [COMPOSITION RULE]:
+        - **NEGATIVE SPACE**: The bottom 40% of the image MUST be relatively clean or simple (e.g., floor, road, blurred background, sky, water).
+        - **SUBJECT PLACEMENT**: Place the main subject in the center or top-half of the frame.
+        - **NO TEXT**: Do NOT render any text, logos, or watermarks. Keep the image text-free.
         `;
+    } else {
+        // Mode A: AI Text Overlay (Legacy/Risky)
+        if (settings.brandName && !textOverlay && (intent === 'product_showcase' || intent === 'promotion')) {
+            textInstruction += `Visible Text: "${settings.brandName}" integrated naturally.`;
+        }
+        if (textOverlay) {
+            textInstruction += `
+            [🚨 TYPOGRAPHY MANDATE - CRITICAL]: 
+            1. The image MUST contain the text: "${textOverlay}".
+            2. RENDER THE TEXT EXACTLY AS WRITTEN. NO TRANSLATION. 
+            3. Typography must be legible, professional sans-serif font.
+            `;
+        }
     }
 
     // Assembly - STRICTLY STANDARD QUALITY
@@ -81,7 +92,7 @@ export const buildCommercialImagePrompt = (
     [Design Style]: ${styleKeywords}
     [Layout/Intent]: ${intentKeywords}
     [Brand Colors]: ${colorInstruction}
-    ${brandInstruction}
+    ${layoutInstruction}
     ${textInstruction}
     
     [Technical Specs]: Standard web quality, realistic social media photo, natural lighting, clear focus. 
@@ -120,11 +131,11 @@ export const buildImagePromptGenerationPrompt = (caption: string, intent: string
 const TAIWAN_THREADS_RULES = `
 [🚨 STRICT TAIWAN THREADS FORMATTING RULES]
 1. **NO "Hello Everyone"**: NEVER start with "大家好", "哈囉". Start directly with the thought.
-2. **NO Markdown Headers**: Do NOT use ## or ###.
+2. **NO Markdown Headers**: Do NOT use ## or ###. Output strictly plain text.
 3. **Punctuation**: Avoid standard periods (。). Use spaces ( ) or newlines.
 4. **Natural Flow**: Write as if speaking to a friend (口語化).
 5. **Structure**: Keep it fragmented. A "Stream of consciousness" (碎碎念) style.
-6. **Line Breaks**: Force Double Newlines (\\n\\n) to separate paragraphs.
+6. **Line Breaks**: Use real newlines to separate paragraphs. Do NOT print the literal string "\\n".
 `;
 
 const THREADS_PERSONAL_CORE = `
@@ -192,14 +203,14 @@ export const buildDraftPrompt = (
     [Drafting Instructions]
     1. **No Robot-Speak**: Avoid "In today's digital age".
     2. **Hook**: Start immediately. No "Hello everyone".
-    3. **Formatting**: Use double line breaks.
+    3. **Formatting**: Use clean paragraphs. **STRICTLY NO MARKDOWN SYMBOLS** (No **bold**, No ## headers). Facebook does not support markdown.
     4. **Length**: ${options.length}.
     5. **Hashtags**: Put at the very end: ${settings.fixedHashtags} ${options.tempHashtags}
     6. **CTA**: ${ctaPrompt}
 
     Output JSON Format (Do NOT generate image prompts here):
     {
-      "caption": "The full post text (Traditional Chinese, Taiwan phrasing, emojis included)",
+      "caption": "The full post text (Traditional Chinese, Taiwan phrasing, emojis included). No **bold** syntax.",
       "ctaText": "Standalone CTA text"
     }
     `;
@@ -219,6 +230,7 @@ export const buildViralPrompt = (
     1. **Hook**: "Regret", "Warning", or "Shocking". Use brackets 【...】.
     2. **Vibe**: "Bestie talk". Use keywords: "真的絕了", "寶藏", "避雷".
     3. **Format**: Group sentences. Use emojis as bullets.
+    4. **Formatting**: NO Markdown **bold** or ## headers. Pure text only.
 
     Output JSON Schema (Text only):
     {
