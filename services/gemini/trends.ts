@@ -164,7 +164,7 @@ export const getMarketData = async (category: StockCategory = "general"): Promis
                 // Strictly requested exact titles
                 try {
                     const prompt = `
-                    Task: List the top 15 hottest post titles from Dcard (Trending/Mood/YouTuber) and PTT (Gossiping/Stock) RIGHT NOW.
+                    Task: List the top 15 hottest post titles from Dcard (Trending/Mood/YouTuber) and PTT (Gossiping/Stock) RIGHT NOW (Last 24 Hours).
                     
                     [Requirements]
                     1. Exact Titles: Return the **exact** post title (e.g. "[問卦] 為什麼..." or "#分享 今天的穿搭"). Do NOT summarize (e.g. do NOT write "Political issue").
