@@ -93,6 +93,12 @@ service cloud.firestore {
        allow read, write: if isAuth();
     }
     
+    // 社群股市資料 (Shared Cache for Trending Stocks)
+    // 允許所有登入用戶讀取與寫入 (前端觸發更新機制)
+    match /trending_stocks/{stockId} {
+       allow read, write: if isAuth();
+    }
+    
     // 配額交易紀錄
     match /quota_transactions/{txId} {
        allow create: if isAuth();

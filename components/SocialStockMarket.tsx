@@ -13,6 +13,7 @@ interface Props {
 const SocialStockMarket: React.FC<Props> = ({ user, onNavigateToCreate, onQuotaUpdate }) => {
     const [stocks, setStocks] = useState<StockTrend[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
     const [selectedStock, setSelectedStock] = useState<StockTrend | null>(null);
     const [summary, setSummary] = useState('');
     const [loadingSummary, setLoadingSummary] = useState(false);
@@ -25,10 +26,16 @@ const SocialStockMarket: React.FC<Props> = ({ user, onNavigateToCreate, onQuotaU
 
     const loadMarket = async () => {
         try {
+            setError('');
             const data = await getMarketData();
+            if (data.length === 0) {
+                // If array is empty but no error thrown, it might be an initialization issue or empty DB
+                setError("目前沒有市場數據，正在嘗試重新擷取...");
+            }
             setStocks(data);
-        } catch (e) {
+        } catch (e: any) {
             console.error(e);
+            setError("無法連線至交易所主機 (Firebase Error)。請稍後再試。");
         } finally {
             setLoading(false);
         }
@@ -69,16 +76,16 @@ const SocialStockMarket: React.FC<Props> = ({ user, onNavigateToCreate, onQuotaU
             {/* 1. Ticker Header (Marquee) */}
             <div className="w-full bg-black border-b border-gray-800 h-10 flex items-center overflow-hidden whitespace-nowrap relative z-10">
                 <div className="animate-marquee flex gap-8 text-xs font-mono">
-                    {stocks.map(s => (
+                    {stocks.length > 0 ? stocks.map(s => (
                         <div key={s.id} className="flex gap-2">
                             <span className="text-white font-bold">{s.title}</span>
                             <span className={s.change >= 0 ? "text-red-500" : "text-green-500"}>
                                 {s.price.toFixed(1)} ({s.change > 0 ? '+' : ''}{s.change}%)
                             </span>
                         </div>
-                    ))}
+                    )) : <span className="text-gray-500">等待市場開盤...</span>}
                     {/* Duplicate for smooth loop */}
-                    {stocks.map(s => (
+                    {stocks.length > 0 && stocks.map(s => (
                         <div key={s.id + '_dup'} className="flex gap-2">
                             <span className="text-white font-bold">{s.title}</span>
                             <span className={s.change >= 0 ? "text-red-500" : "text-green-500"}>
@@ -103,6 +110,20 @@ const SocialStockMarket: React.FC<Props> = ({ user, onNavigateToCreate, onQuotaU
                     <div className="flex flex-col items-center">
                         <div className="loader border-t-red-500 scale-150 mb-4"></div>
                         <p className="text-red-500 font-mono text-sm animate-pulse">連線交易所主機...</p>
+                    </div>
+                </div>
+            ) : error || stocks.length === 0 ? (
+                <div className="flex-1 flex items-center justify-center">
+                    <div className="bg-red-900/20 border border-red-500/50 p-8 rounded-2xl text-center max-w-md">
+                        <div className="text-4xl mb-4">📉</div>
+                        <h3 className="text-xl font-bold text-red-400 mb-2">無法取得市場數據</h3>
+                        <p className="text-gray-400 text-sm mb-6">{error || "市場暫時關閉或連線逾時。"}</p>
+                        <button 
+                            onClick={() => { setLoading(true); loadMarket(); }}
+                            className="bg-red-600 hover:bg-red-500 text-white px-6 py-2 rounded-lg font-bold"
+                        >
+                            重試連線
+                        </button>
                     </div>
                 </div>
             ) : (
