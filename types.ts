@@ -39,6 +39,8 @@ export enum ErrorCode {
 }
 
 // Stock Market Types
+export type StockCategory = 'general' | 'entertainment' | 'life' | 'social';
+
 export interface StockTrend {
     id: string; // Hash or Title
     title: string;
@@ -46,6 +48,8 @@ export interface StockTrend {
     change: number; // Percentage change
     volume: string; // Formatted number string
     newsUrl: string; // Source link
+    source: 'news' | 'dcard' | 'ptt'; // New: Source Type
+    category: StockCategory; // New: Category
     aiSummary?: string; // Shared Cache
     summaryUpdatedAt?: number;
     updatedAt: number;

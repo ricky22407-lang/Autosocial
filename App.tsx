@@ -239,20 +239,12 @@ const App: React.FC = () => {
   const handleStockNavigate = (topic: string, platform: 'fb' | 'threads') => {
       setPrefilledTopic(topic);
       if (platform === 'fb') {
-          // Pre-fill FB Draft logic is tricky as PostCreator manages internal state
-          // We will modify PostCreator to accept `initialTopic` prop later if needed,
-          // for now, we rely on editingPost hack or creating a new post with topic
-          const mockPost: Post = {
-              id: '', userId: '', topic: topic, caption: '', mediaPrompt: '', mediaType: 'image', status: 'draft', createdAt: 0
-          };
-          setEditingPost(mockPost); // Use edit mode to prefill
+          // Navigate to FB Creator, passing topic via state
+          // Editing post must be null to trigger fresh state in PostCreator
+          setEditingPost(null); 
           setView(AppView.CREATE);
       } else {
-          // Threads logic needs passing state or context
-          // Since ThreadsNurturePanel doesn't take props for this, we might alert for now
-          // or use a global context/hack.
-          // For simplicity in this iteration:
-          alert("Threads 自動填入功能將在下個版本推出，請手動複製話題：" + topic);
+          // Navigate to Threads Nurture Panel
           setView(AppView.THREADS_NURTURE);
       }
   };
@@ -391,6 +383,7 @@ const App: React.FC = () => {
                 editPost={editingPost} 
                 onCancel={() => setEditingPost(null)}
                 scheduledPostsCount={posts.filter(p => p.status === 'scheduled').length}
+                initialTopic={prefilledTopic}
               />
             )}
             {view === AppView.SCHEDULE && (
@@ -415,7 +408,7 @@ const App: React.FC = () => {
             {view === AppView.ANALYTICS && <AnalyticsDashboard settings={settings} />}
             {view === AppView.AUTOMATION && <AutomationPanel settings={settings} onSave={handleSaveSettings} />}
             {view === AppView.SEO_ARTICLES && <SeoArticleGenerator user={userProfile} onQuotaUpdate={refreshProfile} />}
-            {view === AppView.THREADS_NURTURE && <ThreadsNurturePanel settings={settings} user={userProfile} onSaveSettings={handleSaveSettings} onQuotaUpdate={refreshProfile} />}
+            {view === AppView.THREADS_NURTURE && <ThreadsNurturePanel settings={settings} user={userProfile} onSaveSettings={handleSaveSettings} onQuotaUpdate={refreshProfile} initialTopic={prefilledTopic} />}
             {view === AppView.CONNECT && <ConnectPanel settings={settings} user={userProfile} onQuotaUpdate={refreshProfile} />}
             {view === AppView.PRICING && <PricingPanel user={userProfile} onContactClick={() => setView(AppView.CONTACT_SUPPORT)} />}
             {view === AppView.REFERRAL && <ReferralPanel user={userProfile} onQuotaUpdate={refreshProfile} />}

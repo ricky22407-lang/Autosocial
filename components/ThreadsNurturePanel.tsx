@@ -12,9 +12,10 @@ interface Props {
   user: UserProfile | null;
   onSaveSettings: (settings: BrandSettings) => void;
   onQuotaUpdate: () => void;
+  initialTopic?: string; // New Prop
 }
 
-const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, onQuotaUpdate }) => {
+const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, onQuotaUpdate, initialTopic }) => {
   const [activeTab, setActiveTab] = useState<'accounts' | 'interaction' | 'generator' | 'dna_lab' | 'scout'>('accounts');
   const [accounts, setAccounts] = useState<ThreadsAccount[]>(settings.threadsAccounts || []);
 
@@ -24,6 +25,13 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
           setAccounts(settings.threadsAccounts || []);
       }
   }, [settings.threadsAccounts]);
+
+  // Handle Initial Topic from Stock Market
+  useEffect(() => {
+      if (initialTopic) {
+          setActiveTab('generator');
+      }
+  }, [initialTopic]);
 
   // Update parent settings whenever local accounts change
   const handleAccountsChange = (newAccounts: ThreadsAccount[]) => {
@@ -79,6 +87,7 @@ const ThreadsNurturePanel: React.FC<Props> = ({ settings, user, onSaveSettings, 
               accounts={accounts} 
               user={user} 
               onQuotaUpdate={onQuotaUpdate} 
+              initialTopic={initialTopic}
           />
       )}
 

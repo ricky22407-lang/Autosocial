@@ -30,9 +30,10 @@ interface Props {
     accounts: ThreadsAccount[];
     user: UserProfile | null;
     onQuotaUpdate: () => void;
+    initialTopic?: string; // New Prop
 }
 
-const ContentGenerator: React.FC<Props> = ({ settings, accounts, user, onQuotaUpdate }) => {
+const ContentGenerator: React.FC<Props> = ({ settings, accounts, user, onQuotaUpdate, initialTopic }) => {
     // State
     const [genStep, setGenStep] = useState<1 | 2>(1);
     const [manualTopic, setManualTopic] = useState('');
@@ -56,6 +57,15 @@ const ContentGenerator: React.FC<Props> = ({ settings, accounts, user, onQuotaUp
             }
         }
     }, [accounts]);
+
+    // Handle Initial Topic from Stock Market
+    useEffect(() => {
+        if (initialTopic) {
+            setSelectedTopics([initialTopic]);
+            setManualTopic(initialTopic); // Also set manual so it persists visually if deselected
+            setGenStep(2); // Jump directly to Step 2
+        }
+    }, [initialTopic]);
 
     const loadTrends = async (overrideKeyword?: string) => {
         if (!user) return alert("請先登入");
@@ -99,12 +109,17 @@ const ContentGenerator: React.FC<Props> = ({ settings, accounts, user, onQuotaUp
     };
 
     const calculateCost = (count: number, mode: ImageSourceType) => {
-        const baseCost = 2; // Text generation base
+        // [BILLING CONFIGURATION]
+        // Text Only: 3 points
+        // Stock Image: 6 points (3 Text + 3 Image)
+        // AI Image: 8 points (3 Text + 5 Image)
+        const baseCost = 3; 
         let extraCost = 0;
-        // [BILLING] AI Image (First): 6 Points Total -> Base 2 + Extra 4
-        if (mode === 'ai') extraCost = 4; 
-        else if (mode === 'news') extraCost = 1;
-        else if (mode === 'stock') extraCost = 1;
+        
+        if (mode === 'ai') extraCost = 5; 
+        else if (mode === 'stock') extraCost = 3;
+        else if (mode === 'news') extraCost = 1; // Small fee for processing/fetching news image
+        
         return (baseCost + extraCost) * count;
     };
 
@@ -196,8 +211,11 @@ const ContentGenerator: React.FC<Props> = ({ settings, accounts, user, onQuotaUp
         if (newMode === 'stock' || newMode === 'ai') { 
             if (!user) return alert("請先登入");
             
-            // [BILLING] Threads Image Regen: 4 Points
-            const COST = 4; 
+            // [BILLING] Threads Image Regen
+            // Stock Image Cost = 3 (Derived from Total 6 - Text 3)
+            // AI Image Cost = 5 (Derived from Total 8 - Text 3)
+            const COST = newMode === 'ai' ? 5 : 3;
+            
             const allowed = await checkAndUseQuota(user.user_id, COST, 'THREADS_REGEN_IMAGE');
             if (!allowed) return; 
             onQuotaUpdate();
@@ -304,7 +322,7 @@ const ContentGenerator: React.FC<Props> = ({ settings, accounts, user, onQuotaUp
                              <div className="bg-dark/50 p-4 rounded border border-gray-600"><label className="block text-sm text-gray-400 mb-2">當前話題</label><div className="font-bold text-xl text-white">{selectedTopics[0] || manualTopic}</div></div>
                              <div className="space-y-4">
                                  <div><label className="block text-sm text-gray-400 mb-1">數量</label><div className="flex gap-2">{[1,2,3].map(n => <button key={n} onClick={() => setGenCount(n as any)} className={`flex-1 py-2 rounded border ${genCount === n ? 'bg-white text-black' : 'border-gray-600'}`}>{n}</button>)}</div></div>
-                                 <div><label className="block text-sm text-gray-400 mb-1">圖片</label><select value={preSelectedImageMode} onChange={(e) => setPreSelectedImageMode(e.target.value as any)} className="w-full bg-dark border border-gray-600 rounded p-2 text-white"><option value="none">無圖片</option><option value="stock">擬真圖庫</option><option value="ai">AI繪圖 (推薦)</option></select></div>
+                                 <div><label className="block text-sm text-gray-400 mb-1">圖片</label><select value={preSelectedImageMode} onChange={(e) => setPreSelectedImageMode(e.target.value as any)} className="w-full bg-dark border border-gray-600 rounded p-2 text-white"><option value="none">無圖片 (3點)</option><option value="stock">擬真圖庫 (6點)</option><option value="ai">AI繪圖 (8點)</option></select></div>
                              </div>
                          </div>
                          <button onClick={handleGenerateBatch} disabled={!selectedGenAccountId} className="w-full bg-gradient-to-r from-pink-600 to-purple-600 text-white py-4 rounded-xl font-bold text-lg shadow-lg">生成貼文</button>
@@ -320,7 +338,7 @@ const ContentGenerator: React.FC<Props> = ({ settings, accounts, user, onQuotaUp
                                         ) : <span className="text-gray-500">無圖片</span>}
                                         <div className="absolute bottom-2 left-2 flex gap-2">
                                             <button onClick={() => handleImageModeChange(post, 'stock')} disabled={isRegeneratingImage === post.id} className="text-xs bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded shadow-lg font-bold border border-gray-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1">
-                                                {isRegeneratingImage === post.id ? (<><div className="loader w-3 h-3 border-2 border-t-white"></div>生成中...</>) : '隨機換圖 (4點)'}
+                                                {isRegeneratingImage === post.id ? (<><div className="loader w-3 h-3 border-2 border-t-white"></div>生成中...</>) : '隨機換圖 (3點)'}
                                             </button>
                                         </div>
                                     </div>

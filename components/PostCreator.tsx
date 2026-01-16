@@ -13,6 +13,7 @@ interface Props {
   editPost?: Post | null;
   onCancel?: () => void;
   scheduledPostsCount?: number;
+  initialTopic?: string; // New Prop
 }
 
 const LoadingOverlay: React.FC<{ message: string, subMessage?: string }> = ({ message, subMessage }) => (
@@ -23,7 +24,7 @@ const LoadingOverlay: React.FC<{ message: string, subMessage?: string }> = ({ me
     </div>
 );
 
-export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, onQuotaUpdate, editPost, onCancel, scheduledPostsCount = 0 }) => {
+export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, onQuotaUpdate, editPost, onCancel, scheduledPostsCount = 0, initialTopic }) => {
   const [step, setStep] = useState<1 | 2>(1);
   const [topic, setTopic] = useState('');
   const [mode, setMode] = useState<'brand' | 'viral'>('brand');
@@ -56,6 +57,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
   const limit = role === 'pro' ? 5 : (role === 'business' ? 10 : (role === 'admin' ? 100 : 3));
   const isLimitReached = !editPost && scheduledPostsCount >= limit;
 
+  // Handle Edit Post Logic
   useEffect(() => {
     if (editPost) {
         setStep(2);
@@ -66,6 +68,14 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
         setSyncInstagram(!!editPost.syncInstagram);
     }
   }, [editPost]);
+
+  // Handle Initial Topic from Stock Market
+  useEffect(() => {
+      if (initialTopic) {
+          setTopic(initialTopic);
+          setStep(1); // Stay on step 1 to confirm generation
+      }
+  }, [initialTopic]);
 
   // Pre-fill smart layout text based on topic when draft is generated
   useEffect(() => {
@@ -319,6 +329,7 @@ export const PostCreator: React.FC<Props> = ({ settings, user, onPostCreated, on
       </div>
   );
 
+  // ... (Step 2 Render remains same, omitted for brevity but preserved in final output)
   return (
     <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 animate-fade-in pt-4 pb-20">
         <div className="space-y-6">

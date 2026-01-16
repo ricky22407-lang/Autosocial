@@ -252,7 +252,7 @@ const PricingPanel: React.FC<Props> = ({ user, onContactClick }) => {
                         <tbody className="divide-y divide-gray-700/50 bg-gray-800/20">
                             <tr><td className="p-5 font-bold text-white">FB 貼文生成</td><td className="p-5 text-right text-yellow-400 font-bold">5 點</td><td className="p-5 text-gray-400 text-xs hidden sm:table-cell">Gemini Pro 高品質文案</td></tr>
                             <tr><td className="p-5 font-bold text-white">AI 圖片 (首次/重繪)</td><td className="p-5 text-right text-primary font-bold">8 / 5 點</td><td className="p-5 text-gray-400 text-xs hidden sm:table-cell">DALL-E 3 / Ideogram 商業授權圖</td></tr>
-                            <tr><td className="p-5 font-bold text-white">Threads 發文</td><td className="p-5 text-right text-blue-400 font-bold">2 點</td><td className="p-5 text-gray-400 text-xs hidden sm:table-cell">Flash 模型快速生成</td></tr>
+                            <tr><td className="p-5 font-bold text-white">Threads 發文</td><td className="p-5 text-right text-blue-400 font-bold">3 - 8 點</td><td className="p-5 text-gray-400 text-xs hidden sm:table-cell">純文字3點 / 圖庫6點 / AI繪圖8點</td></tr>
                             <tr><td className="p-5 font-bold text-white">SEO 長文章</td><td className="p-5 text-right text-yellow-400 font-bold">15 點</td><td className="p-5 text-gray-400 text-xs hidden sm:table-cell">1500字以上結構化文章</td></tr>
                             <tr><td className="p-5 font-bold text-white">自動化全套 (AutoPilot)</td><td className="p-5 text-right text-blue-400 font-bold">15 點</td><td className="p-5 text-gray-400 text-xs hidden sm:table-cell">包含趨勢搜尋、文案、製圖與排程 (含服務費)</td></tr>
                         </tbody>
