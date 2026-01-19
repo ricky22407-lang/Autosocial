@@ -403,50 +403,44 @@ const patchUrl = (item: any, validLinks: string[]): string => {
     // 1. If we have a direct exact match in metadata, it's valid.
     if (validLinks.includes(item.url)) return item.url;
 
-    // 2. Try to fuzzy match based on domain and ID if possible
-    // (AI often gets the domain right but messes up the ID or query params)
-    // For Threads, if metadata has a link, prefer it.
-    // Since we can't reliably fuzzy match IDs, we prioritize the fallback search
-    // unless we find a metadata link that is VERY likely the one.
-    
-    // 3. Fallback: Google Search Intent
-    // This guarantees the link "works" by sending user to search results of that post content.
+    // 2. Fallback: Google Search Intent
     const query = `site:threads.net/t/ OR site:dcard.tw/f/ "${item.title || item.content.substring(0, 20)}"`;
     return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
 };
 
 export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
-    // OSINT Google Dorking Strategy:
-    const intentKeywords = `("求推薦" OR "請益" OR "好用嗎" OR "哪裡買" OR "挑選" OR "比較" OR "vs" OR "評價" OR "避雷" OR "缺點" OR "團購")`;
+    // UPDATED Intent Logic: More conversational, less strict to catch more results
+    const intentKeywords = `("推薦" OR "請益" OR "好用嗎" OR "評價" OR "避雷" OR "缺點" OR "比較" OR "哪裡買")`;
     
-    const dorkQuery = `site:threads.net/t/ OR site:dcard.tw/f/ "${keyword}" ${intentKeywords}`;
+    // Construct Query: Product + (Intent Group)
+    const dorkQuery = `site:threads.net OR site:dcard.tw "${keyword}" ${intentKeywords}`;
     
     const prompt = `
-    Role: Commercial Intent Scout (OSINT Expert).
-    Task: Use the provided search results to find real user posts expressing **Buying Intent** or **Pain Points** about "${keyword}".
+    Role: Commercial Opportunity Hunter.
+    Task: Search specifically for recent user discussions about "${keyword}" on Threads and Dcard that show **Purchase Intent** or **Evaluation**.
     
-    [SEARCH QUERY TO EXECUTE]:
-    ${dorkQuery}
+    [SEARCH STRATEGY]
+    Use the Google Search tool to execute: ${dorkQuery}
 
-    [Constraints]
-    1. **Strictly filter for user discussions**: Ignore news articles, brand official pages, or generic SEO blogs.
-    2. **Intent Check**: The post MUST contain questions like "Which is better?", "Is X good?", "Recommendation needed", "Comparison".
-    3. **Data Extraction**: Extract the raw snippet text, the URL, and estimate engagement if possible.
+    [FILTERING RULES - STRICT]
+    1. **Ignore** news articles, official brand accounts, or ads.
+    2. **Focus** on real users asking: "Which is better?", "Is X good?", "Recommendation for...", "Cons of X".
+    3. If direct matches are few, look for posts discussing "problems" that "${keyword}" can solve.
 
     [Output Schema]
     Return a JSON Array (OpportunityPost[]):
     [{
-      "title": "Short Title or First Sentence of the post",
-      "content": "Snippet of the user's post (max 100 chars)",
-      "url": "Direct URL to the post (Must match grounded source)",
-      "username": "Extract from URL or Title (e.g. @user123)",
-      "reasoning": "Why is this a lead? (e.g. User asking for budget options, Comparing A vs B)",
+      "title": "Post Title or First Sentence",
+      "content": "Snippet of the user's post (max 80 chars)",
+      "url": "Direct URL (Must be threads.net or dcard.tw)",
+      "username": "Extract username if possible, else 'Unknown'",
+      "reasoning": "Why this is a lead? (e.g. Asking for budget options)",
       "intentScore": Integer 1-10 (10 = Ready to buy),
-      "replyCount": "Estimate (e.g. '10+') or 'Unknown'",
+      "replyCount": "Estimate or 'Unknown'",
       "likeCount": "Estimate or 'Unknown'"
     }]
 
-    IMPORTANT: Output ONLY the raw JSON string. Do not use Markdown code blocks.
+    IMPORTANT: Output ONLY the raw JSON string.
     `;
 
     try {
@@ -460,10 +454,9 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
         });
 
         // 1. Extract Valid Grounding Links (The Real Truth)
-        // These are the actual URLs Google Search found.
         const validLinks = response.groundingMetadata?.groundingChunks
             ?.map((chunk: any) => chunk.web?.uri)
-            .filter((uri: string) => uri && (uri.includes('threads.net/t/') || uri.includes('dcard.tw/f/'))) || [];
+            .filter((uri: string) => uri && (uri.includes('threads.net') || uri.includes('dcard.tw'))) || [];
 
         const jsonStr = cleanJsonText(response.text || '[]');
         const data = JSON.parse(jsonStr);

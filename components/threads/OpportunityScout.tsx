@@ -40,7 +40,7 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
         setResults([]);
         
         // Show user what's happening under the hood (OSINT logic)
-        setDebugQuery(`site:threads.net "${keyword}" ("求推薦" OR "好用嗎" OR "避雷" OR "挑選" OR "比較")`);
+        setDebugQuery(`site:threads.net "${keyword}" (推薦 OR 好用 OR 評價 OR 避雷...)`);
         
         try {
             const leads = await findThreadsOpportunities(keyword);
@@ -62,7 +62,7 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
                 <div className="flex flex-col md:flex-row gap-4 items-end">
                     <div className="flex-1 w-full">
                         <label className="block text-sm font-bold text-yellow-400 mb-2 uppercase tracking-wider flex justify-between">
-                            <span>商機關鍵字 (Intent Search)</span>
+                            <span>商機關鍵字 (Product/Service)</span>
                             <span className="text-[10px] text-gray-500 font-normal normal-case border border-gray-600 px-2 rounded">OSINT Engine Active</span>
                         </label>
                         <input 
@@ -70,7 +70,7 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
                             onChange={e => setKeyword(e.target.value)}
                             onCompositionStart={() => setIsComposing(true)}
                             onCompositionEnd={() => setIsComposing(false)}
-                            placeholder="例如：過年禮盒、洗髮精、保濕精華... (自動搜尋 Threads 真人貼文)"
+                            placeholder="只需輸入商品名稱！例如：定妝噴霧、藍牙耳機 (系統會自動加上「推薦、好評」等意圖)"
                             className="w-full bg-dark border border-gray-600 rounded-xl p-4 text-white placeholder-gray-500 focus:border-yellow-500 outline-none transition-colors shadow-inner"
                             onKeyDown={e => {
                                 if (e.key === 'Enter' && !isComposing) {
@@ -100,7 +100,7 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
                 )}
 
                 <p className="text-xs text-gray-500 mt-3 ml-1 leading-relaxed">
-                    <b>工作原理：</b> 系統使用 Google 進階搜尋運算子 (Google Dorks) 鎖定 Threads/Dcard，並過濾出具有<b>「求推薦、好用嗎、避雷、比較、挑選、哪裡買」</b>等強烈意圖的討論，精準命中潛在客戶。
+                    <b>工作原理：</b> 系統會自動將您的關鍵字與<b>「求推薦、好用嗎、避雷、比較、哪裡買」</b>等意圖詞進行交叉比對，找出 Threads/Dcard 上的潛在買家。
                 </p>
             </div>
 
@@ -168,14 +168,13 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
                     <div className="text-5xl mb-4 opacity-50 grayscale">🌵</div>
                     <h3 className="text-lg font-bold text-gray-400 mb-2">荒漠：未發現高價值商機</h3>
                     <p className="text-sm text-gray-500 max-w-md mx-auto mb-6 leading-relaxed">
-                        AI 使用了嚴格的過濾條件 (必須包含購買/比較意圖)，但沒有在 Threads/Dcard 找到關於「{keyword}」的有效討論。這可能代表該關鍵字過於冷門，或目前沒有人討論。
+                        AI 使用了嚴格的過濾條件，但沒有在 Threads/Dcard 找到關於「{keyword}」的有效討論。這可能代表該關鍵字過於冷門，或目前沒有人討論。
                     </p>
                     <div className="inline-block text-left text-xs text-gray-400 bg-black/40 p-5 rounded-xl border border-gray-700">
                         <p className="font-bold mb-2 text-yellow-500">💡 建議嘗試：</p>
                         <ul className="list-disc pl-4 space-y-1.5">
                             <li><b>換個說法</b>：將「洗髮精」改為「頭皮癢」、「掉髮」 (針對痛點搜尋)。</li>
                             <li><b>擴大範圍</b>：搜尋品類而非特定品牌 (例如搜「藍牙耳機」而非「AirPods」)。</li>
-                            <li><b>生活化用語</b>：加入「有人用過嗎」、「求滅火」。</li>
                         </ul>
                     </div>
                 </div>
