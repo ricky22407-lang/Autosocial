@@ -3,29 +3,31 @@ import React, { useState, useEffect } from 'react';
 import { AppView, BrandSettings, Post, UserProfile, ThreadsAccount } from './types';
 
 // #region Components Import
-import SettingsForm from './components/SettingsForm';
-import { PostCreator } from './components/PostCreator';
-import ScheduleList from './components/ScheduleList';
-import AnalyticsDashboard from './components/AnalyticsDashboard';
-import AutomationPanel from './components/AutomationPanel';
-import ThreadsNurturePanel from './components/ThreadsNurturePanel';
-import ConnectPanel from './components/ConnectPanel';
-import SocialStockMarket from './components/SocialStockMarket'; // New
+import SettingsForm from './features/settings/SettingsForm'; 
+import { PostCreator } from './features/content/PostCreator';
+import ScheduleList from './features/content/ScheduleList';
+import SocialStockMarket from './features/content/SocialStockMarket';
+import ThreadsPanel from './features/threads/ThreadsPanel';
+import AnalyticsDashboard from './features/analytics/AnalyticsDashboard'; 
+import AutomationPanel from './features/automation/AutomationPanel'; 
+import ConnectPanel from './features/connect/ConnectPanel';
+import SeoArticleGenerator from './features/seo/SeoArticleGenerator'; 
+import ReferralPanel from './features/referral/ReferralPanel'; 
+import PricingPanel from './features/pricing/PricingPanel'; 
+import ContactSupportPanel from './features/support/ContactSupportPanel'; 
+import AdminPanel from './features/admin/AdminPanel'; // Updated Path
+
 import Login from './components/Login';
-import AdminPanel from './components/AdminPanel';
-import SeoArticleGenerator from './components/SeoArticleGenerator';
-import ReferralPanel from './components/ReferralPanel'; 
 import ErrorReportModal from './components/ErrorReportModal'; 
 import KeyRedemptionModal from './components/KeyRedemptionModal';
-import PricingPanel from './components/PricingPanel';
-import ContactSupportPanel from './components/ContactSupportPanel'; 
 import AiAssistantBubble from './components/AiAssistantBubble'; 
 import QueueOverlay from './components/QueueOverlay'; 
 // #endregion
 
-// #region Services & Auth Import
-import { subscribeAuth, logout, getUserProfile, fetchUserPostsFromCloud, syncPostToCloud, deletePostFromCloud, exchangeThreadsAuth } from './services/authService';
-import { isFirebaseReady, isMock } from './services/firebase'; 
+// #region Context & Service Import
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { fetchUserPostsFromCloud, syncPostToCloud, deletePostFromCloud, exchangeThreadsAuth } from './services/authService';
+import { isMock } from './services/firebase'; 
 // #endregion
 
 // #region Icons
@@ -78,10 +80,10 @@ const defaultSettings: BrandSettings = {
   }
 };
 
-const App: React.FC = () => {
-  const [user, setUser] = useState<any>(null);
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [loadingAuth, setLoadingAuth] = useState(true);
+const AppContent: React.FC = () => {
+  // Use Context instead of local state for User
+  const { user: authUser, userProfile, loading: loadingAuth, logout, refreshProfile } = useAuth();
+  
   const [view, setView] = useState<AppView>(AppView.LOGIN);
   const [settings, setSettings] = useState<BrandSettings>(defaultSettings);
   const [posts, setPosts] = useState<Post[]>([]);
@@ -107,28 +109,21 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const unsubscribe = subscribeAuth(async (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
-        const profile = await getUserProfile(currentUser.uid);
-        setUserProfile(profile);
+    if (!loadingAuth) {
+      if (authUser) {
         // Default to Market view on login
         setView(AppView.MARKET);
         loadLocalSettings();
-        const cloudPosts = await fetchUserPostsFromCloud(currentUser.uid);
-        setPosts(cloudPosts);
+        fetchUserPostsFromCloud(authUser.uid).then(setPosts);
       } else {
-        setUserProfile(null);
         setView(AppView.LOGIN);
       }
-      setLoadingAuth(false);
-    });
-    return () => unsubscribe();
-  }, []);
+    }
+  }, [authUser, loadingAuth]);
 
   useEffect(() => {
       const handleThreadsCallback = async () => {
-          if (loadingAuth || !user) return; 
+          if (loadingAuth || !authUser) return; 
           const params = new URLSearchParams(window.location.search);
           const code = params.get('code');
           if (code && !window.opener) {
@@ -164,7 +159,7 @@ const App: React.FC = () => {
           }
       };
       handleThreadsCallback();
-  }, [loadingAuth, user, settings]); 
+  }, [loadingAuth, authUser, settings]); 
 
   const loadLocalSettings = () => {
     const savedSettings = localStorage.getItem('autosocial_settings');
@@ -181,20 +176,13 @@ const App: React.FC = () => {
     setView(AppView.LOGIN);
   };
 
-  const refreshProfile = async () => {
-    if (user) {
-      const profile = await getUserProfile(user.uid);
-      setUserProfile(profile);
-    }
-  };
-
   const handleSaveSettings = (newSettings: BrandSettings) => {
     setSettings(newSettings);
     localStorage.setItem('autosocial_settings', JSON.stringify(newSettings));
   };
 
   const handlePostCreated = async (newPost: Post) => {
-    if (!user || !userProfile) return;
+    if (!authUser || !userProfile) return;
     if (newPost.status === 'scheduled') {
         const scheduledCount = posts.filter(p => p.status === 'scheduled' && p.id !== newPost.id).length;
         const role = userProfile.role;
@@ -213,8 +201,8 @@ const App: React.FC = () => {
             if (exists) return prev.map(p => p.id === newPost.id ? newPost : p);
             return [newPost, ...prev];
         });
-        await syncPostToCloud(user.uid, newPost);
-        const updatedPosts = await fetchUserPostsFromCloud(user.uid);
+        await syncPostToCloud(authUser.uid, newPost);
+        const updatedPosts = await fetchUserPostsFromCloud(authUser.uid);
         setPosts(updatedPosts);
         setEditingPost(null);
         setView(AppView.SCHEDULE);
@@ -224,9 +212,9 @@ const App: React.FC = () => {
   };
 
   const handleDeletePost = async (postId: string) => {
-      if (!user) return;
+      if (!authUser) return;
       try {
-          await deletePostFromCloud(user.uid, postId);
+          await deletePostFromCloud(authUser.uid, postId);
           setPosts(prev => prev.filter(p => p.id !== postId));
       } catch (e) { alert("刪除失敗"); }
   };
@@ -239,12 +227,9 @@ const App: React.FC = () => {
   const handleStockNavigate = (topic: string, platform: 'fb' | 'threads') => {
       setPrefilledTopic(topic);
       if (platform === 'fb') {
-          // Navigate to FB Creator, passing topic via state
-          // Editing post must be null to trigger fresh state in PostCreator
           setEditingPost(null); 
           setView(AppView.CREATE);
       } else {
-          // Navigate to Threads Nurture Panel
           setView(AppView.THREADS_NURTURE);
       }
   };
@@ -369,17 +354,13 @@ const App: React.FC = () => {
         <div className="max-w-7xl mx-auto h-full">
             {view === AppView.MARKET && (
                 <SocialStockMarket 
-                    user={userProfile} 
                     onNavigateToCreate={handleStockNavigate} 
-                    onQuotaUpdate={refreshProfile} 
                 />
             )}
             {view === AppView.CREATE && (
               <PostCreator 
                 settings={settings} 
-                user={userProfile} 
                 onPostCreated={handlePostCreated} 
-                onQuotaUpdate={refreshProfile} 
                 editPost={editingPost} 
                 onCancel={() => setEditingPost(null)}
                 scheduledPostsCount={posts.filter(p => p.status === 'scheduled').length}
@@ -396,7 +377,7 @@ const App: React.FC = () => {
                       if (deletedId) await handleDeletePost(deletedId);
                       else {
                           const changed = updated.find((p, i) => JSON.stringify(p) !== JSON.stringify(posts.find(op => op.id === p.id)));
-                          if (changed && user) await syncPostToCloud(user.uid, changed);
+                          if (changed && authUser) await syncPostToCloud(authUser.uid, changed);
                           setPosts(updated);
                       }
                   }} 
@@ -408,7 +389,7 @@ const App: React.FC = () => {
             {view === AppView.ANALYTICS && <AnalyticsDashboard settings={settings} />}
             {view === AppView.AUTOMATION && <AutomationPanel settings={settings} onSave={handleSaveSettings} />}
             {view === AppView.SEO_ARTICLES && <SeoArticleGenerator user={userProfile} onQuotaUpdate={refreshProfile} />}
-            {view === AppView.THREADS_NURTURE && <ThreadsNurturePanel settings={settings} user={userProfile} onSaveSettings={handleSaveSettings} onQuotaUpdate={refreshProfile} initialTopic={prefilledTopic} />}
+            {view === AppView.THREADS_NURTURE && <ThreadsPanel settings={settings} user={userProfile} onSaveSettings={handleSaveSettings} onQuotaUpdate={refreshProfile} initialTopic={prefilledTopic} />}
             {view === AppView.CONNECT && <ConnectPanel settings={settings} user={userProfile} onQuotaUpdate={refreshProfile} />}
             {view === AppView.PRICING && <PricingPanel user={userProfile} onContactClick={() => setView(AppView.CONTACT_SUPPORT)} />}
             {view === AppView.REFERRAL && <ReferralPanel user={userProfile} onQuotaUpdate={refreshProfile} />}
@@ -423,6 +404,14 @@ const App: React.FC = () => {
       {showReportModal && <ErrorReportModal user={userProfile} currentView={view} onClose={() => setShowReportModal(false)} />}
       {showKeyModal && userProfile && <KeyRedemptionModal user={userProfile} onClose={() => setShowKeyModal(false)} onSuccess={refreshProfile} />}
     </div>
+  );
+};
+
+const App: React.FC = () => {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 };
 

@@ -20,23 +20,15 @@ export const getAllUsers = async (): Promise<UserProfile[]> => {
     try {
         if (!isMock) {
             console.log("[Admin] Fetching all users from Firestore...");
-            // Simplified query to avoid "Failed to get documents from server. (Missing Index)" errors
-            // Once you create an index in Firebase Console, you can add .orderBy('created_at', 'desc') back.
             const snap = await db.collection('users').get();
-            
-            if (snap.empty) {
-                console.warn("[Admin] No users found in 'users' collection.");
-                return [];
-            }
-
+            if (snap.empty) return [];
             return snap.docs.map((doc: any) => doc.data() as UserProfile);
         } 
         return MockStore.getAllUsers();
     } catch (e: any) {
         console.error("Failed to fetch users:", e);
-        // Translate common Firestore errors for better UI feedback
         if (e.code === 'permission-denied') {
-            throw new Error("權限不足 (Permission Denied)。請檢查 Firestore Rules 設定，確保 admin 有讀取權限。");
+            throw new Error("權限不足 (Permission Denied)。請檢查 Firestore Rules。");
         }
         throw new Error(e.message || "讀取會員列表失敗");
     }
@@ -47,8 +39,6 @@ export const generateAdminKey = async (adminId: string, type: string, role?: Use
     const pointsCode = points ? `-P${points}` : '';
     const key = `KEY${featureCode}${pointsCode}-${Date.now().toString().slice(-6)}-${Math.floor(Math.random()*100)}`;
     
-    // FIX: Use loose typing for 'data' creation to allow 'null' values (required for Firestore),
-    // even though AdminKey interface defines them as optional (undefined).
     const data = { 
         key, 
         type: type as any, 
@@ -65,11 +55,9 @@ export const generateAdminKey = async (adminId: string, type: string, role?: Use
         try {
             await db.collection('admin_keys').doc(key).set(data);
         } catch (e: any) {
-            console.error("Key Gen Error:", e);
-            throw new Error(`金鑰寫入資料庫失敗: ${e.message}`);
+            throw new Error(`金鑰寫入失敗: ${e.message}`);
         }
     } else {
-        // Cast to unknown then AdminKey to bypass strict null checks for MockStore
         MockStore.saveKey(data as unknown as AdminKey);
     }
     
@@ -87,8 +75,6 @@ export const useAdminKey = async (userId: string, keyString: string): Promise<{ 
                 if (!doc.exists) throw new Error("無效的金鑰");
                 const keyData = doc.data() as AdminKey;
                 if (keyData.isUsed) throw new Error("此金鑰已被使用");
-                
-                // Expiry Check for Key itself
                 if (Date.now() > keyData.expiresAt) throw new Error("此金鑰已過期失效");
 
                 const userRef = db.collection('users').doc(userId);
@@ -99,31 +85,21 @@ export const useAdminKey = async (userId: string, keyString: string): Promise<{ 
                 const expiry = now + ONE_YEAR_MS;
 
                 if (keyData.type === 'RESET_QUOTA') {
-                    t.update(userRef, { 
-                        quota_used: 0,
-                        isSuspended: false
-                    });
+                    t.update(userRef, { quota_used: 0, isSuspended: false });
                 } 
                 else if (keyData.type === 'UPGRADE_ROLE' && keyData.targetRole) {
                     const topUpAmount = getQuotaForRole(keyData.targetRole);
-                    
                     const newBatch: QuotaBatch = {
-                        id: uuidv4(),
-                        amount: topUpAmount,
-                        initialAmount: topUpAmount,
-                        expiresAt: expiry,
-                        source: 'topup',
-                        addedAt: now
+                        id: uuidv4(), amount: topUpAmount, initialAmount: topUpAmount,
+                        expiresAt: expiry, source: 'topup', addedAt: now
                     };
-
                     const currentBatches = userData.quota_batches || [];
                     if (!userData.quota_batches && userData.quota_total > 0) {
                         currentBatches.push({
-                            id: 'legacy_admin_mig', amount: userData.quota_total, initialAmount: userData.quota_total,
+                            id: 'legacy_mig', amount: userData.quota_total, initialAmount: userData.quota_total,
                             expiresAt: userData.quota_reset_date || expiry, source: 'trial', addedAt: now
                         });
                     }
-                    
                     currentBatches.push(newBatch);
                     currentBatches.sort((a,b) => a.expiresAt - b.expiresAt);
 
@@ -136,31 +112,21 @@ export const useAdminKey = async (userId: string, keyString: string): Promise<{ 
                     });
                 } 
                 else if (keyData.type === 'UNLOCK_FEATURE' && keyData.targetFeature) {
-                    t.update(userRef, { 
-                        unlockedFeatures: firebase.firestore.FieldValue.arrayUnion(keyData.targetFeature) 
-                    });
+                    t.update(userRef, { unlockedFeatures: firebase.firestore.FieldValue.arrayUnion(keyData.targetFeature) });
                 }
                 else if (keyData.type === 'ADD_POINTS' && keyData.pointsAmount) {
                     const newBatch: QuotaBatch = {
-                        id: uuidv4(),
-                        amount: keyData.pointsAmount,
-                        initialAmount: keyData.pointsAmount,
-                        expiresAt: expiry, // Points valid for 1 year
-                        source: 'admin_gift',
-                        addedAt: now
+                        id: uuidv4(), amount: keyData.pointsAmount, initialAmount: keyData.pointsAmount,
+                        expiresAt: expiry, source: 'admin_gift', addedAt: now
                     };
-
                     const currentBatches = userData.quota_batches || [];
-                    // Handle migration
                     if (!userData.quota_batches && userData.quota_total > 0) {
                         currentBatches.push({
-                            id: 'legacy_points_mig', amount: userData.quota_total, initialAmount: userData.quota_total,
+                            id: 'legacy_mig_p', amount: userData.quota_total, initialAmount: userData.quota_total,
                             expiresAt: userData.quota_reset_date || expiry, source: 'trial', addedAt: now
                         });
                     }
-
                     currentBatches.push(newBatch);
-                    // Re-sort
                     currentBatches.sort((a,b) => a.expiresAt - b.expiresAt);
 
                     t.update(userRef, {
@@ -175,7 +141,6 @@ export const useAdminKey = async (userId: string, keyString: string): Promise<{ 
             });
         } catch (e: any) { return { success: false, message: e.message }; }
     } else {
-        // Mock Logic
         return { success: true, message: "兌換成功 (Mock)" };
     }
 };
@@ -189,7 +154,6 @@ export const updateUserRole = async (userId: string, newRole: UserRole) => {
 };
 
 export const manualUpdateQuota = async (userId: string, used: number, total: number) => {
-    // Manual override wipes batches and sets a single new batch for simplicity
     const now = Date.now();
     const expiry = now + 365 * 24 * 60 * 60 * 1000;
     const newBatch: QuotaBatch = {
@@ -207,7 +171,6 @@ export const manualUpdateQuota = async (userId: string, used: number, total: num
         quota_batches: [newBatch],
         quota_reset_date: expiry
     });
-    // Mock ignored for brevity
 };
 
 export const toggleUserSuspension = async (userId: string) => {
@@ -221,19 +184,68 @@ export const resetUserQuota = async (userId: string) => {
     if (!isMock) await db.collection('users').doc(userId).update({ quota_used: 0 });
 };
 
+// --- REAL STATS IMPLEMENTATION ---
 export const getDashboardStats = async (): Promise<DashboardStats> => {
-    const users = await getAllUsers();
-    let apiTotal = 0;
+    // Default stats
+    const stats: DashboardStats = { totalUsers: 0, activeUsersToday: 0, totalApiCallsToday: 0, errorCountToday: 0 };
+
     if (!isMock) { 
         try {
+            // 1. Total Users (Approximation from list for now)
+            const usersSnap = await db.collection('users').get();
+            stats.totalUsers = usersSnap.size;
+
+            // 2. Active Users Today (DAU)
+            const startOfDay = new Date();
+            startOfDay.setHours(0,0,0,0);
+            const activeSnap = await db.collection('users').where('last_api_call_timestamp', '>', startOfDay.getTime()).get();
+            stats.activeUsersToday = activeSnap.size;
+
+            // 3. API Usage (From System Stats Doc)
             const doc = await db.collection('system_stats').doc('api_usage').get(); 
-            if (doc.exists) apiTotal = doc.data()?.total_calls || 0; 
-        } catch(e) {}
+            if (doc.exists) stats.totalApiCallsToday = doc.data()?.total_calls || 0; 
+            
+        } catch(e) {
+            console.warn("Stats fetch partial failure", e);
+        }
+    } else {
+        // Mock
+        const users = await getAllUsers();
+        stats.totalUsers = users.length;
+        stats.activeUsersToday = Math.floor(users.length * 0.4);
+        stats.totalApiCallsToday = 342;
     }
-    return { totalUsers: users.length, activeUsersToday: Math.floor(users.length * 0.3), totalApiCallsToday: apiTotal || 128, errorCountToday: 0 };
+    return stats;
 };
 
-export const getSystemLogs = (): LogEntry[] => [];
+// --- REAL LOGS IMPLEMENTATION ---
+export const getSystemLogs = async (): Promise<LogEntry[]> => {
+    if (!isMock) {
+        try {
+            const snap = await db.collection('usage_logs')
+                .orderBy('ts', 'desc')
+                .limit(50)
+                .get();
+                
+            return snap.docs.map((doc: any) => {
+                const data = doc.data();
+                // Map usage_log format to LogEntry format for UI
+                return {
+                    id: doc.id,
+                    timestamp: data.ts,
+                    userEmail: data.uid, // We store uid mostly, in real app we'd map to email
+                    action: data.act,
+                    status: (data.res && data.res.startsWith('Error')) ? 'error' : 'success',
+                    details: `${data.topic || ''} ${data.prmt ? '(' + data.prmt.substring(0,20) + '...)' : ''}`
+                } as LogEntry;
+            });
+        } catch (e) {
+            console.warn("Logs fetch failed", e);
+            return [];
+        }
+    }
+    return [];
+};
 
 export const getSystemConfig = (): SystemConfig => {
     return MockStore.getConfig();
