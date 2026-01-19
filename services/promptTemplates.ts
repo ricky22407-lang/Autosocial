@@ -209,7 +209,16 @@ export const buildDraftPrompt = (
     const strategyPrompt = getStrategyPrompt(settings.brandType);
     
     const referenceMaterials = settings.referenceFiles.map((f, i) => `[Ref ${i+1}]: ${f.content.substring(0, 800)}`).join('\n');
-    const styleInstruction = settings.brandStyleGuide ? `[BRAND STYLE DNA]:\n${settings.brandStyleGuide}` : `[Tone]: ${settings.brandTone}`;
+    
+    // NEW: Use the AI-Generated Brand Style Guide if available, otherwise fallback to simple tone
+    const styleInstruction = settings.brandStyleGuide 
+        ? `[🧬 BRAND STYLE DNA - STRICTLY FOLLOW]:\n${settings.brandStyleGuide}` 
+        : `[Tone]: ${settings.brandTone}`;
+        
+    const competitorContext = settings.competitorUrls && settings.competitorUrls.length > 0
+        ? `[Competitor Reference]: The user admires these brands: ${settings.competitorUrls.join(', ')}. Emulate their high-level vibe (but do not copy exact content).`
+        : '';
+
     const contextPrompt = topicContext ? `\n[News Context]: ${topicContext.title} (${topicContext.url})` : '';
 
     return `
@@ -218,6 +227,7 @@ export const buildDraftPrompt = (
 
     ${referenceMaterials}
     ${styleInstruction}
+    ${competitorContext}
     ${strategyPrompt}
     ${contextPrompt}
 
@@ -260,11 +270,24 @@ export const buildViralPrompt = (
     `;
 };
 
+// NEW: Advanced Brand Tone Analyzer Prompt
 export const buildAnalysisPrompt = (posts: string) => `
-      Analyze these Facebook posts to extract a "Brand Style DNA".
-      Focus on: Sentence Rhythm, Vocabulary, Formatting, Emoji usage.
-      Input: ${posts.substring(0, 8000)}
-      Output: A concise English instruction starting with "Write in a style that is..."
+    Role: Senior Brand Strategist & Linguist (Taiwan Market).
+    Task: Analyze the provided social media posts to extract a distinct "Brand Style DNA".
+    
+    [Input Posts]:
+    "${posts.substring(0, 10000)}"
+
+    [Analysis Goals - BE SPECIFIC]:
+    1. **Sentence Rhythm**: Short & punchy? Long & storytelling?
+    2. **Vocabulary**: Professional jargon? Slang? Warm/Empathic?
+    3. **Formatting Habits**: Do they use newlines for pacing? Do they use specific emojis repeatedly?
+    4. **Opening/Closing**: How do they start/end posts?
+    5. **Attitude**: Humble? Authoritative? Funny?
+
+    [Output Requirement]:
+    Write a concise instruction paragraph (in English) starting with "You are a social media writer who..."
+    It must be actionable for an AI to mimic this specific style.
 `;
 
 export const buildThreadsAnalysisPrompt = (posts: string) => `

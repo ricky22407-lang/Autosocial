@@ -229,8 +229,11 @@ export interface BrandSettings {
   referenceFiles: { name: string; content: string }[];
   fixedHashtags?: string;
   logoUrl?: string;
-  brandStyleGuide?: string;
-  competitorUrls?: string[];
+  
+  // NEW: Advanced Persona Fields
+  brandStyleGuide?: string; // AI generated specific style instructions
+  competitorUrls?: string[]; // List of reference links
+  
   autoReply?: {
     enabled: boolean;
     defaultResponse: string;
