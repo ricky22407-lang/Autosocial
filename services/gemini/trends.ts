@@ -486,8 +486,8 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
     now.setMonth(now.getMonth() - 1);
     const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
 
-    // Multi-Pass Strategy: Execute 3 distinct searches in parallel
-    // This solves the issue of "OR" operators getting diluted or ignored by Google
+    // Multi-Pass Strategy: Execute 3 distinct searches sequentially (NOT parallel)
+    // This prevents Queue ticket loss due to missing Firestore indexes when concurrency is high
     
     // Pass 1: Quality / Issues (Reviews)
     const q1 = `(site:threads.net OR site:dcard.tw OR site:ptt.cc) "${keyword}" (心得 OR 評價 OR 避雷 OR 缺點 OR 後悔) after:${dateStr}`;
@@ -498,14 +498,12 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
     // Pass 3: General / Trending (Broad Fallback)
     const q3 = `(site:threads.net OR site:dcard.tw OR site:ptt.cc) "${keyword}" (推薦 OR 熱門 OR 分享) after:${dateStr}`;
 
-    console.log(`[Opportunity Scout] Launching Multi-Pass Search for: ${keyword}`);
+    console.log(`[Opportunity Scout] Launching Sequential Multi-Pass Search for: ${keyword}`);
 
-    // Execute in parallel
-    const [r1, r2, r3] = await Promise.all([
-        executeSearchQuery(q1, keyword, "Reviews & Issues"),
-        executeSearchQuery(q2, keyword, "Buying Questions"),
-        executeSearchQuery(q3, keyword, "General Discussions")
-    ]);
+    // Sequential Execution
+    const r1 = await executeSearchQuery(q1, keyword, "Reviews & Issues");
+    const r2 = await executeSearchQuery(q2, keyword, "Buying Questions");
+    const r3 = await executeSearchQuery(q3, keyword, "General Discussions");
 
     // Aggregate & Deduplicate
     const allResults = [...r1, ...r2, ...r3];

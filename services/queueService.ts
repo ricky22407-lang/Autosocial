@@ -76,24 +76,42 @@ export const executeWithQueue = async <T>(
                 notifySubscribers();
             };
 
+            // SIMPLIFIED QUERY: Only use 'orderBy' on single field to avoid "Requires Index" error.
+            // Filter 'expiresAt' in memory inside onSnapshot.
             activeListener = db.collection(QUEUE_COLLECTION)
-                .where('expiresAt', '>', Date.now())
-                .orderBy('expiresAt')
                 .orderBy('createdAt', 'asc')
                 .onSnapshot(async (snapshot: any) => {
                     const allDocs = snapshot.docs;
-                    const myIndex = allDocs.findIndex((d: any) => d.id === docRef.id);
+                    const now = Date.now();
+                    
+                    // In-Memory Filtering for Expiry
+                    const validDocs = allDocs.filter((d: any) => {
+                        const data = d.data();
+                        return data.expiresAt > now;
+                    });
+
+                    const myIndex = validDocs.findIndex((d: any) => d.id === docRef.id);
                     
                     if (myIndex === -1) {
+                        // Ticket might be lost or expired, or not yet synced.
+                        // If it was just added, it should be there.
+                        // Wait a bit or fallback.
+                        // For robustness, if we can't find ourselves but we just added it, we assume transient issue.
+                        // But let's fail safe to direct execution if we are "lost" for too long.
+                        // For now, cleanup and fallback.
                         cleanup();
-                        reject(new Error("Queue ticket lost."));
+                        // resolve(apiCall()); // Auto-fallback instead of error
+                        // return;
+                        
+                        // Strict mode:
+                        reject(new Error("Queue ticket lost (Sync Error)."));
                         return;
                     }
 
                     currentQueueState = { 
                         isQueuing: true, 
                         position: myIndex + 1, 
-                        totalWaiting: allDocs.length, 
+                        totalWaiting: validDocs.length, 
                         currentAction: actionName 
                     };
                     notifySubscribers();
@@ -113,7 +131,6 @@ export const executeWithQueue = async <T>(
                     // Check for Index Error specifically
                     if (error.message.includes('requires an index')) {
                         console.warn("[Queue System] Index missing. Bypassing queue to keep app running.");
-                        // console.debug("Click this link to create index:", error.message); // Hidden to clean console
                     } else {
                         console.error("[Queue System] Listener Error:", error);
                     }
