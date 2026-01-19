@@ -397,12 +397,26 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
 };
 
 // --- Opportunity Scout Implementation (OSINT STRATEGY) ---
+
+// Smart Link Patcher to fix hallucinations
+const patchUrl = (item: any, validLinks: string[]): string => {
+    // 1. If we have a direct exact match in metadata, it's valid.
+    if (validLinks.includes(item.url)) return item.url;
+
+    // 2. Try to fuzzy match based on domain and ID if possible
+    // (AI often gets the domain right but messes up the ID or query params)
+    // For Threads, if metadata has a link, prefer it.
+    // Since we can't reliably fuzzy match IDs, we prioritize the fallback search
+    // unless we find a metadata link that is VERY likely the one.
+    
+    // 3. Fallback: Google Search Intent
+    // This guarantees the link "works" by sending user to search results of that post content.
+    const query = `site:threads.net/t/ OR site:dcard.tw/f/ "${item.title || item.content.substring(0, 20)}"`;
+    return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+};
+
 export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
     // OSINT Google Dorking Strategy:
-    // Expanded buying intent keywords:
-    // 1. Direct Intent: 哪裡買, 團購
-    // 2. Consideration: 求推薦, 請益, 好用嗎, 挑選, 比較, vs, 評價
-    // 3. Problem/Pain Point: 避雷, 缺點, 滅火
     const intentKeywords = `("求推薦" OR "請益" OR "好用嗎" OR "哪裡買" OR "挑選" OR "比較" OR "vs" OR "評價" OR "避雷" OR "缺點" OR "團購")`;
     
     const dorkQuery = `site:threads.net/t/ OR site:dcard.tw/f/ "${keyword}" ${intentKeywords}`;
@@ -422,8 +436,9 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
     [Output Schema]
     Return a JSON Array (OpportunityPost[]):
     [{
+      "title": "Short Title or First Sentence of the post",
       "content": "Snippet of the user's post (max 100 chars)",
-      "url": "Direct URL to the post",
+      "url": "Direct URL to the post (Must match grounded source)",
       "username": "Extract from URL or Title (e.g. @user123)",
       "reasoning": "Why is this a lead? (e.g. User asking for budget options, Comparing A vs B)",
       "intentScore": Integer 1-10 (10 = Ready to buy),
@@ -444,10 +459,22 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
             }
         });
 
+        // 1. Extract Valid Grounding Links (The Real Truth)
+        // These are the actual URLs Google Search found.
+        const validLinks = response.groundingMetadata?.groundingChunks
+            ?.map((chunk: any) => chunk.web?.uri)
+            .filter((uri: string) => uri && (uri.includes('threads.net/t/') || uri.includes('dcard.tw/f/'))) || [];
+
         const jsonStr = cleanJsonText(response.text || '[]');
         const data = JSON.parse(jsonStr);
         
-        if (Array.isArray(data)) return data;
+        if (Array.isArray(data)) {
+            // 2. Patch URLs
+            return data.map((item: any) => ({
+                ...item,
+                url: patchUrl(item, validLinks)
+            }));
+        }
         return [];
     } catch (e) {
         console.error("Opportunity Scout Error:", e);

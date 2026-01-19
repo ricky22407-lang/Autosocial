@@ -53,7 +53,7 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
     };
 
     // Helper: Determine if the URL is a direct link or a search fallback
-    const isSearchFallback = (url: string) => url.includes('/search?q=') || url.includes('google.com');
+    const isSearchFallback = (url: string) => url.includes('google.com/search');
 
     return (
         <div className="space-y-6">
@@ -149,9 +149,14 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
                                 href={post.url} 
                                 target="_blank" 
                                 rel="noreferrer"
-                                className="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-3 rounded-lg transition-all flex items-center justify-center gap-2 border border-gray-600 hover:border-white/50 group text-xs"
+                                className={`w-full font-bold py-3 rounded-lg transition-all flex items-center justify-center gap-2 border group text-xs ${
+                                    isSearchFallback(post.url)
+                                    ? 'bg-blue-900/30 text-blue-300 border-blue-800 hover:bg-blue-900/50'
+                                    : 'bg-gray-800 hover:bg-gray-700 text-white border-gray-600 hover:border-white/50'
+                                }`}
                             >
-                                <span>↗</span> {isSearchFallback(post.url) ? '前往搜尋結果頁' : '前往原始貼文'}
+                                <span>{isSearchFallback(post.url) ? '🔍' : '↗'}</span> 
+                                {isSearchFallback(post.url) ? '前往搜尋結果 (備援連結)' : '前往原始貼文'}
                             </a>
                         </div>
                     </div>
