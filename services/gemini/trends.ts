@@ -408,33 +408,27 @@ const patchUrl = (item: any, validLinks: string[]): string => {
     return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
 };
 
-export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
-    // UPDATED Intent Logic: More conversational, less strict to catch more results
-    const intentKeywords = `("推薦" OR "請益" OR "好用嗎" OR "評價" OR "避雷" OR "缺點" OR "比較" OR "哪裡買")`;
-    
-    // Construct Query: Product + (Intent Group)
-    const dorkQuery = `site:threads.net OR site:dcard.tw "${keyword}" ${intentKeywords}`;
-    
+const executeSearchQuery = async (query: string, keyword: string, strict: boolean) => {
     const prompt = `
-    Role: Commercial Opportunity Hunter.
-    Task: Search specifically for recent user discussions about "${keyword}" on Threads and Dcard that show **Purchase Intent** or **Evaluation**.
+    Role: Commercial Opportunity Hunter (Taiwan).
+    Task: Find recent real user discussions on Threads/Dcard matching the query.
     
-    [SEARCH STRATEGY]
-    Use the Google Search tool to execute: ${dorkQuery}
+    [SEARCH QUERY]
+    ${query}
 
-    [FILTERING RULES - STRICT]
-    1. **Ignore** news articles, official brand accounts, or ads.
-    2. **Focus** on real users asking: "Which is better?", "Is X good?", "Recommendation for...", "Cons of X".
-    3. If direct matches are few, look for posts discussing "problems" that "${keyword}" can solve.
+    [FILTERING RULES]
+    1. Focus on real users (not news/brands).
+    2. Looking for: Reviews (心得), Questions (請益), Recommendations (推薦), Complaints (避雷).
+    3. If strict mode is ON, ensure high buying intent. If OFF, find general engagement.
 
     [Output Schema]
     Return a JSON Array (OpportunityPost[]):
     [{
-      "title": "Post Title or First Sentence",
-      "content": "Snippet of the user's post (max 80 chars)",
-      "url": "Direct URL (Must be threads.net or dcard.tw)",
-      "username": "Extract username if possible, else 'Unknown'",
-      "reasoning": "Why this is a lead? (e.g. Asking for budget options)",
+      "title": "Post Title or Topic",
+      "content": "Snippet of user opinion (max 80 chars)",
+      "url": "Direct URL (threads.net or dcard.tw)",
+      "username": "Author ID (e.g. user123) or 'Unknown'",
+      "reasoning": "Intent type (e.g. Asking for price, Reviewing product)",
       "intentScore": Integer 1-10 (10 = Ready to buy),
       "replyCount": "Estimate or 'Unknown'",
       "likeCount": "Estimate or 'Unknown'"
@@ -449,11 +443,9 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
             contents: prompt,
             config: { 
                 tools: [{ googleSearch: {} }]
-                // responseMimeType NOT supported with tools
             }
         });
 
-        // 1. Extract Valid Grounding Links (The Real Truth)
         const validLinks = response.groundingMetadata?.groundingChunks
             ?.map((chunk: any) => chunk.web?.uri)
             .filter((uri: string) => uri && (uri.includes('threads.net') || uri.includes('dcard.tw'))) || [];
@@ -462,7 +454,6 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
         const data = JSON.parse(jsonStr);
         
         if (Array.isArray(data)) {
-            // 2. Patch URLs
             return data.map((item: any) => ({
                 ...item,
                 url: patchUrl(item, validLinks)
@@ -470,7 +461,26 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
         }
         return [];
     } catch (e) {
-        console.error("Opportunity Scout Error:", e);
+        console.error("Search execution failed", e);
         return [];
     }
+};
+
+export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
+    // Strategy: Double Tap
+    // 1. Try Specific Intent Search (Natural Language)
+    // 2. If empty, Fallback to Broad Search (Keyword only)
+    
+    // Natural Language Query is better for Gemini Grounding
+    const intentQuery = `Threads 或 Dcard 上關於「${keyword}」的網友討論，包含推薦、評價、避雷、好用嗎`;
+    
+    let results = await executeSearchQuery(intentQuery, keyword, true);
+    
+    if (results.length === 0) {
+        console.log("Strict search yielded 0 results. Retrying with broad query...");
+        const broadQuery = `Threads 或 Dcard 上關於「${keyword}」的最新熱門文章`;
+        results = await executeSearchQuery(broadQuery, keyword, false);
+    }
+
+    return results;
 };

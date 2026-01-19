@@ -40,7 +40,7 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
         setResults([]);
         
         // Show user what's happening under the hood (OSINT logic)
-        setDebugQuery(`site:threads.net "${keyword}" (推薦 OR 好用 OR 評價 OR 避雷...)`);
+        setDebugQuery(`自動搜尋：關於「${keyword}」的推薦/評價/避雷討論...`);
         
         try {
             const leads = await findThreadsOpportunities(keyword);
@@ -95,7 +95,7 @@ const OpportunityScout: React.FC<Props> = ({ accounts, user, onQuotaUpdate }) =>
                 
                 {isSearching && (
                     <div className="mt-4 p-3 bg-black/30 rounded border border-gray-700 text-xs font-mono text-green-400 animate-pulse">
-                        &gt; Executing OSINT Dork: {debugQuery}...
+                        &gt; {debugQuery}
                     </div>
                 )}
 
