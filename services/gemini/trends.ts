@@ -173,14 +173,16 @@ export const getMarketData = async (category: StockCategory = "general"): Promis
                     4. Url: If you find the direct link, use it. If not, leave empty.
                     
                     Output JSON: [{ "title": "Exact Post Title", "source": "Dcard" | "PTT", "url": "..." }]
+                    
+                    IMPORTANT: Output ONLY the raw JSON string. Do not use Markdown code blocks.
                     `;
                     
                     const response = await callBackend('generateContent', {
                         model: 'gemini-2.5-flash',
                         contents: prompt,
                         config: { 
-                            tools: [{ googleSearch: {} }],
-                            responseMimeType: "application/json"
+                            tools: [{ googleSearch: {} }]
+                            // responseMimeType NOT supported with tools
                         }
                     });
                     
@@ -428,6 +430,8 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
       "replyCount": "Estimate (e.g. '10+') or 'Unknown'",
       "likeCount": "Estimate or 'Unknown'"
     }]
+
+    IMPORTANT: Output ONLY the raw JSON string. Do not use Markdown code blocks.
     `;
 
     try {
@@ -435,8 +439,8 @@ export const findThreadsOpportunities = async (keyword: string): Promise<Opportu
             model: "gemini-2.5-flash",
             contents: prompt,
             config: { 
-                tools: [{ googleSearch: {} }],
-                responseMimeType: "application/json"
+                tools: [{ googleSearch: {} }]
+                // responseMimeType NOT supported with tools
             }
         });
 
