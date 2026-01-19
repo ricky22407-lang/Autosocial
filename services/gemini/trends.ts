@@ -405,8 +405,8 @@ const patchUrl = (item: any, validLinks: string[]): string => {
 
     // 2. Fallback: Create a clean, clickable Google Search URL
     // Remove " - Dcard", " - 看板...", etc. to avoid messy search results
+    // Example: "#分享避雷空姐噴霧- 美妝板 - Dcard" -> "#分享避雷空姐噴霧"
     let cleanTitle = (item.title || item.content || '').trim();
-    // Remove site suffixes like " - Dcard", " - PTT", " - Threads"
     cleanTitle = cleanTitle.replace(/\s-\s(Dcard|PTT|看板|Threads|美妝|閒聊).*$/i, '');
     
     const siteKeyword = item.url?.includes('threads') ? 'site:threads.net' : 
