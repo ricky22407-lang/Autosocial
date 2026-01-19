@@ -398,37 +398,51 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
 
 // --- Opportunity Scout Implementation (OSINT STRATEGY) ---
 
-// Smart Link Patcher to fix hallucinations
+// Smart Link Patcher to fix hallucinations and suffix issues
 const patchUrl = (item: any, validLinks: string[]): string => {
     // 1. If we have a direct exact match in metadata, it's valid.
-    if (validLinks.includes(item.url)) return item.url;
+    if (item.url && validLinks.includes(item.url)) return item.url;
 
-    // 2. Fallback: Google Search Intent
-    const query = `site:threads.net/t/ OR site:dcard.tw/f/ "${item.title || item.content.substring(0, 20)}"`;
+    // 2. Fallback: Create a clean, clickable Google Search URL
+    // Remove " - Dcard", " - 看板...", etc. to avoid messy search results
+    let cleanTitle = (item.title || item.content || '').trim();
+    // Remove site suffixes like " - Dcard", " - PTT", " - Threads"
+    cleanTitle = cleanTitle.replace(/\s-\s(Dcard|PTT|看板|Threads|美妝|閒聊).*$/i, '');
+    
+    const siteKeyword = item.url?.includes('threads') ? 'site:threads.net' : 
+                       item.url?.includes('dcard') ? 'site:dcard.tw' : 
+                       item.url?.includes('ptt') ? 'site:ptt.cc' : '';
+                       
+    // Encode properly
+    const query = `${siteKeyword} ${cleanTitle}`.trim();
     return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
 };
 
-const executeSearchQuery = async (query: string, keyword: string, strict: boolean) => {
+const executeSearchQuery = async (query: string, keyword: string, intentContext: string) => {
+    // Note: 'intentContext' describes what we are looking for (e.g. "reviews")
     const prompt = `
     Role: Commercial Opportunity Hunter (Taiwan).
-    Task: Find recent real user discussions on Threads/Dcard matching the query.
+    Task: Find recent real user discussions on Threads, Dcard, and PTT matching the query.
+    Context: We are looking for "${intentContext}" regarding "${keyword}".
     
     [SEARCH QUERY]
     ${query}
 
     [FILTERING RULES]
-    1. Focus on real users (not news/brands).
-    2. Looking for: Reviews (心得), Questions (請益), Recommendations (推薦), Complaints (避雷).
-    3. If strict mode is ON, ensure high buying intent. If OFF, find general engagement.
+    1. **Timeframe**: Focus on results from the last 1 month.
+    2. **Relevance**: Ignore official news, brand ads, or bot posts. We need REAL HUMAN discussions.
+    3. **Content Extraction**: 
+       - Title: Keep it clean (remove " - Dcard" etc).
+       - Content: Extract the sentence showing the buying intent or opinion.
 
     [Output Schema]
     Return a JSON Array (OpportunityPost[]):
     [{
-      "title": "Post Title or Topic",
-      "content": "Snippet of user opinion (max 80 chars)",
-      "url": "Direct URL (threads.net or dcard.tw)",
-      "username": "Author ID (e.g. user123) or 'Unknown'",
-      "reasoning": "Intent type (e.g. Asking for price, Reviewing product)",
+      "title": "Clean Post Title",
+      "content": "Key snippet or summary (max 80 chars)",
+      "url": "Direct URL if found, otherwise empty",
+      "username": "Author ID if visible, else 'Unknown'",
+      "reasoning": "Why fits '${intentContext}'?",
       "intentScore": Integer 1-10 (10 = Ready to buy),
       "replyCount": "Estimate or 'Unknown'",
       "likeCount": "Estimate or 'Unknown'"
@@ -448,7 +462,7 @@ const executeSearchQuery = async (query: string, keyword: string, strict: boolea
 
         const validLinks = response.groundingMetadata?.groundingChunks
             ?.map((chunk: any) => chunk.web?.uri)
-            .filter((uri: string) => uri && (uri.includes('threads.net') || uri.includes('dcard.tw'))) || [];
+            .filter((uri: string) => uri && (uri.includes('threads.net') || uri.includes('dcard.tw') || uri.includes('ptt.cc'))) || [];
 
         const jsonStr = cleanJsonText(response.text || '[]');
         const data = JSON.parse(jsonStr);
@@ -461,26 +475,62 @@ const executeSearchQuery = async (query: string, keyword: string, strict: boolea
         }
         return [];
     } catch (e) {
-        console.error("Search execution failed", e);
+        console.error("Search execution failed for query:", query, e);
         return [];
     }
 };
 
 export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
-    // Strategy: Double Tap
-    // 1. Try Specific Intent Search (Natural Language)
-    // 2. If empty, Fallback to Broad Search (Keyword only)
-    
-    // Natural Language Query is better for Gemini Grounding
-    const intentQuery = `Threads 或 Dcard 上關於「${keyword}」的網友討論，包含推薦、評價、避雷、好用嗎`;
-    
-    let results = await executeSearchQuery(intentQuery, keyword, true);
-    
-    if (results.length === 0) {
-        console.log("Strict search yielded 0 results. Retrying with broad query...");
-        const broadQuery = `Threads 或 Dcard 上關於「${keyword}」的最新熱門文章`;
-        results = await executeSearchQuery(broadQuery, keyword, false);
-    }
+    // Calculate Date for "Last Month"
+    const now = new Date();
+    now.setMonth(now.getMonth() - 1);
+    const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
 
-    return results;
+    // Multi-Pass Strategy: Execute 3 distinct searches in parallel
+    // This solves the issue of "OR" operators getting diluted or ignored by Google
+    
+    // Pass 1: Quality / Issues (Reviews)
+    const q1 = `(site:threads.net OR site:dcard.tw OR site:ptt.cc) "${keyword}" (心得 OR 評價 OR 避雷 OR 缺點 OR 後悔) after:${dateStr}`;
+    
+    // Pass 2: Decision Making (Questions)
+    const q2 = `(site:threads.net OR site:dcard.tw OR site:ptt.cc) "${keyword}" (請益 OR 選手 OR 比較 OR 哪裡買 OR 好用嗎) after:${dateStr}`;
+    
+    // Pass 3: General / Trending (Broad Fallback)
+    const q3 = `(site:threads.net OR site:dcard.tw OR site:ptt.cc) "${keyword}" (推薦 OR 熱門 OR 分享) after:${dateStr}`;
+
+    console.log(`[Opportunity Scout] Launching Multi-Pass Search for: ${keyword}`);
+
+    // Execute in parallel
+    const [r1, r2, r3] = await Promise.all([
+        executeSearchQuery(q1, keyword, "Reviews & Issues"),
+        executeSearchQuery(q2, keyword, "Buying Questions"),
+        executeSearchQuery(q3, keyword, "General Discussions")
+    ]);
+
+    // Aggregate & Deduplicate
+    const allResults = [...r1, ...r2, ...r3];
+    const uniqueMap = new Map();
+    
+    allResults.forEach(item => {
+        // Create a unique key based on URL or Title (if URL missing)
+        // Normalize URL to avoid duplicates like http vs https or params
+        let key = item.url;
+        if (key.includes('google.com/search')) {
+            // If fallback URL, dedup by title
+            key = item.title; 
+        }
+        
+        if (!uniqueMap.has(key)) {
+            uniqueMap.set(key, item);
+        } else {
+            // Keep the one with higher intent score if duplicate found
+            const existing = uniqueMap.get(key);
+            if (item.intentScore > existing.intentScore) {
+                uniqueMap.set(key, item);
+            }
+        }
+    });
+
+    // Sort by Intent Score
+    return Array.from(uniqueMap.values()).sort((a, b) => b.intentScore - a.intentScore);
 };
