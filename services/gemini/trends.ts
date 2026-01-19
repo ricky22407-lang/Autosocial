@@ -394,33 +394,39 @@ export const getTrendingTopics = async (industry: string = "台灣熱門時事",
     }));
 };
 
-// --- Opportunity Scout Implementation ---
+// --- Opportunity Scout Implementation (OSINT STRATEGY) ---
 export const findThreadsOpportunities = async (keyword: string): Promise<OpportunityPost[]> => {
-    const prompt = `
-    Role: Commercial Intent Scout.
-    Task: Search for public social media posts (Threads, Dcard, PTT) related to "${keyword}" where users are expressing explicit **Commercial Intent**.
+    // OSINT Google Dorking Strategy:
+    // Expanded buying intent keywords:
+    // 1. Direct Intent: 哪裡買, 團購
+    // 2. Consideration: 求推薦, 請益, 好用嗎, 挑選, 比較, vs, 評價
+    // 3. Problem/Pain Point: 避雷, 缺點, 滅火
+    const intentKeywords = `("求推薦" OR "請益" OR "好用嗎" OR "哪裡買" OR "挑選" OR "比較" OR "vs" OR "評價" OR "避雷" OR "缺點" OR "團購")`;
     
-    [Definition of Commercial Intent]
-    - Asking for product recommendations ("求推薦", "好用嗎").
-    - Comparing options ("A vs B", "怎麼選").
-    - Complaining about current solution (Pain points).
-    - Expressing a wish/need ("好想要", "找好久").
+    const dorkQuery = `site:threads.net/t/ OR site:dcard.tw/f/ "${keyword}" ${intentKeywords}`;
+    
+    const prompt = `
+    Role: Commercial Intent Scout (OSINT Expert).
+    Task: Use the provided search results to find real user posts expressing **Buying Intent** or **Pain Points** about "${keyword}".
+    
+    [SEARCH QUERY TO EXECUTE]:
+    ${dorkQuery}
 
     [Constraints]
-    - Region: Taiwan (Traditional Chinese).
-    - Source: Prioritize site:threads.net.
-    - Exclude: News, Official Brand Accounts, Ads.
+    1. **Strictly filter for user discussions**: Ignore news articles, brand official pages, or generic SEO blogs.
+    2. **Intent Check**: The post MUST contain questions like "Which is better?", "Is X good?", "Recommendation needed", "Comparison".
+    3. **Data Extraction**: Extract the raw snippet text, the URL, and estimate engagement if possible.
 
     [Output Schema]
     Return a JSON Array (OpportunityPost[]):
     [{
-      "content": "Snippet of the user's post (max 80 chars)",
-      "url": "URL to the post",
-      "username": "Author ID (if available, else 'Unknown')",
-      "reasoning": "Brief analysis of why this is a lead",
+      "content": "Snippet of the user's post (max 100 chars)",
+      "url": "Direct URL to the post",
+      "username": "Extract from URL or Title (e.g. @user123)",
+      "reasoning": "Why is this a lead? (e.g. User asking for budget options, Comparing A vs B)",
       "intentScore": Integer 1-10 (10 = Ready to buy),
-      "replyCount": "Estimate (e.g. '12')",
-      "likeCount": "Estimate (e.g. '50')"
+      "replyCount": "Estimate (e.g. '10+') or 'Unknown'",
+      "likeCount": "Estimate or 'Unknown'"
     }]
     `;
 
