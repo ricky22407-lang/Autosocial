@@ -5,6 +5,7 @@ import { getTrendingTopics, generatePostDraft, generateImage, applyWatermark, ge
 import { publishPostToFacebook } from '../../../services/facebookService';
 import { checkAndUseQuota } from '../../../services/authService';
 import { useAuth } from '../../../context/AuthContext';
+import { shuffleArray } from '../../../services/gemini/core'; 
 
 export interface PostGeneratorState {
     step: 1 | 2;
@@ -34,7 +35,7 @@ export interface PostGeneratorState {
         result: { success: boolean; msg: string } | null;
     };
     trends: {
-        data: TrendingTopic[];
+        data: TrendingTopic[]; // Currently visible batch
         loading: boolean;
     };
 }
@@ -44,7 +45,8 @@ export const usePostGenerator = (
     onPostCreated: (post: Post) => void,
     onQuotaUpdate: () => void,
     editPost?: Post | null,
-    initialTopic?: string
+    initialTopic?: string,
+    initialSourceUrl?: string
 ) => {
     const { userProfile } = useAuth();
 
@@ -52,9 +54,12 @@ export const usePostGenerator = (
     const [step, setStep] = useState<1 | 2>(1);
     const [topic, setTopic] = useState('');
     const [mode, setMode] = useState<'brand' | 'viral'>('brand');
+    const [sourceUrl, setSourceUrl] = useState(''); 
     
-    // Trend State
-    const [trendingTopics, setTrendingTopics] = useState<TrendingTopic[]>([]);
+    // Trend Logic: Pooling & Pagination
+    const [allTrends, setAllTrends] = useState<TrendingTopic[]>([]); // The Big Pool (Cache)
+    const [visibleTrends, setVisibleTrends] = useState<TrendingTopic[]>([]); // The Visible Batch
+    const [seenTrendIds, setSeenTrendIds] = useState<Set<string>>(new Set()); // Track what we've shown
     const [isLoadingTrends, setIsLoadingTrends] = useState(false);
 
     // Draft State
@@ -94,9 +99,10 @@ export const usePostGenerator = (
             setSyncInstagram(!!editPost.syncInstagram);
         } else if (initialTopic) {
             setTopic(initialTopic);
+            if (initialSourceUrl) setSourceUrl(initialSourceUrl);
             setStep(1);
         }
-    }, [editPost, initialTopic]);
+    }, [editPost, initialTopic, initialSourceUrl]);
 
     // 2. Smart Layout Auto-fill
     useEffect(() => {
@@ -109,22 +115,78 @@ export const usePostGenerator = (
 
     // --- Actions ---
 
-    const loadTrends = async () => {
+    // SMART LOAD TRENDS
+    const loadTrends = async (manualRefresh: boolean = false) => {
         if (!userProfile) return alert("請先登入");
         
+        setIsLoadingTrends(true);
+        const BATCH_SIZE = 6; // Show 6 items at a time
+
+        // 1. Try to fetch from local pool first
+        if (manualRefresh && allTrends.length > 0) {
+            // Filter out items we've already seen in this session
+            const unseen = allTrends.filter(t => !seenTrendIds.has(t.title));
+            
+            if (unseen.length >= BATCH_SIZE) {
+                // We have enough unseen items in cache! Use them.
+                const nextBatch = shuffleArray(unseen).slice(0, BATCH_SIZE);
+                setVisibleTrends(nextBatch);
+                
+                // Mark as seen
+                setSeenTrendIds(prev => {
+                    const next = new Set(prev);
+                    nextBatch.forEach((t: TrendingTopic) => next.add(t.title));
+                    return next;
+                });
+                
+                // Add fake delay for better UX (so user sees "refresh" happening)
+                await new Promise(r => setTimeout(r, 600));
+                setIsLoadingTrends(false);
+                return;
+            } else {
+                // Pool exhausted! We need to fetch fresh data from API.
+                console.log("Trend Pool Exhausted. Fetching fresh data from API...");
+            }
+        }
+
+        // 2. Fetch from Backend (Quota Charge)
         const COST = 3; 
         const allowed = await checkAndUseQuota(userProfile.user_id, COST, 'TREND_SEARCH'); 
-        if (!allowed) return; 
+        if (!allowed) {
+            setIsLoadingTrends(false);
+            return; 
+        }
         
         onQuotaUpdate();
-        setIsLoadingTrends(true);
+        
         try {
-            const query = topic.trim() || settings.industry || '台灣熱門話題';
-            const trends = await getTrendingTopics(query);
-            setTrendingTopics(trends);
-            if(topic.trim()) alert(`已為您搜尋關於「${query}」的熱門話題！(扣除 ${COST} 點)`);
-        } catch (e) { console.error(e); }
-        finally { setIsLoadingTrends(false); }
+            const query = topic.trim() || settings.industry || '台灣熱門時事';
+            
+            // forceRefresh=true ensures backend fetches new data from Google/RSS
+            // We request a large pool (e.g., 50)
+            const freshTrends = await getTrendingTopics(query, 50, true);
+            
+            if (freshTrends.length > 0) {
+                const shuffled = shuffleArray(freshTrends);
+                const firstBatch = shuffled.slice(0, BATCH_SIZE);
+                
+                setAllTrends(shuffled);
+                setVisibleTrends(firstBatch);
+                
+                // Reset seen tracking for new pool
+                const newSeen = new Set<string>();
+                firstBatch.forEach(t => newSeen.add(t.title));
+                setSeenTrendIds(newSeen);
+
+                if (manualRefresh && topic.trim()) {
+                    alert(`已為您搜尋關於「${query}」的最新話題！(扣除 ${COST} 點)`);
+                }
+            }
+        } catch (e) { 
+            console.error(e); 
+        } finally { 
+            setIsLoadingTrends(false); 
+        }
     };
 
     const generateDraft = async () => {
@@ -287,11 +349,12 @@ export const usePostGenerator = (
     };
 
     return {
-        // State
         step, setStep,
         topic, setTopic,
         mode, setMode,
-        trends: { data: trendingTopics, loading: isLoadingTrends, load: loadTrends },
+        sourceUrl, setSourceUrl,
+        // Pass visible trends to UI
+        trends: { data: visibleTrends, loading: isLoadingTrends, load: loadTrends },
         draft: { data: draft, setData: setDraft, isGenerating: isGeneratingDraft, generate: generateDraft },
         image: {
             intent: imageIntent, setIntent: setImageIntent,

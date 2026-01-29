@@ -234,14 +234,18 @@ export const buildDraftPrompt = (
     [Drafting Instructions]
     1. **No Robot-Speak**: Avoid "In today's digital age".
     2. **Hook**: Start immediately. No "Hello everyone".
-    3. **Formatting**: Use clean paragraphs. **STRICTLY NO MARKDOWN SYMBOLS** (No **bold**, No ## headers). Facebook does not support markdown.
+    3. **Formatting (CRITICAL)**: 
+       - Use clean paragraphs. 
+       - **MUST use double line breaks (\n\n)** between paragraphs to ensure readability on mobile. 
+       - Do not clump text together.
+       - **STRICTLY NO MARKDOWN SYMBOLS** (No **bold**, No ## headers). Facebook does not support markdown.
     4. **Length**: ${options.length}.
     5. **Hashtags**: Put at the very end: ${settings.fixedHashtags} ${options.tempHashtags}
     6. **CTA**: ${ctaPrompt}
 
     Output JSON Format (Do NOT generate image prompts here):
     {
-      "caption": "The full post text (Traditional Chinese, Taiwan phrasing, emojis included). No **bold** syntax.",
+      "caption": "The full post text (Traditional Chinese, Taiwan phrasing, emojis included). Use \\n\\n for paragraphs.",
       "ctaText": "Standalone CTA text"
     }
     `;
@@ -260,8 +264,8 @@ export const buildViralPrompt = (
     [🔥 STRATEGY: XIAOHONGSHU FORMULA]
     1. **Hook**: "Regret", "Warning", or "Shocking". Use brackets 【...】.
     2. **Vibe**: "Bestie talk". Use keywords: "真的絕了", "寶藏", "避雷".
-    3. **Format**: Group sentences. Use emojis as bullets.
-    4. **Formatting**: NO Markdown **bold** or ## headers. Pure text only.
+    3. **Format**: Group sentences. Use emojis as bullets. Use line breaks liberally.
+    4. **Formatting**: NO Markdown **bold** or ## headers. Pure text only. Use \\n\\n between sections.
 
     Output JSON Schema (Text only):
     {
@@ -270,7 +274,7 @@ export const buildViralPrompt = (
     `;
 };
 
-// NEW: Advanced Brand Tone Analyzer Prompt
+// ... (Rest of the file remains unchanged)
 export const buildAnalysisPrompt = (posts: string) => `
     Role: Senior Brand Strategist & Linguist (Taiwan Market).
     Task: Analyze the provided social media posts to extract a distinct "Brand Style DNA".

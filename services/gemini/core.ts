@@ -1,4 +1,3 @@
-
 import { db, firebase, isMock } from '../firebase';
 import { executeWithQueue } from '../queueService';
 
@@ -13,7 +12,8 @@ export const Type = {
   OBJECT: 'OBJECT'
 };
 
-const CACHE_TTL = 12 * 60 * 60 * 1000; // 12 Hours Cache
+// UPDATED: Cache lives for at most 24 Hours (User Requirement)
+const CACHE_TTL = 24 * 60 * 60 * 1000; 
 
 // #region Helper Utilities
 
@@ -24,6 +24,7 @@ export const cleanJsonText = (text: string): string => {
 /**
  * Removes Markdown formatting that Facebook/Instagram/Threads don't support.
  * e.g., "**Bold**" -> "Bold", "## Title" -> "Title"
+ * STRICTLY preserves newlines for paragraph readability.
  */
 export const cleanSocialMediaText = (text: string): string => {
     if (!text) return "";
@@ -37,7 +38,10 @@ export const cleanSocialMediaText = (text: string): string => {
     clean = clean.replace(/^#+\s+/gm, '');
     
     // 3. Fix Escaped Newlines (literal "\n" to real newline)
-    clean = clean.replace(/\\n/g, '\n');
+    clean = clean.split('\\n').join('\n');
+    
+    // 4. Ensure Paragraphs (Ensure max 2 newlines to prevent huge gaps)
+    clean = clean.replace(/\n{3,}/g, '\n\n');
     
     return clean.trim();
 };
@@ -49,14 +53,20 @@ export const decodeHtml = (html: string): string => {
 };
 
 export const shuffleArray = <T>(array: T[]): T[] => {
-    let currentIndex = array.length,  randomIndex;
+    const newArray = [...array];
+    let currentIndex = newArray.length, randomIndex;
     while (currentIndex !== 0) {
       randomIndex = Math.floor(Math.random() * currentIndex);
       currentIndex--;
-      [array[currentIndex], array[randomIndex]] = [
-        array[randomIndex], array[currentIndex]];
+      [newArray[currentIndex], newArray[randomIndex]] = [
+        newArray[randomIndex], newArray[currentIndex]];
     }
-    return array;
+    return newArray;
+};
+
+export const generateTopicId = (title: string): string => {
+    const hash = Math.abs(title.split('').reduce((a,b)=>{a=((a<<5)-a)+b.charCodeAt(0);return a&a},0));
+    return `trend_${hash}`;
 };
 
 // #region System Cache
@@ -79,6 +89,7 @@ export const getSystemCache = async (key: string) => {
         const doc = await db.collection('system_cache').doc(key).get();
         if (doc.exists) {
             const data = doc.data();
+            // Check Expiry
             if (data.expiry > Date.now()) {
                 return JSON.parse(data.content);
             }
@@ -114,7 +125,6 @@ export const callBackend = async (action: string, payload: any) => {
     
     return executeWithQueue(action, async () => {
         const controller = new AbortController();
-        // TIMEOUT EXTENDED: 300s (5 minutes) for Gemini 3 Pro Reasoning + Search
         const timeoutId = setTimeout(() => controller.abort(), 300000); 
 
         try {
@@ -134,7 +144,6 @@ export const callBackend = async (action: string, payload: any) => {
                     if (err.error) errorMsg = err.error;
                 } catch (e) {}
                 
-                // Retry logic for 504 Gateway Timeout (Vercel Hard Limit)
                 if (res.status === 504) {
                     throw new Error("伺服器運算逾時 (Vercel 504)。請縮小搜尋範圍或稍後再試。");
                 }

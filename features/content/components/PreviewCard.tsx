@@ -11,15 +11,23 @@ interface Props {
     clearResult: () => void;
     scheduledPostsCount: number;
     limit: number;
+    sourceUrl?: string; // New Prop
 }
 
 export const PreviewCard: React.FC<Props> = ({ 
     caption, imageUrl, 
     scheduleDate, setScheduleDate, 
     onPublish, publishResult, clearResult,
-    scheduledPostsCount, limit 
+    scheduledPostsCount, limit,
+    sourceUrl
 }) => {
     const isLimitReached = scheduledPostsCount >= limit;
+
+    const handleCopySource = () => {
+        if (!sourceUrl) return;
+        navigator.clipboard.writeText(sourceUrl);
+        alert("已複製參考連結！\n您可以在發文後貼到留言區。");
+    };
 
     return (
         <div className="space-y-6">
@@ -50,6 +58,17 @@ export const PreviewCard: React.FC<Props> = ({
                         </div>
                     </div>
                 </div>
+
+                {sourceUrl && (
+                    <div className="mt-4 flex justify-center">
+                        <button 
+                            onClick={handleCopySource}
+                            className="text-xs text-blue-400 hover:text-white border border-blue-500/30 px-3 py-1.5 rounded-full flex items-center gap-2 transition-all hover:bg-blue-600/20"
+                        >
+                            🔗 複製參考來源連結
+                        </button>
+                    </div>
+                )}
 
                 {publishResult ? (
                     <div className={`mt-8 p-5 rounded-2xl text-center font-bold border transition-all ${publishResult.success ? 'bg-green-500/20 text-green-400 border-green-500/50' : 'bg-red-500/20 text-red-400 border-red-500/50'}`}>

@@ -14,6 +14,7 @@ interface Props {
   onCancel?: () => void;
   scheduledPostsCount?: number;
   initialTopic?: string; 
+  initialSourceUrl?: string; // New
 }
 
 const LoadingOverlay: React.FC<{ message: string, subMessage?: string }> = ({ message, subMessage }) => (
@@ -24,15 +25,16 @@ const LoadingOverlay: React.FC<{ message: string, subMessage?: string }> = ({ me
     </div>
 );
 
-export const PostCreator: React.FC<Props> = ({ settings, onPostCreated, editPost, onCancel, scheduledPostsCount = 0, initialTopic }) => {
+export const PostCreator: React.FC<Props> = ({ settings, onPostCreated, editPost, onCancel, scheduledPostsCount = 0, initialTopic, initialSourceUrl }) => {
   const { userProfile, refreshProfile } = useAuth();
   
   const { 
       step, setStep, 
       topic, setTopic, 
       mode, setMode, 
-      trends, draft, image, publish 
-  } = usePostGenerator(settings, onPostCreated, refreshProfile, editPost, initialTopic);
+      trends, draft, image, publish,
+      sourceUrl, setSourceUrl // From hook
+  } = usePostGenerator(settings, onPostCreated, refreshProfile, editPost, initialTopic, initialSourceUrl);
 
   const role = userProfile?.role || 'user';
   const limit = role === 'pro' ? 5 : (role === 'business' ? 10 : (role === 'admin' ? 100 : 3));
@@ -52,6 +54,7 @@ export const PostCreator: React.FC<Props> = ({ settings, onPostCreated, editPost
               setMode={setMode} 
               trends={trends} 
               onNext={draft.generate} 
+              onSetSourceUrl={setSourceUrl} // Pass handler
           />
       );
   }
@@ -76,6 +79,7 @@ export const PostCreator: React.FC<Props> = ({ settings, onPostCreated, editPost
             clearResult={() => publish.setResult(null)}
             scheduledPostsCount={scheduledPostsCount}
             limit={limit}
+            sourceUrl={sourceUrl} // Pass URL to preview
         />
     </div>
   );
