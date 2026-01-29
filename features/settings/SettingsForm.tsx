@@ -251,12 +251,12 @@ const SettingsForm: React.FC<Props> = ({ initialSettings, onSave }) => {
                         className={`w-full sm:w-auto px-8 py-3 rounded-2xl font-black text-xs transition-all flex items-center justify-center gap-2 shadow-lg relative z-10 
                             ${!fbState.isFbSdkReady 
                                 ? 'bg-yellow-600/20 text-yellow-400 border border-yellow-500/50 hover:bg-yellow-600/30 cursor-pointer' 
-                                : 'bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50'
+                                : 'bg-gradient-to-r from-blue-600 to-blue-500 hover:brightness-110 text-white disabled:opacity-50'
                             }`}
-                        title={!fbState.isFbSdkReady ? "點擊查看連線問題" : "連結粉絲專頁"}
+                        title={!fbState.isFbSdkReady ? "點擊查看連線問題" : "一鍵授權全部功能"}
                     >
                         {fbState.isFbLoading ? <div className="loader w-3 h-3 border-t-white"></div> : (fbState.isFbSdkReady ? '⚡' : '⚠️')} 
-                        {fbState.isFbLoading ? '授權中...' : (fbState.isFbSdkReady ? '一鍵連結 Facebook 帳號' : '檢測連線狀態 (SDK Error)')}
+                        {fbState.isFbLoading ? '授權中...' : (fbState.isFbSdkReady ? '一鍵授權粉專 (啟用發文/數據/私訊功能)' : '檢測連線狀態 (SDK Error)')}
                     </button>
                 </div>
 

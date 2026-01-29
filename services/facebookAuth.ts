@@ -71,7 +71,8 @@ export const loginAndGetPages = async (): Promise<FacebookPage[]> => {
         // read_insights: Required for page_impressions, page_fans_gender_age
         // pages_read_engagement: Required for comments/likes
         // pages_manage_posts: Required for publishing
-        scope: 'public_profile,pages_show_list,pages_read_engagement,pages_manage_posts,read_insights' 
+        // pages_messaging: Required for auto-reply (Messenger)
+        scope: 'public_profile,pages_show_list,pages_read_engagement,pages_manage_posts,read_insights,pages_messaging' 
     });
   });
 };

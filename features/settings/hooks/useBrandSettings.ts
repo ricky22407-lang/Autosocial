@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { BrandSettings } from '../../../types';
 import { fetchRecentPostCaptions } from '../../../services/facebookService';
 import { analyzeBrandTone } from '../../../services/geminiService';
