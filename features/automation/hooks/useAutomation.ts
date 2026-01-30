@@ -18,7 +18,7 @@ export const useAutomation = (settings: BrandSettings, onSave: (settings: BrandS
     const defaultAutoPilot: AutoPilotConfig = {
         enabled: false,
         frequency: 'daily',
-        postWeekDays: [1], 
+        postWeekDays: [0, 1, 2, 3, 4, 5, 6], 
         postTime: '09:00',
         source: 'trending',
         keywords: [],
@@ -27,10 +27,10 @@ export const useAutomation = (settings: BrandSettings, onSave: (settings: BrandS
 
     const [apConfig, setApConfig] = useState<AutoPilotConfig>(() => {
         const config = settings.autoPilot || defaultAutoPilot;
-        if ((config as any).postWeekDay !== undefined && !config.postWeekDays) {
-            config.postWeekDays = [(config as any).postWeekDay];
+        // Fix for legacy data or initialization
+        if (!config.postWeekDays || config.postWeekDays.length === 0) {
+            config.postWeekDays = [0, 1, 2, 3, 4, 5, 6];
         }
-        if (!config.postWeekDays) config.postWeekDays = [1];
         if ((config.source as any) === 'competitor') config.source = 'trending';
         config.mediaTypePreference = 'image';
         return config;
@@ -40,7 +40,7 @@ export const useAutomation = (settings: BrandSettings, onSave: (settings: BrandS
     const defaultThreadsAP: ThreadsAutoPilotConfig = {
         enabled: false,
         frequency: 'daily',
-        postWeekDays: [1],
+        postWeekDays: [0, 1, 2, 3, 4, 5, 6],
         postTime: '10:00',
         imageMode: 'ai_url',
         targetAccountIds: []
@@ -48,6 +48,9 @@ export const useAutomation = (settings: BrandSettings, onSave: (settings: BrandS
 
     const [threadsApConfig, setThreadsApConfig] = useState<ThreadsAutoPilotConfig>(() => {
         const config = settings.threadsAutoPilot || defaultThreadsAP;
+        if (!config.postWeekDays || config.postWeekDays.length === 0) {
+            config.postWeekDays = [0, 1, 2, 3, 4, 5, 6];
+        }
         if (!config.targetAccountIds) {
             config.targetAccountIds = settings.threadsAccounts?.map(a => a.id) || [];
         }
@@ -131,13 +134,19 @@ export const useAutomation = (settings: BrandSettings, onSave: (settings: BrandS
 
     const toggleWeekDay = (config: any, setConfig: any, dayIndex: number) => {
         const current = config.postWeekDays || [];
+        let newDays = [];
         if (current.includes(dayIndex)) {
-            if (current.length === 1) return;
-            setConfig({...config, postWeekDays: current.filter((d: number) => d !== dayIndex).sort()});
+            newDays = current.filter((d: number) => d !== dayIndex).sort();
         } else {
-            if (current.length >= 6) return alert("最多只能選擇 6 天！");
-            setConfig({...config, postWeekDays: [...current, dayIndex].sort()});
+            newDays = [...current, dayIndex].sort();
         }
+        
+        if (newDays.length === 0) {
+            alert("至少需要選擇一天！");
+            return;
+        }
+        
+        setConfig({...config, postWeekDays: newDays});
     };
 
     const toggleThreadAccount = (id: string) => {

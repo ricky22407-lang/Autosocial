@@ -70,37 +70,25 @@ const AutomationPanel: React.FC<Props> = ({ settings, onSave }) => {
 
               <div className={`space-y-6 transition-opacity duration-200 ${apConfig.enabled ? '' : 'opacity-40 pointer-events-none grayscale'}`}>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div>
-                          <label className="block text-sm text-gray-400 mb-1">發文頻率</label>
-                          <select 
-                              value={apConfig.frequency} 
-                              onChange={(e) => setApConfig({...apConfig, frequency: e.target.value as any})}
-                              className="w-full bg-dark border border-gray-600 rounded p-2 text-white"
-                          >
-                              <option value="daily">每天</option>
-                              <option value="weekly">每週</option>
-                          </select>
-                      </div>
                       
-                      {apConfig.frequency === 'weekly' && (
-                          <div className="md:col-span-2">
-                              <label className="block text-sm text-gray-400 mb-1">每週發文日</label>
-                              <div className="flex flex-wrap gap-2 bg-dark p-3 rounded border border-gray-700">
-                                  {weekDays.map((d, i) => {
-                                      const isSelected = apConfig.postWeekDays?.includes(i);
-                                      return (
-                                          <button 
-                                              key={i}
-                                              onClick={() => toggleWeekDay(apConfig, setApConfig, i)}
-                                              className={`w-10 h-10 rounded text-sm font-bold transition-all border ${isSelected ? 'bg-primary border-primary text-white shadow-md transform scale-105' : 'bg-transparent border-gray-600 text-gray-400 hover:border-gray-400'}`}
-                                          >
-                                              {d}
-                                          </button>
-                                      );
-                                  })}
-                              </div>
+                      <div className="md:col-span-2">
+                          <label className="block text-sm text-gray-400 mb-2">發文日設定 (可多選)</label>
+                          <div className="flex flex-wrap gap-3 bg-dark p-4 rounded border border-gray-700">
+                              {weekDays.map((d, i) => {
+                                  const isSelected = apConfig.postWeekDays?.includes(i);
+                                  return (
+                                      <button 
+                                          key={i}
+                                          onClick={() => toggleWeekDay(apConfig, setApConfig, i)}
+                                          className={`w-10 h-10 rounded-full text-sm font-bold transition-all border-2 ${isSelected ? 'bg-primary border-primary text-black shadow-lg transform scale-110' : 'bg-transparent border-gray-600 text-gray-500 hover:border-gray-400'}`}
+                                      >
+                                          {d}
+                                      </button>
+                                  );
+                              })}
                           </div>
-                      )}
+                          <p className="text-[10px] text-gray-500 mt-2">提示：若選擇全部，即為「每天」發文。</p>
+                      </div>
 
                       <div>
                           <label className="block text-sm text-gray-400 mb-1">發文時間</label>
@@ -108,7 +96,7 @@ const AutomationPanel: React.FC<Props> = ({ settings, onSave }) => {
                               type="time" 
                               value={apConfig.postTime}
                               onChange={(e) => setApConfig({...apConfig, postTime: e.target.value})}
-                              className="w-full bg-dark border border-gray-600 rounded p-2 text-white"
+                              className="w-full bg-dark border border-gray-600 rounded p-2 text-white font-mono"
                           />
                       </div>
                   </div>
@@ -180,37 +168,23 @@ const AutomationPanel: React.FC<Props> = ({ settings, onSave }) => {
 
               <div className={`space-y-6 transition-opacity duration-200 ${threadsApConfig.enabled ? '' : 'opacity-40 pointer-events-none grayscale'}`}>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div>
-                          <label className="block text-sm text-gray-400 mb-1">發文頻率</label>
-                          <select 
-                              value={threadsApConfig.frequency} 
-                              onChange={(e) => setThreadsApConfig({...threadsApConfig, frequency: e.target.value as any})}
-                              className="w-full bg-dark border border-gray-600 rounded p-2 text-white"
-                          >
-                              <option value="daily">每天</option>
-                              <option value="weekly">每週</option>
-                          </select>
-                      </div>
-
-                      {threadsApConfig.frequency === 'weekly' && (
-                          <div className="md:col-span-2">
-                              <label className="block text-sm text-gray-400 mb-1">每週發文日</label>
-                              <div className="flex flex-wrap gap-2 bg-dark p-3 rounded border border-gray-700">
-                                  {weekDays.map((d, i) => {
-                                      const isSelected = threadsApConfig.postWeekDays.includes(i);
-                                      return (
-                                          <button 
-                                              key={i}
-                                              onClick={() => toggleWeekDay(threadsApConfig, setThreadsApConfig, i)}
-                                              className={`w-10 h-10 rounded text-sm font-bold transition-all border ${isSelected ? 'bg-white border-white text-black shadow-md' : 'bg-transparent border-gray-600 text-gray-400 hover:border-gray-400'}`}
-                                          >
-                                              {d}
-                                          </button>
-                                      );
-                                  })}
-                              </div>
+                      <div className="md:col-span-2">
+                          <label className="block text-sm text-gray-400 mb-2">發文日設定 (可多選)</label>
+                          <div className="flex flex-wrap gap-3 bg-dark p-4 rounded border border-gray-700">
+                              {weekDays.map((d, i) => {
+                                  const isSelected = threadsApConfig.postWeekDays.includes(i);
+                                  return (
+                                      <button 
+                                          key={i}
+                                          onClick={() => toggleWeekDay(threadsApConfig, setThreadsApConfig, i)}
+                                          className={`w-10 h-10 rounded-full text-sm font-bold transition-all border-2 ${isSelected ? 'bg-white border-white text-black shadow-lg transform scale-110' : 'bg-transparent border-gray-600 text-gray-500 hover:border-gray-400'}`}
+                                      >
+                                          {d}
+                                      </button>
+                                  );
+                              })}
                           </div>
-                      )}
+                      </div>
 
                       <div>
                           <label className="block text-sm text-gray-400 mb-1">發文時間</label>
@@ -218,7 +192,7 @@ const AutomationPanel: React.FC<Props> = ({ settings, onSave }) => {
                               type="time" 
                               value={threadsApConfig.postTime}
                               onChange={(e) => setThreadsApConfig({...threadsApConfig, postTime: e.target.value})}
-                              className="w-full bg-dark border border-gray-600 rounded p-2 text-white"
+                              className="w-full bg-dark border border-gray-600 rounded p-2 text-white font-mono"
                           />
                       </div>
 
