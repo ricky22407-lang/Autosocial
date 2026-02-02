@@ -60,10 +60,33 @@ const AnalyticsDashboard: React.FC<Props> = ({ settings }) => {
           </div>
       ) : errorMsg ? (
           <div className="bg-red-900/20 border border-red-500 p-6 rounded-xl text-center">
-              <p className="text-red-400 font-bold mb-2">無法讀取數據</p>
-              <p className="text-xs text-gray-400">{errorMsg}</p>
-              <p className="text-xs mt-4 text-gray-500">建議：請嘗試重新在「品牌設定」連結 FB 帳號 (Token 可能已過期)。</p>
-              <button onClick={loadData} className="mt-4 bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded text-xs">重試</button>
+              <div className="text-4xl mb-3">⚠️</div>
+              <p className="text-red-400 font-bold mb-2">
+                  {(errorMsg.includes("Session has expired") || errorMsg.includes("400") || errorMsg.includes("validating access token")) 
+                    ? "Facebook 授權已過期" 
+                    : "無法讀取數據"
+                  }
+              </p>
+              
+              <div className="text-xs text-gray-400 max-w-lg mx-auto bg-black/30 p-3 rounded mb-4 font-mono">
+                  Error Details: {errorMsg}
+              </div>
+
+              {(errorMsg.includes("Session has expired") || errorMsg.includes("validating access token")) && (
+                  <div className="mb-4 text-sm text-yellow-400 font-bold">
+                      為了安全起見，Facebook 定期會讓 Access Token 失效。<br/>
+                      請重新點擊下方按鈕進行連結。
+                  </div>
+              )}
+
+              <p className="text-xs mt-4 text-gray-500 mb-4">建議：請至「品牌設定」重新授權 FB 帳號。</p>
+              
+              {/* Note: We don't have direct access to handleConnectFacebook here, so we guide user to Settings */}
+              <div className="flex justify-center gap-3">
+                  <button onClick={loadData} className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded text-xs font-bold">
+                      重試連線
+                  </button>
+              </div>
           </div>
       ) : (
           <>

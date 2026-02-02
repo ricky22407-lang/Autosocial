@@ -49,6 +49,17 @@ const dummyDb = {
     batch: () => ({ update: () => {}, delete: () => {}, commit: () => Promise.reject(new Error("DB Config Missing")) })
 };
 
+const dummyStorage = {
+    ref: () => ({
+        putString: () => Promise.reject(new Error("Storage Config Missing")),
+        getDownloadURL: () => Promise.reject(new Error("Storage Config Missing")),
+        delete: () => Promise.reject(new Error("Storage Config Missing"))
+    }),
+    refFromURL: () => ({
+        delete: () => Promise.reject(new Error("Storage Config Missing"))
+    })
+};
+
 const dummyFirebase = {
     firestore: {
         FieldValue: {
@@ -59,7 +70,8 @@ const dummyFirebase = {
     },
     auth: {
         GoogleAuthProvider: class {}
-    }
+    },
+    storage: () => dummyStorage
 };
 
 // ============================================================================
@@ -96,6 +108,7 @@ let app: any;
 // Initialize with dummies BY DEFAULT to ensure export is never undefined
 let auth: any = dummyAuth;
 let db: any = dummyDb;
+let storage: any = dummyStorage; // Export Storage
 let firebase: any = dummyFirebase;
 
 const hasConfig = !!firebaseConfig.apiKey && !!firebaseConfig.projectId && firebaseConfig.apiKey !== 'undefined';
@@ -115,6 +128,7 @@ if (hasConfig && typeof window !== 'undefined' && window.firebase) {
       }
       auth = firebase.auth();
       db = firebase.firestore();
+      storage = firebase.storage(); // Initialize Storage
       isFirebaseReady = true;
       isMock = false; // Ensure real mode is active if config exists
       console.log("🔥 Firebase Initialized (Global CDN) - Connection Ready");
@@ -132,4 +146,19 @@ if (hasConfig && typeof window !== 'undefined' && window.firebase) {
   connectionError = "Preview Mode (Mock Data)";
 }
 
-export { app, auth, db, isMock, firebase, isFirebaseReady, connectionError };
+// --- UTILS ---
+export const deleteStorageFile = async (url: string) => {
+    if (isMock || !storage || !url) return;
+    try {
+        // Only delete if it's actually in our firebase storage
+        if (url.includes('firebasestorage.googleapis.com')) {
+            const ref = storage.refFromURL(url);
+            await ref.delete();
+            console.log("🗑️ Storage file deleted:", url);
+        }
+    } catch (e) {
+        console.warn("Failed to delete storage file:", e);
+    }
+};
+
+export { app, auth, db, storage, isMock, firebase, isFirebaseReady, connectionError };

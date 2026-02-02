@@ -1,12 +1,13 @@
 
 import { useState, useEffect } from 'react';
 import { BrandSettings, ThreadsAccount, TrendingTopic } from '../../../types';
-import { getTrendingTopics, generateThreadsBatch, fetchNewsImageFromUrl } from '../../../services/geminiService';
+import { getTrendingTopics, generateThreadsBatch, fetchNewsImageFromUrl, generateImage } from '../../../services/geminiService';
 import { publishThreadsPost } from '../../../services/threadsService';
 import { checkAndUseQuota } from '../../../services/authService';
 import { getThreadsSystemInstruction } from '../../../services/promptTemplates';
 import { generateStockUrl } from '../components/Common';
 import { useAuth } from '../../../context/AuthContext';
+import { storage, isMock, deleteStorageFile } from '../../../services/firebase'; // Import helper
 
 export type ImageSourceType = 'ai' | 'stock' | 'news' | 'upload' | 'none';
 
@@ -25,6 +26,26 @@ export interface GeneratedPost {
   imageSourceType: ImageSourceType;
   paidForGeneration?: boolean; 
 }
+
+// Helper: Upload Base64 to Firebase Storage and get URL
+const uploadBase64ToStorage = async (base64Data: string, userId: string): Promise<string> => {
+    if (isMock) return "https://via.placeholder.com/1024x1024.png?text=Mock+Storage+Image";
+    
+    try {
+        const timestamp = Date.now();
+        const randomId = Math.random().toString(36).substring(7);
+        const path = `generated_images/${userId}/${timestamp}_${randomId}.png`;
+        const storageRef = storage.ref(path);
+        
+        // base64Data comes as "data:image/png;base64,....."
+        await storageRef.putString(base64Data, 'data_url');
+        const downloadURL = await storageRef.getDownloadURL();
+        return downloadURL;
+    } catch (e: any) {
+        console.error("Storage Upload Failed:", e);
+        throw new Error("圖片上傳雲端失敗，請檢查 Firebase Storage 設定。");
+    }
+};
 
 export const useThreadsGenerator = (
     settings: BrandSettings,
@@ -150,8 +171,24 @@ export const useThreadsGenerator = (
                 const uniqueSeed = Date.now().toString() + i;
 
                 if (finalMode === 'ai') {
-                    const encoded = encodeURIComponent(r.imagePrompt);
-                    finalImageUrl = `https://image.pollinations.ai/prompt/${encoded}?n=${uniqueSeed}&model=flux`;
+                    // 1. Generate Image (Base64) from Gemini
+                    try {
+                        const prompt = r.imagePrompt || `${topicSource}, artistic, creative, illustration style`;
+                        const base64Image = await generateImage(prompt, userProfile.role, settings, 'lifestyle');
+                        
+                        // 2. Upload to Firebase Storage to get a Public URL
+                        if (base64Image && base64Image.startsWith('data:image')) {
+                            finalImageUrl = await uploadBase64ToStorage(base64Image, userProfile.user_id);
+                        } else {
+                            finalImageUrl = base64Image; // Fallback if it's already a URL
+                        }
+
+                    } catch (e: any) {
+                        console.error("AI Gen Failed:", e);
+                        errorLog = "AI 製圖/上傳失敗，已降級為圖庫模式";
+                        finalImageUrl = generateStockUrl(r.imageQuery || r.imagePrompt, uniqueSeed);
+                        finalMode = 'stock';
+                    }
                 } else if (finalMode === 'stock') {
                     finalImageUrl = generateStockUrl(r.imageQuery || r.imagePrompt, uniqueSeed);
                 } else if (finalMode === 'news') {
@@ -199,9 +236,28 @@ export const useThreadsGenerator = (
         onQuotaUpdate();
 
         setIsRegeneratingImage(post.id);
-        const newSeed = Date.now().toString() + Math.floor(Math.random() * 9999);
-        const visualSubject = post.imageQuery || post.topic; 
-        const newUrl = generateStockUrl(visualSubject, newSeed);
+        
+        let newUrl = "";
+        
+        if (newMode === 'ai') {
+             try {
+                 const prompt = post.imagePrompt || post.topic;
+                 const base64 = await generateImage(prompt, userProfile.role, settings, 'lifestyle');
+                 if (base64 && base64.startsWith('data:image')) {
+                     newUrl = await uploadBase64ToStorage(base64, userProfile.user_id);
+                 } else {
+                     newUrl = base64;
+                 }
+             } catch(e: any) {
+                 alert(`AI 製圖失敗: ${e.message}`);
+                 setIsRegeneratingImage(null);
+                 return;
+             }
+        } else {
+             const newSeed = Date.now().toString() + Math.floor(Math.random() * 9999);
+             const visualSubject = post.imageQuery || post.topic; 
+             newUrl = generateStockUrl(visualSubject, newSeed);
+        }
 
         setTimeout(() => {
             setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, imageSourceType: newMode, imageUrl: newUrl } : p));
@@ -215,16 +271,40 @@ export const useThreadsGenerator = (
         if (!acc) return alert("錯誤：找不到對應的帳號資料。");
         if (!post.caption) return alert("內容為空");
 
+        let imgUrl = post.imageUrl;
+        
+        if (post.imageSourceType === 'upload' && post.uploadedImageBase64) imgUrl = post.uploadedImageBase64;
+        if (post.imageSourceType === 'news' && post.newsImageUrl) imgUrl = post.newsImageUrl;
+        if (post.imageSourceType === 'none') imgUrl = undefined;
+
+        // Final safety check: if still base64, try late upload
+        if (imgUrl && imgUrl.startsWith('data:image')) {
+             try {
+                 if (userProfile) {
+                     imgUrl = await uploadBase64ToStorage(imgUrl, userProfile.user_id);
+                 } else {
+                     alert("尚未登入，無法上傳圖片");
+                     return;
+                 }
+             } catch (e) {
+                 if (!confirm("圖片上傳雲端失敗。是否僅發佈文字？")) return;
+                 imgUrl = undefined;
+             }
+        }
+
         setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, status: 'publishing', log: '發佈中...' } : p));
         try {
-            let imgUrl = post.imageUrl;
-            if (post.imageSourceType === 'upload' && post.uploadedImageBase64) imgUrl = post.uploadedImageBase64;
-            if (post.imageSourceType === 'news' && post.newsImageUrl) imgUrl = post.newsImageUrl;
-            if (post.imageSourceType === 'none') imgUrl = undefined;
-
             const res = await publishThreadsPost(acc, post.caption, imgUrl);
             if (res.success) {
                 setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, status: 'done', log: '發佈成功！' } : p));
+                
+                // --- CLEANUP: DELETE TEMPORARY IMAGE ---
+                // Since Threads API has accepted the post, we can delete the image from storage to save space.
+                if (imgUrl && imgUrl.includes('firebasestorage')) {
+                    // Fire and forget, don't await blocking UI
+                    deleteStorageFile(imgUrl);
+                }
+
             } else {
                 setGeneratedPosts(prev => prev.map(p => p.id === post.id ? { ...p, status: 'failed', log: `發佈失敗: ${res.error}` } : p));
                 alert(`發佈失敗: ${res.error}`);

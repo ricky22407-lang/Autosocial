@@ -74,23 +74,23 @@ const SocialStockMarket: React.FC<Props> = ({ onNavigateToCreate }) => {
 
     return (
         <div className="h-full flex flex-col animate-fade-in relative overflow-hidden pb-10">
-            {/* 1. Ticker Header (Marquee) */}
-            <div className="w-full bg-black border-b border-gray-800 h-10 flex items-center overflow-hidden whitespace-nowrap relative z-10">
-                <div className="animate-marquee flex gap-8 text-xs font-mono">
+            {/* 1. Ticker Header (Marquee) - UPDATED STYLES */}
+            <div className="w-full bg-black border-b border-gray-800 h-14 flex items-center overflow-hidden whitespace-nowrap relative z-10">
+                <div className="animate-marquee flex gap-12 text-sm font-mono tracking-wide items-center">
                     {stocks.length > 0 ? stocks.map(s => (
-                        <div key={s.id} className="flex gap-2">
+                        <div key={s.id} className="flex gap-3 items-center">
                             <span className="text-white font-bold">{s.title.substring(0, 15)}</span>
-                            <span className={s.change >= 0 ? "text-red-500" : "text-green-500"}>
-                                {s.price.toFixed(1)}
+                            <span className={`font-black ${s.change >= 0 ? "text-red-500" : "text-green-500"}`}>
+                                {s.change > 0 ? '▲' : '▼'} {s.price.toFixed(1)}
                             </span>
                         </div>
-                    )) : <span className="text-gray-500">等待市場開盤...</span>}
+                    )) : <span className="text-gray-500 pl-4">等待市場開盤...</span>}
                     {/* Duplicate for smooth loop */}
                     {stocks.length > 0 && stocks.map(s => (
-                        <div key={s.id + '_dup'} className="flex gap-2">
+                        <div key={s.id + '_dup'} className="flex gap-3 items-center">
                             <span className="text-white font-bold">{s.title.substring(0, 15)}</span>
-                            <span className={s.change >= 0 ? "text-red-500" : "text-green-500"}>
-                                {s.price.toFixed(1)}
+                            <span className={`font-black ${s.change >= 0 ? "text-red-500" : "text-green-500"}`}>
+                                {s.change > 0 ? '▲' : '▼'} {s.price.toFixed(1)}
                             </span>
                         </div>
                     ))}
@@ -268,7 +268,7 @@ const SocialStockMarket: React.FC<Props> = ({ onNavigateToCreate }) => {
                     100% { transform: translateX(-50%); }
                 }
                 .animate-marquee {
-                    animation: marquee 30s linear infinite;
+                    animation: marquee 60s linear infinite; /* Slowed down to 60s */
                 }
             `}</style>
         </div>
