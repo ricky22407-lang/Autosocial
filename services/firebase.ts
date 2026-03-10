@@ -1,4 +1,3 @@
-
 // We use global CDN scripts in index.html for maximum compatibility in this environment.
 // This file acts as a typed wrapper around the global `window.firebase` object.
 
@@ -111,10 +110,14 @@ let db: any = dummyDb;
 let storage: any = dummyStorage; // Export Storage
 let firebase: any = dummyFirebase;
 
-// 修改 services/firebase.ts 後半段的邏輯
-
-// ...前面維持原樣...
 const hasConfig = !!firebaseConfig.apiKey && !!firebaseConfig.projectId && firebaseConfig.apiKey !== 'undefined';
+
+// ==========================================
+// 宣告變數，供下方邏輯與 export 使用
+// ==========================================
+let isMock = !hasConfig; 
+let isFirebaseReady = false; 
+let connectionError = "";
 
 if (hasConfig && typeof window !== 'undefined' && window.firebase) {
   try {
@@ -126,29 +129,38 @@ if (hasConfig && typeof window !== 'undefined' && window.firebase) {
       }
       auth = firebase.auth();
       db = firebase.firestore();
-      storage = firebase.storage(); 
+      storage = firebase.storage(); // Initialize Storage
       isFirebaseReady = true;
-      isMock = false; 
-      console.log("🔥 Firebase Initialized");
+      isMock = false; // Ensure real mode is active if config exists
+      console.log("🔥 Firebase Initialized (Global CDN) - Connection Ready");
   } catch (e: any) {
-      // 初始化失敗直接拋出錯誤，不要硬塞假資料
+      // 初始化失敗直接拋出錯誤
+      connectionError = e.message;
       console.error("❌ Firebase Init Error:", e);
       throw new Error(`Firebase 初始化失敗: ${e.message}`);
   }
 } else {
-  // 檢查是否在正式環境
-  const isProd = import.meta.env.PROD || process.env.NODE_ENV === 'production';
+  // 安全地檢查是否在正式環境 (相容 Vite 與 Node 環境)
+  let isProd = false;
+  if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
+      isProd = (import.meta as any).env.PROD;
+  } else if (typeof process !== 'undefined' && process.env) {
+      isProd = process.env.NODE_ENV === 'production';
+  }
   
   if (isProd) {
       // 🚨 正式環境下，缺少金鑰直接讓網頁報錯，不允許進入 Mock Mode
+      connectionError = "Missing API Keys in Production";
       throw new Error("系統崩潰：正式環境遺失 Firebase API Keys！請至 Vercel 補齊環境變數。");
   } else {
       // 開發環境才允許 Mock Mode
       console.warn("⚠️ 本地開發環境：Firebase Config 缺失，啟用 Mock Mode。");
+      connectionError = "Preview Mode (Mock Data)";
       isMock = true;
       isFirebaseReady = true; 
   }
 }
+
 // --- UTILS ---
 export const deleteStorageFile = async (url: string) => {
     if (isMock || !storage || !url) return;
