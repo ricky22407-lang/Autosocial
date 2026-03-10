@@ -34,117 +34,47 @@ export const getAllUsers = async (): Promise<UserProfile[]> => {
     }
 };
 
+// 在 services/features/admin.ts 中覆蓋這兩個函數
+
 export const generateAdminKey = async (adminId: string, type: string, role?: UserRole, feature?: string, points?: number): Promise<string> => {
-    const featureCode = feature ? `-${feature.substring(0,3)}` : '';
-    const pointsCode = points ? `-P${points}` : '';
-    const key = `KEY${featureCode}${pointsCode}-${Date.now().toString().slice(-6)}-${Math.floor(Math.random()*100)}`;
-    
-    const data = { 
-        key, 
-        type: type as any, 
-        targetRole: role || null, 
-        targetFeature: (feature as any) || null,
-        pointsAmount: points || null,
-        createdBy: adminId, 
-        createdAt: Date.now(), 
-        expiresAt: Date.now() + 3600000 * 24, // 24 Hours valid
-        isUsed: false 
-    };
-    
-    if (!isMock) {
-        try {
-            await db.collection('admin_keys').doc(key).set(data);
-        } catch (e: any) {
-            throw new Error(`金鑰寫入失敗: ${e.message}`);
-        }
-    } else {
-        MockStore.saveKey(data as unknown as AdminKey);
+    if (isMock) return `MOCK_KEY_${Date.now()}`;
+
+    try {
+        const res = await fetch('/api/admin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'generateKey',
+                payload: { adminId, type, targetRole: role, targetFeature: feature, pointsAmount: points }
+            })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "金鑰生成失敗");
+        return data.key;
+    } catch (e: any) {
+        throw new Error(`伺服器錯誤: ${e.message}`);
     }
-    
-    return key;
 };
 
 export const useAdminKey = async (userId: string, keyString: string): Promise<{ success: boolean; message: string }> => {
-    const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+    if (isMock) return { success: true, message: "兌換成功 (Mock)" };
 
-    if (!isMock) {
-        const keyRef = db.collection('admin_keys').doc(keyString);
-        try {
-            return await db.runTransaction(async (t: any) => {
-                const doc = await t.get(keyRef);
-                if (!doc.exists) throw new Error("無效的金鑰");
-                const keyData = doc.data() as AdminKey;
-                if (keyData.isUsed) throw new Error("此金鑰已被使用");
-                if (Date.now() > keyData.expiresAt) throw new Error("此金鑰已過期失效");
-
-                const userRef = db.collection('users').doc(userId);
-                const userDoc = await t.get(userRef);
-                const userData = userDoc.data() as UserProfile;
-                
-                const now = Date.now();
-                const expiry = now + ONE_YEAR_MS;
-
-                if (keyData.type === 'RESET_QUOTA') {
-                    t.update(userRef, { quota_used: 0, isSuspended: false });
-                } 
-                else if (keyData.type === 'UPGRADE_ROLE' && keyData.targetRole) {
-                    const topUpAmount = getQuotaForRole(keyData.targetRole);
-                    const newBatch: QuotaBatch = {
-                        id: uuidv4(), amount: topUpAmount, initialAmount: topUpAmount,
-                        expiresAt: expiry, source: 'topup', addedAt: now
-                    };
-                    const currentBatches = userData.quota_batches || [];
-                    if (!userData.quota_batches && userData.quota_total > 0) {
-                        currentBatches.push({
-                            id: 'legacy_mig', amount: userData.quota_total, initialAmount: userData.quota_total,
-                            expiresAt: userData.quota_reset_date || expiry, source: 'trial', addedAt: now
-                        });
-                    }
-                    currentBatches.push(newBatch);
-                    currentBatches.sort((a,b) => a.expiresAt - b.expiresAt);
-
-                    t.update(userRef, { 
-                        role: keyData.targetRole, 
-                        quota_batches: currentBatches,
-                        quota_total: currentBatches.reduce((s,b) => s + b.amount, 0),
-                        quota_reset_date: currentBatches[0].expiresAt,
-                        expiry_warning_level: 0
-                    });
-                } 
-                else if (keyData.type === 'UNLOCK_FEATURE' && keyData.targetFeature) {
-                    t.update(userRef, { unlockedFeatures: firebase.firestore.FieldValue.arrayUnion(keyData.targetFeature) });
-                }
-                else if (keyData.type === 'ADD_POINTS' && keyData.pointsAmount) {
-                    const newBatch: QuotaBatch = {
-                        id: uuidv4(), amount: keyData.pointsAmount, initialAmount: keyData.pointsAmount,
-                        expiresAt: expiry, source: 'admin_gift', addedAt: now
-                    };
-                    const currentBatches = userData.quota_batches || [];
-                    if (!userData.quota_batches && userData.quota_total > 0) {
-                        currentBatches.push({
-                            id: 'legacy_mig_p', amount: userData.quota_total, initialAmount: userData.quota_total,
-                            expiresAt: userData.quota_reset_date || expiry, source: 'trial', addedAt: now
-                        });
-                    }
-                    currentBatches.push(newBatch);
-                    currentBatches.sort((a,b) => a.expiresAt - b.expiresAt);
-
-                    t.update(userRef, {
-                        quota_batches: currentBatches,
-                        quota_total: currentBatches.reduce((s,b) => s + b.amount, 0),
-                        quota_reset_date: currentBatches[0].expiresAt,
-                    });
-                }
-
-                t.update(keyRef, { isUsed: true, usedBy: userId, usedAt: Date.now() });
-                return { success: true, message: "金鑰兌換成功！" };
-            });
-        } catch (e: any) { return { success: false, message: e.message }; }
-    } else {
-        return { success: true, message: "兌換成功 (Mock)" };
+    try {
+        const res = await fetch('/api/admin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'useKey',
+                payload: { userId, keyString }
+            })
+        });
+        const data = await res.json();
+        if (!res.ok) return { success: false, message: data.error || "兌換失敗" };
+        return data;
+    } catch (e: any) {
+        return { success: false, message: `伺服器連線失敗: ${e.message}` };
     }
 };
-
 export const updateUserRole = async (userId: string, newRole: UserRole) => {
      if (!isMock) await db.collection('users').doc(userId).update({ role: newRole });
      else {
