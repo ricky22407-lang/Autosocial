@@ -111,12 +111,10 @@ let db: any = dummyDb;
 let storage: any = dummyStorage; // Export Storage
 let firebase: any = dummyFirebase;
 
-const hasConfig = !!firebaseConfig.apiKey && !!firebaseConfig.projectId && firebaseConfig.apiKey !== 'undefined';
+// 修改 services/firebase.ts 後半段的邏輯
 
-// Auto-detect mode: If config is missing, force Mock Mode to allow Preview to work
-let isMock = !hasConfig; 
-let isFirebaseReady = false; // Status Flag
-let connectionError = "";
+// ...前面維持原樣...
+const hasConfig = !!firebaseConfig.apiKey && !!firebaseConfig.projectId && firebaseConfig.apiKey !== 'undefined';
 
 if (hasConfig && typeof window !== 'undefined' && window.firebase) {
   try {
@@ -128,24 +126,29 @@ if (hasConfig && typeof window !== 'undefined' && window.firebase) {
       }
       auth = firebase.auth();
       db = firebase.firestore();
-      storage = firebase.storage(); // Initialize Storage
+      storage = firebase.storage(); 
       isFirebaseReady = true;
-      isMock = false; // Ensure real mode is active if config exists
-      console.log("🔥 Firebase Initialized (Global CDN) - Connection Ready");
+      isMock = false; 
+      console.log("🔥 Firebase Initialized");
   } catch (e: any) {
-      console.error("❌ Firebase Init Error, falling back to Mock:", e);
-      connectionError = e.message;
-      isMock = true; // Fallback to mock on error
-      isFirebaseReady = true; // Allow app to continue
+      // 初始化失敗直接拋出錯誤，不要硬塞假資料
+      console.error("❌ Firebase Init Error:", e);
+      throw new Error(`Firebase 初始化失敗: ${e.message}`);
   }
 } else {
-  // Preview Mode / No Config -> Activate Mock Mode
-  console.warn("⚠️ Firebase Config Missing. Switching to MOCK MODE for Preview.");
-  isMock = true;
-  isFirebaseReady = true; // Allow app to continue using MockStore
-  connectionError = "Preview Mode (Mock Data)";
+  // 檢查是否在正式環境
+  const isProd = import.meta.env.PROD || process.env.NODE_ENV === 'production';
+  
+  if (isProd) {
+      // 🚨 正式環境下，缺少金鑰直接讓網頁報錯，不允許進入 Mock Mode
+      throw new Error("系統崩潰：正式環境遺失 Firebase API Keys！請至 Vercel 補齊環境變數。");
+  } else {
+      // 開發環境才允許 Mock Mode
+      console.warn("⚠️ 本地開發環境：Firebase Config 缺失，啟用 Mock Mode。");
+      isMock = true;
+      isFirebaseReady = true; 
+  }
 }
-
 // --- UTILS ---
 export const deleteStorageFile = async (url: string) => {
     if (isMock || !storage || !url) return;
